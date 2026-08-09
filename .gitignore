@@ -1,0 +1,21 @@
+node_modules
+dist
+
+# Every credential for this project lives in .env. Nothing else holds secrets.
+# The catch-all also covers .env.local / .env.production / etc. so a stray
+# variant can never be committed; the placeholder template is the one exception.
+.env
+.env.*
+!.env.example
+
+# Personal Claude Code settings (machine-specific paths, ad-hoc commands).
+.claude/settings.local.json
+
+# Supabase CLI link state — records your project ref and org id.
+supabase/.temp/
+
+# Filled-in SQL holding real secrets (supabase/cron-setup.local.sql).
+# The committed templates live in supabase/migrations/.
+*.local.sql
+*.tsbuildinfo
+.DS_Store

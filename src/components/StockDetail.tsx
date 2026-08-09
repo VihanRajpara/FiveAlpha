@@ -1,0 +1,155 @@
+import { useEffect, useState } from 'react';
+import { activeSource } from '../lib/dataSource';
+import { formatDate, formatPercent, formatPrice, formatVolume } from '../lib/format';
+import type { Candle, ChartRange, Quote, Security } from '../types';
+import { PriceChart } from './PriceChart';
+
+const RANGES: ChartRange[] = ['1mo', '6mo', '1y', '5y'];
+const RANGE_LABEL: Record<ChartRange, string> = {
+  '1mo': '1M',
+  '6mo': '6M',
+  '1y': '1Y',
+  '5y': '5Y',
+};
+
+interface Props {
+  security: Security;
+  quote?: Quote;
+  onClose: () => void;
+}
+
+export function StockDetail({ security, quote, onClose }: Props) {
+  const [range, setRange] = useState<ChartRange>('1y');
+  const [candles, setCandles] = useState<Candle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    activeSource
+      .fetchCandles(security.symbol, range)
+      .then((rows) => {
+        if (!cancelled) setCandles(rows);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [security.symbol, range]);
+
+  const change = quote?.change ?? null;
+  const positive = (change ?? 0) >= 0;
+  const trendClass = change === null ? '' : positive ? 'up' : 'down';
+
+  const last = candles.length > 0 ? candles[candles.length - 1] : null;
+  const windowReturn =
+    candles.length > 1 && candles[0].close && last?.close
+      ? ((last.close - candles[0].close) / candles[0].close) * 100
+      : null;
+
+  return (
+    <>
+      <div className="drawer-scrim" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-label={`${security.symbol} details`}>
+        <header className="drawer-head">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h2>{security.symbol}</h2>
+            <p>{security.name}</p>
+          </div>
+          <span className={`badge ${security.series}`}>{security.series}</span>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </header>
+
+        <div className="drawer-price">
+          <span className="ltp num">{formatPrice(quote?.price)}</span>
+          <span className={`num ${trendClass}`} style={{ fontWeight: 600, fontSize: 14 }}>
+            {change === null ? '—' : `${change >= 0 ? '+' : ''}${change.toFixed(2)}`}{' '}
+            {formatPercent(quote?.changePercent)}
+          </span>
+        </div>
+
+        {loading ? (
+          <div className="center-msg" style={{ padding: '56px 12px' }}>
+            <div className="spinner" />
+            Loading {RANGE_LABEL[range]} history…
+          </div>
+        ) : error ? (
+          <div className="center-msg" style={{ padding: '48px 12px' }}>
+            Couldn’t load history — {error}
+          </div>
+        ) : (
+          <PriceChart candles={candles} positive={windowReturn === null || windowReturn >= 0} />
+        )}
+
+        <div className="range-row">
+          <div className="segmented">
+            {RANGES.map((r) => (
+              <button key={r} data-active={r === range} onClick={() => setRange(r)}>
+                {RANGE_LABEL[r]}
+              </button>
+            ))}
+          </div>
+          {windowReturn !== null && (
+            <span className={`num ${windowReturn >= 0 ? 'up' : 'down'}`} style={{ fontWeight: 600 }}>
+              {formatPercent(windowReturn)} over {RANGE_LABEL[range]}
+            </span>
+          )}
+        </div>
+
+        <dl className="facts">
+          <div className="fact">
+            <dt>Previous close</dt>
+            <dd className="num">{formatPrice(quote?.previousClose)}</dd>
+          </div>
+          <div className="fact">
+            <dt>Day range</dt>
+            <dd className="num">
+              {last?.low && last?.high ? `${formatPrice(last.low)} – ${formatPrice(last.high)}` : '—'}
+            </dd>
+          </div>
+          <div className="fact">
+            <dt>Volume</dt>
+            <dd className="num">{formatVolume(last?.volume)}</dd>
+          </div>
+          <div className="fact">
+            <dt>ISIN</dt>
+            <dd className="num">{security.isin || '—'}</dd>
+          </div>
+          <div className="fact">
+            <dt>Listed on</dt>
+            <dd>{formatDate(security.listingDate)}</dd>
+          </div>
+          <div className="fact">
+            <dt>Face value</dt>
+            <dd className="num">{formatPrice(security.faceValue)}</dd>
+          </div>
+          <div className="fact">
+            <dt>Paid up value</dt>
+            <dd className="num">{formatPrice(security.paidUpValue)}</dd>
+          </div>
+          <div className="fact">
+            <dt>Market lot</dt>
+            <dd className="num">{security.marketLot ?? '—'}</dd>
+          </div>
+        </dl>
+      </aside>
+    </>
+  );
+}
