@@ -9,8 +9,10 @@
  *
  *   node scripts/seed.mjs securities        mirror EQUITY_L.csv    (~2,400 rows)
  *   node scripts/seed.mjs quotes            refresh every price
- *   node scripts/seed.mjs candles [n]       history for the n stalest symbols
- *   node scripts/seed.mjs all               securities → quotes → candles 200
+ *   node scripts/seed.mjs all               securities → quotes
+ *
+ * Chart history is not seeded: it is fetched live from Yahoo when a chart is
+ * opened, so nothing stores it. See supabase/migrations/0004_drop_candles.sql.
  *
  * Credentials come from .env (gitignored). The secret key is deliberately not
  * VITE_-prefixed — that prefix would inline it into the public browser bundle:
@@ -329,87 +331,23 @@ async function syncQuotes() {
   return rows.length;
 }
 
-async function syncCandles(limit = 200, range = '1y', interval = '1d') {
-  // Oldest cursor first, nulls (never synced) ahead of everything.
-  const stale = await selectAll(
-    'securities',
-    'symbol',
-    `&order=candles_synced_at.asc.nullsfirst&limit=${limit}`,
-  );
-  const symbols = stale.slice(0, limit).map((r) => r.symbol);
-  if (symbols.length === 0) throw new Error('securities is empty — run `securities` first');
-
-  console.log(`candles: ${symbols.length} stalest symbols, range=${range} interval=${interval}`);
-
-  let failed = 0;
-  let done = 0;
-
-  const perSymbol = await mapPool(symbols, CONCURRENCY, async (symbol) => {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(toYahoo(symbol))}?range=${range}&interval=${interval}`;
-    try {
-      const res = await fetchWithTimeout(url, { headers: { 'User-Agent': BROWSER_UA } }, 20_000);
-      if (!res.ok) { failed++; return []; }
-      const result = (await res.json())?.chart?.result?.[0];
-      if (!result?.timestamp) return [];
-      const q = result.indicators?.quote?.[0] ?? {};
-      return result.timestamp
-        .map((ts, i) => ({
-          symbol,
-          bar_date: new Date(ts * 1000).toISOString().slice(0, 10),
-          open: q.open?.[i] ?? null,
-          high: q.high?.[i] ?? null,
-          low: q.low?.[i] ?? null,
-          close: q.close?.[i] ?? null,
-          volume: q.volume?.[i] ?? null,
-        }))
-        .filter((c) => c.close !== null);
-    } catch {
-      failed++;
-      return [];
-    } finally {
-      done++;
-      if (done % 25 === 0) process.stdout.write(`  …${done}/${symbols.length} symbols\r`);
-    }
-  });
-
-  const rows = perSymbol.flat();
-  for (const part of chunk(rows, 1000)) await upsert('candles', part, 'symbol,bar_date');
-
-  // Advance the cursor for every symbol ATTEMPTED, including failures — otherwise
-  // a symbol Yahoo has no data for blocks the rotation forever.
-  const stamp = new Date().toISOString();
-  for (const part of chunk(symbols, 100)) {
-    const list = part.map((s) => `"${s}"`).join(',');
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/securities?symbol=in.(${encodeURIComponent(list)})`,
-      { method: 'PATCH', headers: { ...restHeaders, Prefer: 'return=minimal' }, body: JSON.stringify({ candles_synced_at: stamp }) },
-    );
-    if (!res.ok) throw new Error(`cursor update → ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  }
-
-  console.log(`candles: ${rows.length} bars from ${symbols.length} symbols, ${failed} failed`);
-  return rows.length;
-}
-
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
-const [task = 'all', arg] = process.argv.slice(2);
+const [task = 'all'] = process.argv.slice(2);
 const t0 = Date.now();
 
 try {
   switch (task) {
     case 'securities': await syncSecurities(); break;
     case 'quotes':     await syncQuotes(); break;
-    case 'candles':    await syncCandles(Number(arg) || 200); break;
     case 'all':
       await syncSecurities();
       await syncQuotes();
-      await syncCandles(Number(arg) || 200);
       break;
     default:
-      console.error(`Unknown task "${task}". Use: securities | quotes | candles [n] | all`);
+      console.error(`Unknown task "${task}". Use: securities | quotes | all`);
       process.exit(1);
   }
   console.log(`done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

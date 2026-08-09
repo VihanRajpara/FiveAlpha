@@ -21,11 +21,12 @@ Both write the same rows through the same schema, so you can start with A and ad
 Node has no CORS restriction and does not trip NSE's header fingerprinting, so it can call NSE and Yahoo directly — the same work the Edge Functions do, minus the deploy step.
 
 ```bash
-npm run seed              # securities → quotes → candles (200)
+npm run seed              # securities → quotes
 npm run seed:securities
 npm run seed:quotes
-node scripts/seed.mjs candles 400
 ```
+
+There is no candles task. Chart history is never stored — see [5.2](#52-schema).
 
 Credentials come from `.env`, the single gitignored file holding every credential in the project. The secret key is deliberately **not** `VITE_`-prefixed — anything with that prefix is inlined into the public browser bundle:
 
@@ -53,7 +54,7 @@ Supabase supplies all three needed pieces in one project:
 | Need | Supabase piece |
 |---|---|
 | Server-side fetching with forged headers | Edge Functions (Deno) |
-| Somewhere to keep 2,397 rows + history | Postgres |
+| Somewhere to keep the 2,397-row master list and its prices | Postgres |
 | Something to run it on a schedule | pg_cron + pg_net |
 
 It also inverts the request economics: the browser goes from **121 requests** to **2**.
@@ -63,7 +64,6 @@ It also inverts the request economics: the browser goes from **121 requests** to
 ```mermaid
 erDiagram
     securities ||--o| quotes  : "1:1"
-    securities ||--o{ candles : "1:N"
 
     securities {
         text        symbol PK
@@ -74,7 +74,6 @@ erDiagram
         numeric     face_value
         numeric     paid_up_value
         integer     market_lot
-        timestamptz candles_synced_at "rotation cursor"
         timestamptz updated_at
     }
     quotes {
@@ -84,26 +83,16 @@ erDiagram
         numeric     day_high
         numeric     day_low
         bigint      volume
+        timestamptz price_time
         timestamptz updated_at
-    }
-    candles {
-        text    symbol PK_FK
-        date    bar_date PK
-        numeric open
-        numeric high
-        numeric low
-        numeric close
-        bigint  volume
     }
 ```
 
 ### Design decisions
 
-**`quotes` is one row per symbol, overwritten in place.** Not an append-only tick log. The UI only ever needs the current price; history lives in `candles`. Appending every 5 minutes would add ~180k rows/day for data nobody reads.
+**`quotes` is one row per symbol, overwritten in place.** Not an append-only tick log. The UI only ever needs the current price. Appending every 5 minutes would add ~180k rows/day for data nobody reads.
 
-**`candles` has a composite primary key `(symbol, bar_date)`.** This makes re-ingestion idempotent — `upsert` with `onConflict: 'symbol,bar_date'` corrects a revised bar instead of duplicating it. Re-running a sync is always safe.
-
-**`ON DELETE CASCADE`** on both child tables. A delisted share disappears from `securities` and takes its quote and candles with it.
+**Chart history is not stored at all.** There *was* a `candles` table — ~250 daily bars × ~2,400 symbols ≈ 500k rows, about 164 MB, a third of the free tier's 500 MB budget. What it bought was a table read one symbol at a time, only while a detail drawer is open, i.e. a handful of rows per user session. The trade is inverted compared to `quotes`, which every page load reads in full. So the drawer now fetches its bars live from Yahoo through the `/api/yahoo` proxy, and [`0004_drop_candles.sql`](../supabase/migrations/0004_drop_candles.sql) removes the table. Cost: one upstream request when a drawer opens (~300 ms), against a permanent third of the database.
 
 **Money is `numeric`, never `float`.** Binary floating point cannot represent `0.05` exactly; accumulated error in financial data is unacceptable.
 
@@ -113,8 +102,6 @@ erDiagram
 |---|---|
 | `securities_series_idx` on `(series)` | series filter |
 | `securities_name_idx` GIN on `to_tsvector('simple', name)` | full-text company search |
-| `securities_candles_cursor_idx` on `(candles_synced_at NULLS FIRST)` | the rotation cursor — without it every `sync-candles` run scans the table |
-| `candles_symbol_date_idx` on `(symbol, bar_date DESC)` | the chart's exact access pattern: filter by symbol, window by date |
 
 ## 5.3 Security model
 
@@ -165,9 +152,9 @@ revoke all on private.sync_config from anon, authenticated;
 
 PostgREST only exposes the `public` schema, so `private.sync_config` is unreachable over HTTP regardless of RLS. The `id boolean primary key default true check (id)` idiom is a **single-row constraint** — the only permissible key is `true`, so the table cannot hold a second config row.
 
-## 5.4 The three Edge Functions
+## 5.4 The two Edge Functions
 
-All are Deno, all share [_shared/upstream.ts](../supabase/functions/_shared/upstream.ts), and all follow the same skeleton: handle `OPTIONS`, check the secret, do work, return JSON.
+Both are Deno, both share [_shared/upstream.ts](../supabase/functions/_shared/upstream.ts), and both follow the same skeleton: handle `OPTIONS`, check the secret, do work, return JSON.
 
 ### `sync-securities`
 
@@ -193,37 +180,11 @@ POST /functions/v1/sync-quotes
 
 Rows where both `price` and `previous_close` are null are dropped rather than written as an all-null row.
 
-### `sync-candles`
+### There is no `sync-candles`
 
-The interesting one. Yahoo's chart endpoint is **one request per symbol**, so 2,397 symbols cannot be done in a single invocation within the wall-clock budget.
+There used to be, and it was the most intricate function in the project: Yahoo's chart endpoint is **one request per symbol**, so 2,397 symbols could not be done in a single invocation. It worked around that with a rotation cursor (`securities.candles_synced_at`, `NULLS FIRST`), 120 symbols every 15 minutes, ~5 hours for a full pass — 11,520 upstream requests a day to keep half a million rows warm.
 
-Solution: each run takes the **N stalest symbols** and advances a cursor.
-
-```sql
-select symbol from securities
-order by candles_synced_at asc nulls first
-limit 120;
-```
-
-```mermaid
-flowchart LR
-    A["order by candles_synced_at<br/>NULLS FIRST"] --> B["take 120"]
-    B --> C["fetch chart × 120<br/>concurrency 6"]
-    C --> D["upsert candles<br/>chunks of 1000"]
-    D --> E["set candles_synced_at = now()<br/>for all 120 attempted"]
-    E -->|"next run picks the next 120"| A
-```
-
-`NULLS FIRST` means never-synced symbols are picked up before any re-sync. At 120 symbols every 15 minutes, the full universe rotates in **≈5 hours**.
-
-**The cursor advances for every symbol attempted — including failures.** Otherwise a symbol Yahoo has no data for would be selected forever and permanently block the rotation. Failures are reported in the response instead:
-
-```
-POST /functions/v1/sync-candles?limit=120&range=1y&interval=1d
-→ { "ok": true, "symbols": 120, "candles": 29847, "failed": 2 }
-```
-
-Tunable per call: `limit` (max 400), `range`, `interval`. For the initial deep backfill, run it repeatedly with `?limit=400&range=5y&interval=1wk`.
+All of that machinery existed to pre-compute an answer nobody was asking for in bulk. A chart is opened for one symbol at a time; fetching that one symbol on demand costs a single request and no storage. The function, its cron job, the cursor column and its index are all gone.
 
 ### Shared helpers
 
@@ -258,13 +219,16 @@ select net.http_post(
 |---|---|---|
 | `nse-sync-securities` | `0 1 * * *` | 01:00 UTC = 06:30 IST — daily, well before the open |
 | `nse-sync-quotes` | `*/5 3-10 * * 1-5` | every 5 min, 03:00–10:59 UTC, Mon–Fri — the session plus padding for pre-open and the closing print |
-| `nse-sync-candles` | `*/15 * * * *` | every 15 min, always — 120 symbols per run |
+
+Two jobs, not three. Chart history has no schedule because nothing ingests it.
 
 The migration unschedules by name before scheduling, so re-running it is idempotent:
 
 ```sql
 select cron.unschedule(jobname) from cron.job
  where jobname in ('nse-sync-securities', 'nse-sync-quotes', 'nse-sync-candles');
+--                                                     ^ still listed so re-running
+--                                                       0002 removes the old job
 ```
 
 ### Cost
@@ -273,9 +237,8 @@ select cron.unschedule(jobname) from cron.job
 |---|---|---|
 | securities | 1 | 1 |
 | quotes | ~96 (weekdays) | ~11,520 |
-| candles | 96 | 11,520 |
 
-~23k outbound requests/day, spread out, from one IP. Well within Supabase's free tier for invocations; the constraint you would hit first is Yahoo's tolerance, and no throttling was observed at these rates.
+~11.5k outbound requests/day, spread out, from one IP — half what it was before the candles job was removed. Well within Supabase's free tier for invocations; the constraint you would hit first is Yahoo's tolerance, and no throttling was observed at these rates. Chart requests now come from the Cloudflare Worker instead, one per drawer opened.
 
 To reduce it: widen the quotes interval to 15 minutes, and narrow the hours to `4-10` once you have confirmed your instance's clock.
 
@@ -307,19 +270,18 @@ supabase link --project-ref YOUR-PROJECT-REF
 supabase secrets set SYNC_SECRET=$(openssl rand -hex 24)
 # edit supabase/migrations/0002_cron.sql — replace both placeholders
 supabase db push
-supabase functions deploy sync-securities sync-quotes sync-candles
+supabase functions deploy sync-securities sync-quotes
 
 BASE=https://YOUR-PROJECT-REF.supabase.co/functions/v1
 curl -X POST "$BASE/sync-securities" -H "x-sync-secret: $SECRET"
 curl -X POST "$BASE/sync-quotes"     -H "x-sync-secret: $SECRET"
-curl -X POST "$BASE/sync-candles?limit=400" -H "x-sync-secret: $SECRET"   # repeat
 ```
 
 **Do not set `SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY`** — Supabase injects both into every function automatically, and setting them manually is how people accidentally commit a service role key.
 
 ### Order matters
 
-`sync-quotes` and `sync-candles` both read from `securities`. Running either first returns:
+`sync-quotes` reads from `securities`. Running it first returns:
 
 ```json
 { "error": "securities is empty — run sync-securities first" }

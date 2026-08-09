@@ -50,8 +50,9 @@ The app picks its backend at startup based on whether `VITE_SUPABASE_URL` is set
 
 ```
 src/lib/dataSource.ts     picks the adapter
-src/lib/directSource.ts   NSE + Yahoo via the dev proxy
-src/lib/supabaseSource.ts reads securities / quotes / candles tables
+src/lib/directSource.ts   NSE + Yahoo via the /api proxy
+src/lib/supabaseSource.ts reads the securities / quotes tables
+src/lib/yahooCandles.ts   chart history — used by BOTH, never stored
 ```
 
 Both implement the same `DataSource` interface in `src/types.ts`, so the UI is unaware of which is active.
@@ -60,13 +61,50 @@ Both implement the same `DataSource` interface in `src/types.ts`, so the UI is u
 
 `vite.config.ts` **replaces** the outgoing request headers rather than adding to them. This matters: Vite's `proxy.headers` option only merges, which leaves Chromium's own `referer` / `sec-ch-ua` headers on the request, and NSE's WAF silently blackholes that particular combination — the request hangs until it times out instead of returning an error. Stripping to a known-good header set is what makes it work from a browser.
 
+In a deployed build the dev proxy is gone, so [`worker/index.ts`](worker/index.ts) serves the same `/api/nse/*` and `/api/yahoo/*` paths with the same header rewriting. The frontend calls one URL shape and neither knows nor cares which is answering.
+
+## Why history is not in the database
+
+The detail chart used to read a `candles` table: ~250 daily bars × ~2,400 symbols ≈ **500,000 rows, 164 MB** — a third of Supabase's free 500 MB — kept warm by an Edge Function doing 11,520 upstream requests a day.
+
+What it bought: a table nobody queries in bulk. A chart is opened for one symbol at a time, only while the drawer is open. So the pre-computation was paying storage and request budget every day to serve a handful of rows per session.
+
+Now nothing stores it. Opening a drawer costs one Yahoo request (~300 ms) through the same-origin proxy, cached in the browser for 10 minutes.
+
+| | Before | After |
+|---|---|---|
+| Database | ~164 MB of candles | 0 |
+| Ingest requests/day | ~23,000 | ~11,500 |
+| Cron jobs | 3 | 2 |
+| Chart open | one PostgREST query | one Yahoo request via `/api/yahoo` |
+
+The list and the prices stay in Postgres, because *those* are read in full by every page load — the opposite access pattern.
+
+To apply it to an existing project, run [`supabase/migrations/0004_drop_candles.sql`](supabase/migrations/0004_drop_candles.sql) in the SQL Editor **after** deploying this build. It unschedules the cron job, drops the table and drops the `candles_synced_at` cursor column. Dropping a table releases its files immediately — no `VACUUM` needed — so Database Size falls within a few minutes.
+
+## Deploy (Cloudflare Workers)
+
+```bash
+npm run deploy      # npm run build && wrangler deploy
+```
+
+[`wrangler.toml`](wrangler.toml) uploads `./dist` as static assets and `worker/index.ts` as the Worker in front of them:
+
+- `run_worker_first = ["/api/*"]` — without it, `not_found_handling = "single-page-application"` would answer a chart request with `index.html` and every chart would fail on `JSON.parse` of an HTML document.
+- Everything else is served straight from the asset store and **never invokes the Worker**, so static traffic doesn't consume the free plan's 100k daily Worker requests. Only `/api/*` does.
+- `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` are **build**-time values — Vite inlines them into the bundle. Set them as build variables in the Cloudflare dashboard, not as Worker runtime vars.
+
+> Wrangler 4 requires **Node 22+**. This project otherwise runs on Node 18; if `wrangler deploy` refuses to start, that is why. Deploying through the Cloudflare dashboard's Git integration avoids it, since the build image supplies its own Node.
+
+The Worker's `/api` proxy is an allow-list, not an open proxy: only `v8/finance/chart/<ticker>`, `v8/finance/spark` and `EQUITY_L.csv` are forwarded, GET/HEAD only. Anything else gets a 403 before a request leaves Cloudflare.
+
 ## Supabase setup
 
 Two routes. **Route A needs no CLI and no login** — do that first and you have a working database in about five minutes. Route B adds automated refresh on a schedule.
 
 ### Route A — SQL Editor + local seeder (no CLI)
 
-**1. Create the tables.** Supabase dashboard → **SQL Editor** → New query. Paste the whole of [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) and Run. That creates `securities`, `quotes`, `candles`, their indexes, and read-only RLS policies.
+**1. Create the tables.** Supabase dashboard → **SQL Editor** → New query. Paste the whole of [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) and Run. That creates `securities`, `quotes`, their indexes, and read-only RLS policies. Two small tables, a few MB in total — chart history is deliberately not stored (see [Why history is not in the database](#why-history-is-not-in-the-database)).
 
 **2. Point the app at your project.** Copy `.env.example` to `.env` — one gitignored file holds every credential — and fill in:
 
@@ -88,7 +126,7 @@ Dashboard → Project Settings → API keys → **secret** key. It bypasses RLS,
 **4. Seed.**
 
 ```bash
-npm run seed              # securities → quotes → candles (200 symbols)
+npm run seed              # securities → quotes
 ```
 
 or individually:
@@ -96,8 +134,6 @@ or individually:
 ```bash
 npm run seed:securities   # ~2,400 rows from NSE
 npm run seed:quotes       # every price, ~3.4s
-npm run seed:candles      # history for the 200 stalest symbols
-node scripts/seed.mjs candles 400   # bigger slice
 ```
 
 `scripts/seed.mjs` does exactly what the Edge Functions do, but from Node — no CORS, no WAF fingerprint problem, no deploy step. Re-run it any time; every write is an idempotent upsert.
@@ -110,8 +146,6 @@ npm run dev
 
 The status pill now reads **Supabase** instead of *Direct (dev proxy)*.
 
-> **Candles rotate.** Each `seed:candles` run takes the 200 least-recently-synced symbols and advances a cursor, so repeated runs work through the whole market. Roughly 12 runs at 200 covers all 2,397. Stocks without candles yet still show prices — the chart just says no history available.
-
 ### Route B — Edge Functions + cron (automated refresh)
 
 Route A leaves you refreshing by hand. This makes it automatic. Requires the [Supabase CLI](https://supabase.com/docs/guides/cli).
@@ -123,7 +157,7 @@ npx supabase link --project-ref <your-ref>
 # Shared secret so nobody who finds your function URLs can drive traffic on your project
 npx supabase secrets set SYNC_SECRET=$(openssl rand -hex 24)
 
-npx supabase functions deploy sync-securities sync-quotes sync-candles
+npx supabase functions deploy sync-securities sync-quotes
 ```
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected into functions automatically — don't set them.
@@ -146,13 +180,12 @@ Set up by `0002_cron.sql` via pg_cron + pg_net. Times are UTC; NSE trades 03:45�
 |---|---|---|
 | `nse-sync-securities` | `0 1 * * *` | Refresh the master list once daily, before the open |
 | `nse-sync-quotes` | `*/5 3-10 * * 1-5` | Prices every 5 min through the trading session |
-| `nse-sync-candles` | `*/15 * * * *` | 120 stalest symbols per run — full universe rotates every ~5h |
 
-`sync-candles` can't do 2,400 symbols in one invocation (Yahoo's chart endpoint is one request per symbol), so it works through them using `securities.candles_synced_at` as a cursor, oldest first.
+Two jobs, not three: nothing ingests history.
 
 ### Security model
 
-- The three tables have RLS enabled with **read-only** policies for `anon`. The browser can never write.
+- Both tables have RLS enabled with **read-only** policies for `anon`. The browser can never write.
 - Writes happen only inside Edge Functions using the service-role key, which never reaches the client.
 - Cron config (URL + secret) lives in a `private` schema with all grants revoked, so PostgREST cannot expose it.
 
@@ -170,10 +203,14 @@ src/
   lib/
     csv.ts                   RFC-4180 parser — NSE quotes names containing commas
     format.ts                INR formatting, chunk(), mapPool() concurrency limiter
+    yahooCandles.ts          chart history via /api/yahoo — fetched, never stored
+worker/
+  index.ts                   Cloudflare Worker: serves ./dist + proxies /api/*
 supabase/
   migrations/0001_init.sql   tables, indexes, RLS policies, joined view
   migrations/0002_cron.sql   pg_cron + pg_net schedules
-  functions/                 sync-securities, sync-quotes, sync-candles
+  migrations/0004_drop_candles.sql  drops the old stored history
+  functions/                 sync-securities, sync-quotes
 ```
 
 ## Notes on the implementation

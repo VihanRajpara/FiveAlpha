@@ -8,10 +8,10 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
+    "deploy": "npm run build && wrangler deploy",
     "seed": "node scripts/seed.mjs all",
     "seed:securities": "node scripts/seed.mjs securities",
-    "seed:quotes": "node scripts/seed.mjs quotes",
-    "seed:candles": "node scripts/seed.mjs candles"
+    "seed:quotes": "node scripts/seed.mjs quotes"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
@@ -26,6 +26,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.2",
     "typescript": "^5.6.2",
-    "vite": "^5.4.9"
+    "vite": "^5.4.9",
+    "wrangler": "^4.28.0"
   }
 }

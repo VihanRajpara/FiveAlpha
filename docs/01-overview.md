@@ -23,13 +23,14 @@ flowchart TB
         DS{{"activeSource<br/>(dataSource.ts)"}}
     end
 
-    subgraph direct["DIRECT MODE — npm run dev only"]
+    subgraph proxy["/api PROXY — same paths, two implementations"]
         VP["Vite dev proxy<br/>(vite.config.ts)"]
+        CF["Cloudflare Worker<br/>(worker/index.ts)"]
     end
 
     subgraph supa["SUPABASE MODE — deployed builds"]
-        EF["Edge Functions<br/>sync-securities · sync-quotes · sync-candles"]
-        PG[("Postgres<br/>securities · quotes · candles")]
+        EF["Edge Functions<br/>sync-securities · sync-quotes"]
+        PG[("Postgres<br/>securities · quotes")]
         CR["pg_cron + pg_net"]
     end
 
@@ -38,14 +39,19 @@ flowchart TB
 
     UI --> DS
     DS -->|"no VITE_SUPABASE_URL"| VP
-    DS -->|"VITE_SUPABASE_URL set"| PG
+    DS -->|"VITE_SUPABASE_URL set<br/>list + prices"| PG
+    DS -->|"chart history, either mode"| CF
     VP --> NSE
     VP --> YF
+    CF --> YF
+    CF --> NSE
     CR --> EF
     EF --> NSE
     EF --> YF
     EF --> PG
 ```
+
+Note the one line that crosses modes: **chart history is never read from Postgres.** Whichever backend supplies the list and the prices, the drawer fetches its bars live through `/api/yahoo` — the dev proxy locally, the Worker in production. Storing them cost 164 MB for data read one symbol at a time.
 
 ### How the mode is chosen
 
@@ -152,21 +158,26 @@ The rule applied throughout: state lives at the **lowest** node that can serve e
 │   │   └── PriceChart.tsx      SVG chart
 │   └── lib/
 │       ├── dataSource.ts       adapter selection
-│       ├── directSource.ts     NSE + Yahoo via dev proxy
-│       ├── supabaseSource.ts   Postgres reads
+│       ├── directSource.ts     NSE + Yahoo via the /api proxy
+│       ├── supabaseSource.ts   Postgres reads (list + prices only)
+│       ├── yahooCandles.ts     chart history, fetched on demand by both
 │       ├── supabaseClient.ts   client construction / null when unconfigured
 │       ├── csv.ts              RFC-4180 parser
 │       └── format.ts           INR formatting, chunk(), mapPool()
 │
+├── worker/
+│   └── index.ts                Cloudflare Worker: ./dist + the /api proxy
+│
 └── supabase/
     ├── migrations/
     │   ├── 0001_init.sql       tables, indexes, RLS, view
-    │   └── 0002_cron.sql       pg_cron + pg_net schedules
+    │   ├── 0002_cron.sql       pg_cron + pg_net schedules
+    │   ├── 0003_price_time.sql vendor price timestamp
+    │   └── 0004_drop_candles.sql  removes the stored history
     └── functions/
         ├── _shared/upstream.ts shared helpers
         ├── sync-securities/    NSE list → securities
-        ├── sync-quotes/        Yahoo spark → quotes
-        └── sync-candles/       Yahoo chart → candles (rotating cursor)
+        └── sync-quotes/        Yahoo spark → quotes
 ```
 
 ---

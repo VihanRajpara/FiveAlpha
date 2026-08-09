@@ -1,6 +1,7 @@
-import type { Candle, DataSource, Quote, Security } from '../types';
+import type { DataSource, Quote, Security } from '../types';
 import { parseCsvObjects } from './csv';
 import { chunk, mapPool, parseNseDate, toNumber } from './format';
+import { fetchYahooCandles, toYahooSymbol } from './yahooCandles';
 
 /** Yahoo rejects the whole request with a 400 if more than 20 symbols are passed. */
 const SPARK_BATCH_SIZE = 20;
@@ -17,35 +18,12 @@ const SPARK_INTERVAL = '5m';
 
 const EQUITY_LIST_URL = '/api/nse/content/equities/EQUITY_L.csv';
 
-/** NSE symbols map to Yahoo tickers by suffixing the exchange. */
-export function toYahooSymbol(symbol: string): string {
-  return `${symbol}.NS`;
-}
-
 interface SparkEntry {
   symbol?: string;
   close?: (number | null)[] | null;
   chartPreviousClose?: number | null;
   previousClose?: number | null;
   timestamp?: number[] | null;
-}
-
-interface ChartResponse {
-  chart?: {
-    result?: {
-      timestamp?: number[];
-      indicators?: {
-        quote?: {
-          open?: (number | null)[];
-          high?: (number | null)[];
-          low?: (number | null)[];
-          close?: (number | null)[];
-          volume?: (number | null)[];
-        }[];
-      };
-    }[];
-    error?: { description?: string } | null;
-  };
 }
 
 function buildQuote(symbol: string, entry: SparkEntry | null | undefined): Quote {
@@ -139,31 +117,5 @@ export const directSource: DataSource = {
     return results.flat();
   },
 
-  async fetchCandles(symbol, range): Promise<Candle[]> {
-    // Daily bars stay readable up to a year; beyond that switch to weekly.
-    const interval = range === '5y' ? '1wk' : '1d';
-    const url = `/api/yahoo/v8/finance/chart/${encodeURIComponent(
-      toYahooSymbol(symbol),
-    )}?range=${range}&interval=${interval}`;
-
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Yahoo returned ${res.status} for ${symbol}`);
-
-    const payload = (await res.json()) as ChartResponse;
-    const result = payload.chart?.result?.[0];
-    if (!result?.timestamp) return [];
-
-    const quote = result.indicators?.quote?.[0] ?? {};
-
-    return result.timestamp
-      .map((ts, i) => ({
-        date: new Date(ts * 1000).toISOString().slice(0, 10),
-        open: quote.open?.[i] ?? null,
-        high: quote.high?.[i] ?? null,
-        low: quote.low?.[i] ?? null,
-        close: quote.close?.[i] ?? null,
-        volume: quote.volume?.[i] ?? null,
-      }))
-      .filter((c) => c.close !== null);
-  },
+  fetchCandles: fetchYahooCandles,
 };

@@ -1,15 +1,9 @@
-import type { Candle, ChartRange, DataSource, Quote, Security } from '../types';
+import type { DataSource, Quote, Security } from '../types';
 import { supabase } from './supabaseClient';
+import { fetchYahooCandles } from './yahooCandles';
 
 /** PostgREST caps a response at 1000 rows by default, so paginate explicitly. */
 const PAGE_SIZE = 1000;
-
-const RANGE_DAYS: Record<ChartRange, number> = {
-  '1mo': 31,
-  '6mo': 186,
-  '1y': 366,
-  '5y': 1830,
-};
 
 function client() {
   if (!supabase) throw new Error('Supabase is not configured');
@@ -34,15 +28,6 @@ interface QuoteRow {
   /** Vendor timestamp of the price itself. Null before migration 0003. */
   price_time?: string | null;
   updated_at: string | null;
-}
-
-interface CandleRow {
-  bar_date: string;
-  open: number | null;
-  high: number | null;
-  low: number | null;
-  close: number | null;
-  volume: number | null;
 }
 
 function toQuote(row: QuoteRow): Quote {
@@ -116,26 +101,11 @@ export const supabaseSource: DataSource = {
     return quotes;
   },
 
-  async fetchCandles(symbol, range): Promise<Candle[]> {
-    const since = new Date();
-    since.setDate(since.getDate() - RANGE_DAYS[range]);
-
-    const { data, error } = await client()
-      .from('candles')
-      .select('bar_date,open,high,low,close,volume')
-      .eq('symbol', symbol)
-      .gte('bar_date', since.toISOString().slice(0, 10))
-      .order('bar_date');
-
-    if (error) throw new Error(`candles: ${error.message}`);
-
-    return ((data ?? []) as unknown as CandleRow[]).map((r) => ({
-      date: r.bar_date,
-      open: r.open,
-      high: r.high,
-      low: r.low,
-      close: r.close,
-      volume: r.volume,
-    }));
-  },
+  /**
+   * Not from the database. Supabase holds the master list and the current
+   * prices — both small and read by every page load — while history is fetched
+   * live through the /api/yahoo proxy, exactly as in direct mode. Storing it was
+   * ~500k rows for something one open drawer reads one symbol of.
+   */
+  fetchCandles: fetchYahooCandles,
 };

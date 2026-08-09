@@ -172,8 +172,9 @@ sequenceDiagram
     SD->>SD: setRange('6mo') → effect reruns
 ```
 
-Two details:
+Three details:
 
+- **That `/api/yahoo` request is the same in both modes.** Supabase supplies the list and the prices, never the bars — `supabaseSource.fetchCandles` is literally `fetchYahooCandles`. The proxy answering it is the Vite dev server locally and the Cloudflare Worker in production.
 - **The drawer tracks live prices.** `App` re-looks-up the selected row from `joined` on every render, so a refresh landing while the drawer is open updates it:
   ```ts
   const selectedRow = selected ? joined.find((r) => r.symbol === selected.symbol) ?? selected : null;

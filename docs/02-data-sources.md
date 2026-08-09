@@ -167,7 +167,9 @@ Capped at **6** (`SPARK_CONCURRENCY`). Yahoo begins refusing connections above r
 https://query1.finance.yahoo.com/v8/finance/chart/<TICKER>?range=<range>&interval=<interval>
 ```
 
-One request per symbol — there is no batch form. This is why candles cannot be refreshed for the whole market in a single pass.
+One request per symbol — there is no batch form. That is precisely why history is fetched on demand rather than ingested: keeping the whole market warm meant ~2,400 requests per pass and half a million stored rows, where a chart is only ever opened one symbol at a time.
+
+In the browser this is called through `/api/yahoo`, which is the Vite dev proxy under `npm run dev` and the Cloudflare Worker in a deployed build.
 
 ### Range → interval
 

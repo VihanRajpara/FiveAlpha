@@ -93,12 +93,9 @@ select cron.schedule(
   $$ select private.invoke_sync('sync-quotes'); $$
 );
 
--- History: each run refreshes the 120 stalest symbols, so the full universe
--- rotates through roughly every 5 hours.
-select cron.schedule(
-  'nse-sync-candles', '*/15 * * * *',
-  $$ select private.invoke_sync('sync-candles', '?limit=120&range=1y&interval=1d'); $$
-);
+-- There is deliberately no candles job. History is fetched live from Yahoo when
+-- a chart is opened (see 0004_drop_candles.sql); the unschedule above removes
+-- 'nse-sync-candles' if this migration is re-run on a database that had it.
 
 -- ---------------------------------------------------------------------------
 -- Fill these in, then run the migration.
