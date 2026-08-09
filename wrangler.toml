@@ -1,0 +1,16 @@
+# Static-asset Worker: there is no server code, so no `main` entry point —
+# Wrangler uploads ./dist and serves it straight from Cloudflare's edge.
+#
+# The app talks to Supabase directly from the browser, so nothing here needs a
+# secret. VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY are BUILD-time
+# values: Vite inlines them into the bundle during `npm run build`, so they must
+# be set as *build* variables in the Cloudflare dashboard. Adding them as Worker
+# runtime vars here would do nothing — the bundle is already built by then.
+name = "fivealpha"
+compatibility_date = "2026-08-09"
+
+[assets]
+directory = "./dist"
+
+# Every unmatched path returns index.html instead of Cloudflare's own 404.
+not_found_handling = "single-page-application"
