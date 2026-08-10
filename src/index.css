@@ -6,35 +6,44 @@
    ========================================================================== */
 
 :root {
+  /* One palette rather than two. `light-dark()` resolves against the element's
+     `color-scheme`, so the theme toggle only has to change that one property —
+     no duplicated dark block to keep in sync. */
+  color-scheme: light dark;
+
   /* surfaces */
-  --canvas: #f8f9fa;
-  --surface: #ffffff;
-  --surface-2: #f1f3f4;
-  --surface-hover: #f8f9fa;
+  --canvas: light-dark(#f8f9fa, #202124);
+  --surface: light-dark(#ffffff, #292a2d);
+  --surface-2: light-dark(#f1f3f4, #35363a);
+  --surface-hover: light-dark(#f8f9fa, #303134);
 
   /* outlines */
-  --outline: #dadce0;
-  --outline-faint: #e8eaed;
+  --outline: light-dark(#dadce0, #3c4043);
+  --outline-faint: light-dark(#e8eaed, #35363a);
 
   /* content */
-  --on-surface: #202124;
-  --on-surface-variant: #5f6368;
+  --on-surface: light-dark(#202124, #e8eaed);
+  --on-surface-variant: light-dark(#5f6368, #9aa0a6);
   --on-surface-faint: #80868b;
 
   /* accent + direction */
-  --primary: #1a73e8;
-  --primary-hover: #1765cc;
-  --primary-container: #e8f0fe;
-  --up: #137333;
-  --up-container: #e6f4ea;
-  --down: #c5221f;
-  --down-container: #fce8e6;
+  --primary: light-dark(#1a73e8, #8ab4f8);
+  --primary-hover: light-dark(#1765cc, #a8c7fa);
+  --primary-container: light-dark(#e8f0fe, #1f3350);
+  --on-primary: light-dark(#ffffff, #202124);
+  --up: light-dark(#137333, #81c995);
+  --up-container: light-dark(#e6f4ea, #1d3626);
+  --down: light-dark(#c5221f, #f28b82);
+  --down-container: light-dark(#fce8e6, #3f2422);
 
-  /* Material elevation */
-  --elev-1: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
-  --elev-2: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 2px 6px 2px rgba(60, 64, 67, 0.15);
-  --elev-3: 0 4px 8px 3px rgba(60, 64, 67, 0.15), 0 1px 3px rgba(60, 64, 67, 0.3);
-  --scrim: rgba(32, 33, 36, 0.5);
+  /* Material elevation. `light-dark()` returns a colour, not a whole shadow
+     list, so the switchable part is the two shadow colours. */
+  --shadow-key: light-dark(rgba(60, 64, 67, 0.3), rgba(0, 0, 0, 0.45));
+  --shadow-ambient: light-dark(rgba(60, 64, 67, 0.15), rgba(0, 0, 0, 0.3));
+  --elev-1: 0 1px 2px 0 var(--shadow-key), 0 1px 3px 1px var(--shadow-ambient);
+  --elev-2: 0 1px 2px 0 var(--shadow-key), 0 2px 6px 2px var(--shadow-ambient);
+  --elev-3: 0 4px 8px 3px var(--shadow-ambient), 0 1px 3px var(--shadow-key);
+  --scrim: light-dark(rgba(32, 33, 36, 0.5), rgba(0, 0, 0, 0.6));
 
   --row-h: 48px;
   --gutter: 20px;
@@ -42,39 +51,15 @@
   --font-display: 'Google Sans', 'Manrope', 'Product Sans', Roboto, Arial, sans-serif;
   --font-sans: 'Google Sans Text', Roboto, -apple-system, 'Segoe UI', Arial, sans-serif;
   --font-mono: 'Roboto Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
 
+/* The toggle writes `data-theme`; no attribute means follow the OS. */
+:root[data-theme='light'] {
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --canvas: #202124;
-    --surface: #292a2d;
-    --surface-2: #35363a;
-    --surface-hover: #303134;
-
-    --outline: #3c4043;
-    --outline-faint: #35363a;
-
-    --on-surface: #e8eaed;
-    --on-surface-variant: #9aa0a6;
-    --on-surface-faint: #80868b;
-
-    --primary: #8ab4f8;
-    --primary-hover: #a8c7fa;
-    --primary-container: #1f3350;
-    --up: #81c995;
-    --up-container: #1d3626;
-    --down: #f28b82;
-    --down-container: #3f2422;
-
-    --elev-1: 0 1px 2px 0 rgba(0, 0, 0, 0.4), 0 1px 3px 1px rgba(0, 0, 0, 0.25);
-    --elev-2: 0 1px 2px 0 rgba(0, 0, 0, 0.45), 0 2px 6px 2px rgba(0, 0, 0, 0.3);
-    --elev-3: 0 4px 8px 3px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.5);
-    --scrim: rgba(0, 0, 0, 0.6);
-
-    color-scheme: dark;
-  }
+:root[data-theme='dark'] {
+  color-scheme: dark;
 }
 
 * {
@@ -169,14 +154,8 @@ body {
   height: 32px;
   border-radius: 8px;
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
   flex: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  .logo {
-    color: #202124;
-  }
 }
 
 .brand h1 {
@@ -304,7 +283,7 @@ body {
   border: 0;
   border-radius: 999px;
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -312,12 +291,6 @@ body {
   cursor: pointer;
   box-shadow: var(--elev-1);
   transition: background 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
-}
-
-@media (prefers-color-scheme: dark) {
-  .btn {
-    color: #202124;
-  }
 }
 
 .btn:hover:not(:disabled) {
@@ -672,7 +645,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  flex: 1;
+  flex: none;
   min-width: 0;
   height: 36px;
   padding: 0 10px 0 14px;
@@ -856,6 +829,73 @@ body {
   to {
     background-position: -200% 0;
   }
+}
+
+/* ---------- pagination ---------- */
+
+.pagebar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 20px;
+  flex-wrap: wrap;
+  flex: none;
+  padding: 8px var(--gutter);
+  border-top: 1px solid var(--outline-faint);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.pagebar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagebar-label {
+  white-space: nowrap;
+}
+
+.pagebar-range,
+.pagebar-page {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.pagebar .menu-btn {
+  height: 32px;
+  padding: 0 6px 0 12px;
+  font-size: 12px;
+}
+
+.page-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--on-surface);
+}
+
+.page-btn:disabled {
+  color: var(--outline);
+  cursor: default;
+}
+
+/* The sort control is the one place a menu button should fill its row. */
+.sortbar .menu-btn {
+  flex: 1;
 }
 
 /* ---------- status bar ---------- */
@@ -1233,6 +1273,17 @@ body {
     font-size: 11px;
   }
 
+  .pagebar {
+    justify-content: space-between;
+    gap: 6px 10px;
+    font-size: 11px;
+  }
+
+  /* The chip's number says "rows per page" well enough at this width. */
+  .pagebar-label {
+    display: none;
+  }
+
   .statusbar .spacer {
     flex-basis: 100%;
     height: 0;
@@ -1302,6 +1353,12 @@ body {
   .chg-chip {
     min-width: 0;
     font-size: 12px;
+  }
+
+  /* The range readout already says where you are; the page counter is the
+     first thing to go when the bar can't fit on one line. */
+  .pagebar-page {
+    display: none;
   }
 }
 

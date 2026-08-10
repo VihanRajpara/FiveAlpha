@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createColumnHelper,
   flexRender,
   getCoreRowModel,
+  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
+  type PaginationState,
   type Row,
   type SortingState,
 } from '@tanstack/react-table';
@@ -30,6 +32,8 @@ const ROW_HEIGHT: Record<Layout, number> = { wide: 48, medium: 48, mobile: 68 };
 
 /** Columns dropped in `medium`, in priority order of what matters least. */
 const MEDIUM_HIDDEN = new Set(['index', 'previousClose', 'isin', 'listingDate', 'faceValue']);
+
+const PAGE_SIZES = [25, 50, 100, 250];
 
 const helper = createColumnHelper<SecurityWithQuote>();
 
@@ -61,6 +65,19 @@ function PriceCell({ value }: { value: number | null | undefined }) {
   return <span className="num">{formatPrice(value)}</span>;
 }
 
+function ChevronIcon({ d }: { d: string }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={d} />
+    </svg>
+  );
+}
+
+const FIRST = 'M18 18 12 12l6-6M11 18 5 12l6-6';
+const PREV = 'm15 18-6-6 6-6';
+const NEXT = 'm9 18 6-6-6-6';
+const LAST = 'm6 18 6-6-6-6M13 18l6-6-6-6';
+
 /** The tonal up/down chip, shared by the grid cell and the mobile row. */
 function ChangeChip({ value }: { value: number | null | undefined }) {
   if (value === null || value === undefined) return <span className="skeleton" />;
@@ -90,11 +107,22 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
   const layout: Layout = isMobile ? 'mobile' : isMedium ? 'medium' : 'wide';
   const rowHeight = ROW_HEIGHT[layout];
 
-  // Re-sorting while scrolled halfway down would otherwise leave the user in the
-  // middle of the new order, hiding the rows they just sorted for.
+  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
+
+  // Re-sorting or paging while scrolled halfway down would otherwise leave the
+  // user in the middle of the new list, hiding the rows they just asked for.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
-  }, [sorting]);
+  }, [sorting, pagination.pageIndex]);
+
+  // A new filter usually means a shorter list; staying on page 12 of what is
+  // now a three-page result would show an empty table. Keyed on row count
+  // rather than on `rows` itself, because a price refresh rebuilds that array
+  // without changing which securities are listed — and being thrown back to
+  // page 1 every time quotes land would be maddening.
+  useEffect(() => {
+    setPagination((p) => (p.pageIndex === 0 ? p : { ...p, pageIndex: 0 }));
+  }, [rows.length, sorting]);
 
   const columns = useMemo(
     () => [
@@ -177,16 +205,34 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
   const table = useReactTable({
     data: rows,
     columns,
-    state: { sorting },
+    state: { sorting, pagination },
     onSortingChange,
+    onPaginationChange: setPagination,
     // Without this a third click clears sorting entirely, which reads as a bug
     // on a screener — cycle asc ↔ desc instead.
     enableSortingRemoval: false,
+    // Page resets are handled above, deliberately narrower than TanStack's
+    // default of resetting on any data change.
+    autoResetPageIndex: false,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
   });
 
   const tableRows = table.getRowModel().rows;
+  const pageCount = table.getPageCount();
+
+  // Belt and braces for any narrowing the row-count effect can't see (a filter
+  // that happens to leave the same number of rows across a shorter list).
+  useEffect(() => {
+    if (pageCount > 0 && pagination.pageIndex > pageCount - 1) {
+      setPagination((p) => ({ ...p, pageIndex: pageCount - 1 }));
+    }
+  }, [pageCount, pagination.pageIndex]);
+
+  const total = rows.length;
+  const firstOnPage = total === 0 ? 0 : pagination.pageIndex * pagination.pageSize + 1;
+  const lastOnPage = Math.min(total, (pagination.pageIndex + 1) * pagination.pageSize);
 
   const virtualizer = useVirtualizer({
     count: tableRows.length,
@@ -335,13 +381,81 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
                   .map((cell) => (
                     <div key={cell.id} className={cellClass(cell.column.id)}>
                       {cell.column.id === 'index'
-                        ? virtualRow.index + 1
+                        ? // Position in the whole result, not within the page.
+                          pagination.pageIndex * pagination.pageSize + virtualRow.index + 1
                         : flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </div>
                   ))}
               </div>
             );
           })}
+        </div>
+      </div>
+
+      <div className="pagebar">
+        <div className="pagebar-group">
+          <span className="pagebar-label">Rows per page</span>
+          <SelectMenu
+            ariaLabel="Rows per page"
+            value={String(pagination.pageSize)}
+            options={PAGE_SIZES.map((n) => ({ value: String(n), label: String(n) }))}
+            // Changing page size mid-list has no sensible landing spot, so go
+            // back to the top rather than guess.
+            onChange={(v) => setPagination({ pageIndex: 0, pageSize: Number(v) })}
+            minMenuWidth={96}
+          />
+        </div>
+
+        <span className="num pagebar-range">
+          {total === 0
+            ? 'No matches'
+            : `${firstOnPage.toLocaleString('en-IN')}–${lastOnPage.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')}`}
+        </span>
+
+        <div className="pagebar-group">
+          <button
+            type="button"
+            className="page-btn"
+            onClick={() => table.setPageIndex(0)}
+            disabled={!table.getCanPreviousPage()}
+            aria-label="First page"
+            title="First page"
+          >
+            <ChevronIcon d={FIRST} />
+          </button>
+          <button
+            type="button"
+            className="page-btn"
+            onClick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
+            aria-label="Previous page"
+            title="Previous page"
+          >
+            <ChevronIcon d={PREV} />
+          </button>
+          <span className="pagebar-page num">
+            {pageCount === 0 ? '0 of 0' : `${pagination.pageIndex + 1} of ${pageCount.toLocaleString('en-IN')}`}
+          </span>
+          <button
+            type="button"
+            className="page-btn"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+            aria-label="Next page"
+            title="Next page"
+          >
+            <ChevronIcon d={NEXT} />
+          </button>
+          <button
+            type="button"
+            className="page-btn"
+            onClick={() => table.setPageIndex(pageCount - 1)}
+            disabled={!table.getCanNextPage()}
+            aria-label="Last page"
+            title="Last page"
+          >
+            <ChevronIcon d={LAST} />
+          </button>
         </div>
       </div>
     </>

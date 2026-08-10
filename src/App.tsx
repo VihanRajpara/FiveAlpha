@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { SortingState } from '@tanstack/react-table';
 import { StockTable } from './components/StockTable';
 import { StockDetail } from './components/StockDetail';
+import { ThemeToggle } from './components/ThemeToggle';
 import { useMarketData } from './hooks/useMarketData';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
 import type { SecurityWithQuote } from './types';
@@ -132,6 +133,8 @@ export default function App() {
         </div>
 
         <div className="spacer" />
+
+        <ThemeToggle />
 
         {/* Named for what it actually does. In Supabase mode this re-reads the
             quotes table — it does not fetch from Yahoo, so it cannot make

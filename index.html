@@ -4,8 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NSE Listed Shares</title>
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#202124" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" />
+    <!-- Applies the saved theme before first paint. Without this the page
+         renders in the OS theme and then flips once React mounts. Keep the
+         storage key in step with src/hooks/useTheme.ts. -->
+    <script>
+      try {
+        var t = localStorage.getItem('nse.theme');
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
