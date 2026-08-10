@@ -202,18 +202,21 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
+          {/* Same three ascending bars as the favicon — the tab and the header
+              should be recognisably the same mark. */}
           <span className="logo" aria-hidden>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 17l5.5-6 4 4L21 6" />
-              <path d="M15 6h6v6" />
+            <svg width="19" height="19" viewBox="0 0 100 100" fill="currentColor">
+              <rect x="8" y="56" width="20" height="26" rx="4.5" />
+              <rect x="40" y="38" width="20" height="44" rx="4.5" />
+              <rect x="72" y="18" width="20" height="64" rx="4.5" />
             </svg>
           </span>
           <div>
-            <h1>NSE Listed Shares</h1>
+            <h1>FiveAlpha</h1>
             <span className="count num">
               {loading
                 ? 'Loading…'
-                : `${rows.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} securities`}
+                : `NSE · ${rows.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} securities`}
             </span>
           </div>
         </div>
