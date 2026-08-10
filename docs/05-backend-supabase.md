@@ -70,6 +70,9 @@ erDiagram
         text        name
         text        series
         text        isin
+        text_array  exchanges
+        text        yahoo_ticker
+        text        bse_code
         date        listing_date
         numeric     face_value
         numeric     paid_up_value
@@ -96,12 +99,20 @@ erDiagram
 
 **Money is `numeric`, never `float`.** Binary floating point cannot represent `0.05` exactly; accumulated error in financial data is unacceptable.
 
+**`securities` is one row per company, not per listing.** Added by [`0005_bse.sql`](../supabase/migrations/0005_bse.sql). `sync-securities` merges the NSE and BSE master lists on ISIN before writing, so a dual-listed company is a single row carrying `exchanges = {NSE,BSE}` rather than two rows quoting the same business within a rupee of each other. Consequences worth knowing:
+
+- **The primary key did not change.** A dual-listed company keeps its NSE symbol, so every pre-0005 row and every `quotes.symbol` foreign key survived the migration untouched. BSE-only companies are purely additive, keyed on their BSE scrip id (or, for the two that collide with an NSE symbol, on their numeric scrip code).
+- **`yahoo_ticker` exists because the ticker is not derivable from the key.** A BSE-only row displays `TANFACIND` but must be priced as `TANFACIND.BO`, and dual-listed rows price off `.NS`. `sync-quotes` reads this column rather than appending a suffix.
+- **`series` now holds two things**: the NSE settlement series (EQ/BE/BZ) when the company is on NSE, the BSE group (A/B/X/T/Z/…) when it is not. Both answer "how does this share settle", so they share a column.
+- **A BSE outage must not rewrite history.** If BSE is unreachable the merge sees no scrips and would produce `{NSE}` for everything. Both `sync-securities` and `seed.mjs` therefore drop `exchanges` and `bse_code` from the payload in that case, so the stored merge survives and only the NSE-derived columns are refreshed.
+
 ### Indexes
 
 | Index | Serves |
 |---|---|
 | `securities_series_idx` on `(series)` | series filter |
 | `securities_name_idx` GIN on `to_tsvector('simple', name)` | full-text company search |
+| `securities_exchanges_idx` GIN on `(exchanges)` | exchange filter / the "BSE only" cut |
 
 ## 5.3 Security model
 

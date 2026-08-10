@@ -1,6 +1,8 @@
-# NSE Listed Shares
+# NSE + BSE Listed Shares
 
-Every share listed on India's National Stock Exchange — **2,397 securities** (EQ 2,075 · BE 294 · BZ 28) — in a sortable, searchable table with live prices and history charts.
+Every company listed on India's two cash exchanges — **~5,200 companies** — in a sortable, searchable table with live prices and history charts.
+
+The two exchange lists are merged on ISIN, so a dual-listed name like RELIANCE is **one row**, not two: 2,410 NSE shares, of which 2,280 also trade on BSE, plus 2,819 companies that are on BSE only.
 
 React + Vite + TypeScript on the front, Supabase (Postgres + Edge Functions + pg_cron) for production data ingestion.
 
@@ -21,11 +23,12 @@ Both sources are free and require no authentication or account.
 
 | What | Source | Notes |
 |---|---|---|
-| The list of listed shares | `nsearchives.nseindia.com/content/equities/EQUITY_L.csv` | NSE's own daily publication. Symbol, company, series, ISIN, listing date, face value, paid-up value, market lot. |
-| Prices | Yahoo Finance `v8/finance/spark` | Batched, **hard limit of 20 tickers per request**. NSE symbols map to Yahoo by suffixing `.NS`. |
+| NSE listings | `nsearchives.nseindia.com/content/equities/EQUITY_L.csv` | NSE's own daily publication. Symbol, company, series, ISIN, listing date, face value, paid-up value, market lot. |
+| BSE listings | `api.bseindia.com/BseIndiaAPI/api/ListofScripData/w` | The feed behind BSE's "List of Securities" page. 5,099 active equity scrips; joined to the NSE list on ISIN. |
+| Prices | Yahoo Finance `v8/finance/spark` | Batched, **hard limit of 20 tickers per request**. `SYMBOL.NS` for anything on NSE, `SCRIPID.BO` for BSE-only companies. |
 | History | Yahoo Finance `v8/finance/chart` | One request per symbol. Daily bars up to 1Y, weekly for 5Y. |
 
-Measured coverage: **2,396 of 2,397 symbols priced** (99.96%), zero failed batches across 120 requests.
+Where a company trades on both exchanges the NSE book is quoted — it is the more liquid of the two. The detail drawer names the exact ticker each price came from.
 
 Timing depends on where the requests originate:
 
@@ -96,7 +99,7 @@ npm run deploy      # npm run build && wrangler deploy
 
 > Wrangler 4 requires **Node 22+**. This project otherwise runs on Node 18; if `wrangler deploy` refuses to start, that is why. Deploying through the Cloudflare dashboard's Git integration avoids it, since the build image supplies its own Node.
 
-The Worker's `/api` proxy is an allow-list, not an open proxy: only `v8/finance/chart/<ticker>`, `v8/finance/spark` and `EQUITY_L.csv` are forwarded, GET/HEAD only. Anything else gets a 403 before a request leaves Cloudflare.
+The Worker's `/api` proxy is an allow-list, not an open proxy: only `v8/finance/chart/<ticker>`, `v8/finance/spark`, the NSE archive CSVs and BSE's `ListofScripData/w` are forwarded, GET/HEAD only. Anything else gets a 403 before a request leaves Cloudflare.
 
 ## Supabase setup
 
@@ -105,6 +108,8 @@ Two routes. **Route A needs no CLI and no login** — do that first and you have
 ### Route A — SQL Editor + local seeder (no CLI)
 
 **1. Create the tables.** Supabase dashboard → **SQL Editor** → New query. Paste the whole of [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) and Run. That creates `securities`, `quotes`, their indexes, and read-only RLS policies. Two small tables, a few MB in total — chart history is deliberately not stored (see [Why history is not in the database](#why-history-is-not-in-the-database)).
+
+Then run the later migrations in order, at minimum [`0003_price_time.sql`](supabase/migrations/0003_price_time.sql) and [`0005_bse.sql`](supabase/migrations/0005_bse.sql). **0005 is not optional if you want BSE listings**: it adds `exchanges`, `yahoo_ticker` and `bse_code`, and the seeder refuses to run without them rather than write BSE-only rows that would then be priced as though they were NSE symbols.
 
 **2. Point the app at your project.** Copy `.env.example` to `.env` — one gitignored file holds every credential — and fill in:
 
@@ -132,8 +137,8 @@ npm run seed              # securities → quotes
 or individually:
 
 ```bash
-npm run seed:securities   # ~2,400 rows from NSE
-npm run seed:quotes       # every price, ~3.4s
+npm run seed:securities   # ~5,200 merged rows from NSE + BSE
+npm run seed:quotes       # every price
 ```
 
 `scripts/seed.mjs` does exactly what the Edge Functions do, but from Node — no CORS, no WAF fingerprint problem, no deploy step. Re-run it any time; every write is an idempotent upsert.
@@ -193,7 +198,7 @@ Two jobs, not three: nothing ingests history.
 
 ```
 src/
-  App.tsx                    layout, search, series filter, status bar
+  App.tsx                    layout, search, exchange/series filters, status bar
   types.ts                   Security / Quote / Candle / DataSource
   hooks/useMarketData.ts     loads the list, then streams quotes in progressively
   components/
@@ -202,6 +207,7 @@ src/
     PriceChart.tsx           hand-rolled SVG area chart with crosshair
   lib/
     csv.ts                   RFC-4180 parser — NSE quotes names containing commas
+    listings.ts              NSE + BSE master lists, merged on ISIN
     format.ts                INR formatting, chunk(), mapPool() concurrency limiter
     yahooCandles.ts          chart history via /api/yahoo — fetched, never stored
 worker/
@@ -210,6 +216,7 @@ supabase/
   migrations/0001_init.sql   tables, indexes, RLS policies, joined view
   migrations/0002_cron.sql   pg_cron + pg_net schedules
   migrations/0004_drop_candles.sql  drops the old stored history
+  migrations/0005_bse.sql    exchanges / yahoo_ticker / bse_code — required for BSE
   functions/                 sync-securities, sync-quotes
 ```
 

@@ -6,35 +6,44 @@
    ========================================================================== */
 
 :root {
+  /* One palette rather than two. `light-dark()` resolves against the element's
+     `color-scheme`, so the theme toggle only has to change that one property —
+     no duplicated dark block to keep in sync. */
+  color-scheme: light dark;
+
   /* surfaces */
-  --canvas: #f8f9fa;
-  --surface: #ffffff;
-  --surface-2: #f1f3f4;
-  --surface-hover: #f8f9fa;
+  --canvas: light-dark(#f8f9fa, #202124);
+  --surface: light-dark(#ffffff, #292a2d);
+  --surface-2: light-dark(#f1f3f4, #35363a);
+  --surface-hover: light-dark(#f8f9fa, #303134);
 
   /* outlines */
-  --outline: #dadce0;
-  --outline-faint: #e8eaed;
+  --outline: light-dark(#dadce0, #3c4043);
+  --outline-faint: light-dark(#e8eaed, #35363a);
 
   /* content */
-  --on-surface: #202124;
-  --on-surface-variant: #5f6368;
+  --on-surface: light-dark(#202124, #e8eaed);
+  --on-surface-variant: light-dark(#5f6368, #9aa0a6);
   --on-surface-faint: #80868b;
 
   /* accent + direction */
-  --primary: #1a73e8;
-  --primary-hover: #1765cc;
-  --primary-container: #e8f0fe;
-  --up: #137333;
-  --up-container: #e6f4ea;
-  --down: #c5221f;
-  --down-container: #fce8e6;
+  --primary: light-dark(#1a73e8, #8ab4f8);
+  --primary-hover: light-dark(#1765cc, #a8c7fa);
+  --primary-container: light-dark(#e8f0fe, #1f3350);
+  --on-primary: light-dark(#ffffff, #202124);
+  --up: light-dark(#137333, #81c995);
+  --up-container: light-dark(#e6f4ea, #1d3626);
+  --down: light-dark(#c5221f, #f28b82);
+  --down-container: light-dark(#fce8e6, #3f2422);
 
-  /* Material elevation */
-  --elev-1: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
-  --elev-2: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 2px 6px 2px rgba(60, 64, 67, 0.15);
-  --elev-3: 0 4px 8px 3px rgba(60, 64, 67, 0.15), 0 1px 3px rgba(60, 64, 67, 0.3);
-  --scrim: rgba(32, 33, 36, 0.5);
+  /* Material elevation. `light-dark()` returns a colour, not a whole shadow
+     list, so the switchable part is the two shadow colours. */
+  --shadow-key: light-dark(rgba(60, 64, 67, 0.3), rgba(0, 0, 0, 0.45));
+  --shadow-ambient: light-dark(rgba(60, 64, 67, 0.15), rgba(0, 0, 0, 0.3));
+  --elev-1: 0 1px 2px 0 var(--shadow-key), 0 1px 3px 1px var(--shadow-ambient);
+  --elev-2: 0 1px 2px 0 var(--shadow-key), 0 2px 6px 2px var(--shadow-ambient);
+  --elev-3: 0 4px 8px 3px var(--shadow-ambient), 0 1px 3px var(--shadow-key);
+  --scrim: light-dark(rgba(32, 33, 36, 0.5), rgba(0, 0, 0, 0.6));
 
   --row-h: 48px;
   --gutter: 20px;
@@ -42,39 +51,15 @@
   --font-display: 'Google Sans', 'Manrope', 'Product Sans', Roboto, Arial, sans-serif;
   --font-sans: 'Google Sans Text', Roboto, -apple-system, 'Segoe UI', Arial, sans-serif;
   --font-mono: 'Roboto Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
 
+/* The toggle writes `data-theme`; no attribute means follow the OS. */
+:root[data-theme='light'] {
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --canvas: #202124;
-    --surface: #292a2d;
-    --surface-2: #35363a;
-    --surface-hover: #303134;
-
-    --outline: #3c4043;
-    --outline-faint: #35363a;
-
-    --on-surface: #e8eaed;
-    --on-surface-variant: #9aa0a6;
-    --on-surface-faint: #80868b;
-
-    --primary: #8ab4f8;
-    --primary-hover: #a8c7fa;
-    --primary-container: #1f3350;
-    --up: #81c995;
-    --up-container: #1d3626;
-    --down: #f28b82;
-    --down-container: #3f2422;
-
-    --elev-1: 0 1px 2px 0 rgba(0, 0, 0, 0.4), 0 1px 3px 1px rgba(0, 0, 0, 0.25);
-    --elev-2: 0 1px 2px 0 rgba(0, 0, 0, 0.45), 0 2px 6px 2px rgba(0, 0, 0, 0.3);
-    --elev-3: 0 4px 8px 3px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.5);
-    --scrim: rgba(0, 0, 0, 0.6);
-
-    color-scheme: dark;
-  }
+:root[data-theme='dark'] {
+  color-scheme: dark;
 }
 
 * {
@@ -169,14 +154,8 @@ body {
   height: 32px;
   border-radius: 8px;
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
   flex: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  .logo {
-    color: #202124;
-  }
 }
 
 .brand h1 {
@@ -258,10 +237,190 @@ body {
   border-bottom: 1px solid var(--outline-faint);
 }
 
+.filters-inline {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* Compact trigger that stands in for the chips below 1460px. */
+.filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--outline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.filter-trigger:hover {
+  background: var(--surface-2);
+}
+
+.filter-trigger[data-active='true'] {
+  background: var(--primary-container);
+  border-color: transparent;
+  color: var(--primary);
+}
+
+.filter-count {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- filter sheet ---------- */
+
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  z-index: 50;
+  animation: fade-in 0.2s ease;
+}
+
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 51;
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  max-height: 86dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  border-radius: 16px 16px 0 0;
+  box-shadow: var(--elev-3);
+  animation: sheet-up 0.26s cubic-bezier(0.2, 0, 0, 1);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.sheet::before {
+  content: '';
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 999px;
+  background: var(--outline);
+  flex: none;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 20px 12px;
+}
+
+.sheet-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.sheet-group {
+  padding: 14px 20px;
+  border-top: 1px solid var(--outline-faint);
+}
+
+/* The label sits above its chips here rather than beside them. */
+.sheet-group .filter-group {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.sheet-group .segmented {
+  flex-wrap: wrap;
+}
+
+.sheet-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--outline-faint);
+  background: var(--surface);
+}
+
+.sheet-foot .btn {
+  flex: 1;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid var(--outline);
+  box-shadow: none;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  background: var(--primary-container);
+  box-shadow: none;
+}
+
+.btn.ghost:disabled {
+  background: transparent;
+  border-color: var(--outline-faint);
+  color: var(--on-surface-faint);
+}
+
+/* A labelled cluster of chips. The label is what keeps three filter rows from
+   reading as one undifferentiated wall of pills. */
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--on-surface-faint);
+  white-space: nowrap;
+}
+
 .segmented {
   display: inline-flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.segmented button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.segmented button:disabled:hover {
+  background: transparent;
+  color: var(--on-surface-variant);
 }
 
 /* Material 3 filter chips — outlined when off, tonal when on. */
@@ -304,7 +463,7 @@ body {
   border: 0;
   border-radius: 999px;
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -312,12 +471,6 @@ body {
   cursor: pointer;
   box-shadow: var(--elev-1);
   transition: background 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
-}
-
-@media (prefers-color-scheme: dark) {
-  .btn {
-    color: #202124;
-  }
 }
 
 .btn:hover:not(:disabled) {
@@ -459,18 +612,21 @@ body {
   align-items: center;
 }
 
-/* Full screener: eleven columns, scrolled horizontally when the viewport
-   can't hold them. */
+/* Full screener: thirteen columns, scrolled horizontally when the viewport
+   can't hold them. Order matches the column definitions in StockTable:
+   # · Symbol · Company · Series · Exch · Type · LTP · Chg · Chg% · Prev ·
+   ISIN · Listed · FV */
 .table-wrap[data-layout='wide'] .grid-row {
   grid-template-columns:
-    64px 148px minmax(220px, 1.8fr) 76px 116px 104px 120px
+    64px 148px minmax(200px, 1.6fr) 76px 108px 132px 116px 104px 120px
     116px 152px 116px 76px;
-  min-width: 1280px;
+  min-width: 1508px;
 }
 
-/* Tablet: the six columns worth keeping, sized to fit with no side-scroll. */
+/* Tablet: the seven columns worth keeping, sized to fit with no side-scroll —
+   Symbol · Company · Exch · Type · LTP · Chg · Chg%. */
 .table-wrap[data-layout='medium'] .grid-row {
-  grid-template-columns: 128px minmax(110px, 1.6fr) 68px 104px 96px 116px;
+  grid-template-columns: 118px minmax(96px, 1.5fr) 100px 118px 96px 88px 108px;
   min-width: 0;
 }
 
@@ -612,6 +768,68 @@ body {
   color: var(--primary);
 }
 
+/* Derivatives mark. The only filled accent badge in the table — roughly 200 of
+   2,400 rows carry it, so it reads as a highlight rather than as noise. */
+.badge.fno {
+  background: var(--primary);
+  color: var(--on-primary);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Cap bands are outlined rather than filled: every row has one, so a filled
+   chip on all 2,400 would flatten the F&O mark next to it. */
+.badge.cap {
+  background: transparent;
+  border: 1px solid var(--outline);
+  color: var(--on-surface-variant);
+  padding: 1px 7px;
+}
+
+.badge.cap-large {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.badge.cap-micro {
+  color: var(--on-surface-faint);
+}
+
+/* Exchange chips. Outlined and deliberately quieter than the cap band next to
+   them: on a dual-listed row both are present and neither is news, so the chip
+   is there to be scanned past, not read. */
+.badge.exch {
+  background: transparent;
+  border: 1px solid var(--outline);
+  color: var(--on-surface-faint);
+  padding: 1px 6px;
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+}
+
+/* BSE-only rows are the ~2,800 new ones, and on those the chip IS the news —
+   it is the only thing separating them from an NSE listing at a glance. */
+.exch-cell .badge.exch-BSE:only-child,
+.stack-sym .badge.exch-BSE {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.type-cell,
+.exch-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.td.exch {
+  white-space: nowrap;
+}
+
+.tr[data-selected='true'] .badge.cap {
+  border-color: var(--primary);
+}
+
 .up {
   color: var(--up);
 }
@@ -672,7 +890,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  flex: 1;
+  flex: none;
   min-width: 0;
   height: 36px;
   padding: 0 10px 0 14px;
@@ -770,6 +988,39 @@ body {
   color: var(--primary);
 }
 
+/* Two-line items, used where the label is a bare code (BSE settlement groups)
+   and needs its meaning alongside. The fixed height above has to give way. */
+.menu-item:has(.menu-hint) {
+  height: auto;
+  min-height: 58px;
+  align-items: flex-start;
+  padding: 9px 12px;
+}
+
+.menu-item:has(.menu-hint) .menu-check {
+  line-height: 1.5;
+}
+
+.menu-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.menu-hint {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--on-surface-variant);
+  white-space: normal;
+}
+
+/* A price that will never arrive, as opposed to one still in flight. Muted so a
+   column of them reads as absence rather than as data. */
+.muted-dash {
+  color: var(--on-surface-faint);
+}
+
 .sortbar .dir {
   display: grid;
   place-items: center;
@@ -856,6 +1107,73 @@ body {
   to {
     background-position: -200% 0;
   }
+}
+
+/* ---------- pagination ---------- */
+
+.pagebar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 20px;
+  flex-wrap: wrap;
+  flex: none;
+  padding: 8px var(--gutter);
+  border-top: 1px solid var(--outline-faint);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.pagebar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagebar-label {
+  white-space: nowrap;
+}
+
+.pagebar-range,
+.pagebar-page {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.pagebar .menu-btn {
+  height: 32px;
+  padding: 0 6px 0 12px;
+  font-size: 12px;
+}
+
+.page-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--on-surface);
+}
+
+.page-btn:disabled {
+  color: var(--outline);
+  cursor: default;
+}
+
+/* The sort control is the one place a menu button should fill its row. */
+.sortbar .menu-btn {
+  flex: 1;
 }
 
 /* ---------- status bar ---------- */
@@ -1183,29 +1501,17 @@ body {
   .subbar {
     gap: 8px;
     padding: 8px var(--gutter);
-    /* The chips outnumber the room; let them scroll sideways rather than
-       stack into three ragged rows. */
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    scrollbar-width: none;
   }
 
-  .subbar::-webkit-scrollbar {
-    display: none;
+  /* Comfortable tap targets inside the sheet, where there is room for them. */
+  .sheet-group .segmented button {
+    height: 36px;
   }
 
-  .segmented {
-    flex-wrap: nowrap;
-  }
-
-  .segmented button {
-    height: 30px;
-    padding: 0 13px;
-    flex: none;
-  }
-
-  .pill {
-    flex: none;
+  .statusbar .pill {
+    height: 24px;
+    padding: 0 10px;
+    font-size: 11px;
   }
 
   .summary {
@@ -1231,6 +1537,17 @@ body {
     gap: 4px 12px;
     padding: 8px var(--gutter);
     font-size: 11px;
+  }
+
+  .pagebar {
+    justify-content: space-between;
+    gap: 6px 10px;
+    font-size: 11px;
+  }
+
+  /* The chip's number says "rows per page" well enough at this width. */
+  .pagebar-label {
+    display: none;
   }
 
   .statusbar .spacer {
@@ -1302,6 +1619,12 @@ body {
   .chg-chip {
     min-width: 0;
     font-size: 12px;
+  }
+
+  /* The range readout already says where you are; the page counter is the
+     first thing to go when the bar can't fit on one line. */
+  .pagebar-page {
+    display: none;
   }
 }
 

@@ -8,7 +8,8 @@ Every endpoint used, every endpoint rejected, with the evidence behind each deci
 
 | Source | Auth | Status | Supplies |
 |---|---|---|---|
-| NSE `EQUITY_L.csv` | none (needs `Referer`) | ✅ used | The 2,397-share master list |
+| NSE `EQUITY_L.csv` | none (needs `Referer`) | ✅ used | The NSE master list (2,410 shares) |
+| BSE `ListofScripData/w` | none (needs `Referer`) | ✅ used | The BSE master list (5,099 active equity scrips) |
 | Yahoo `v8/finance/spark` | none | ✅ used | LTP + previous close, 20 symbols/request |
 | Yahoo `v8/finance/chart` | none | ✅ used | OHLCV history, 1 symbol/request |
 | Zerodha Kite `/instruments` | none | ⚪ viable fallback | 9,899 NSE instruments (noisy) |
@@ -18,7 +19,11 @@ Every endpoint used, every endpoint rejected, with the evidence behind each deci
 
 ---
 
-## 2.1 The master list — NSE `EQUITY_L.csv`
+## 2.1 The master lists — NSE `EQUITY_L.csv` + BSE scrip master
+
+Each exchange publishes its own list, neither references the other, and most large companies are on both. The app fetches both and merges them on ISIN into **one row per company**.
+
+### NSE — `EQUITY_L.csv`
 
 The canonical, authoritative list of every share listed on the NSE cash market, published by the exchange itself.
 
@@ -82,6 +87,63 @@ The date format is the notable one: NSE uses `DD-MMM-YYYY` with a three-letter u
 
 These three are exactly what the UI's series filter exposes, and the counts are asserted in the UI test.
 
+### BSE — the scrip master
+
+The feed behind BSE's own "List of Securities" page. JSON, not CSV.
+
+```
+https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w?Group=&Scripcode=&industry=&segment=Equity&status=Active
+```
+
+The four empty query parameters are **required** — the endpoint expects them present-but-blank rather than absent. Headers mirror NSE's problem: it is served only to requests that look like they came from `bseindia.com`.
+
+```http
+User-Agent:      Mozilla/5.0 (Windows NT 10.0; Win64; x64) ... Chrome/120.0.0.0 Safari/537.36
+Referer:         https://www.bseindia.com/
+Origin:          https://www.bseindia.com
+Accept:          application/json, text/plain, */*
+```
+
+**Measured response:** 1,789,959 bytes raw · 292,775 gzipped · **5,102 rows**, of which **5,099** are `Segment: Equity` + `Status: Active`. Roughly 30× the NSE CSV, which is why both proxies cache it for 6 hours.
+
+```json
+{ "SCRIP_CD": "500325", "scrip_id": "RELIANCE", "Scrip_Name": "Reliance Industries Ltd",
+  "ISIN_NUMBER": "INE002A01018", "GROUP": "A", "FACE_VALUE": "10.00",
+  "Status": "Active", "Segment": "Equity", "Mktcap": "..." }
+```
+
+| JSON field | App field | Notes |
+|---|---|---|
+| `scrip_id` | `symbol` (BSE-only rows) | Alphabetic ticker; also the Yahoo `.BO` stem |
+| `SCRIP_CD` | `bseCode` | Numeric scrip code, BSE's own primary key |
+| `Scrip_Name` | `name` | |
+| `ISIN_NUMBER` | `isin` | **The join key.** Two rows carry the literal `"NA"` — rejected by a 12-character check, or they would merge two unrelated companies |
+| `GROUP` | `series` | BSE settlement group (A, B, X, XT, T, Z, M, MT, P, …) — occupies the same column as NSE's series |
+| `FACE_VALUE` | `faceValue` | |
+
+BSE publishes no listing date, paid-up value or market lot, so those stay `null` on BSE-only rows.
+
+### Merging the two lists
+
+`mergeListings()` in [listings.ts](../src/lib/listings.ts) — reimplemented identically in [_shared/upstream.ts](../supabase/functions/_shared/upstream.ts) and [seed.mjs](../scripts/seed.mjs), because whichever runs decides what the table holds.
+
+**Measured on live data:**
+
+| | Count |
+|---|---|
+| NSE rows | 2,410 |
+| BSE active equity scrips | 5,099 |
+| Matched on ISIN (dual-listed) | 2,280 |
+| NSE-only | 130 |
+| BSE-only | 2,819 |
+| **Merged total** | **5,229** |
+
+Three rules, each earned from the data:
+
+1. **Dual-listed companies keep everything NSE.** Symbol, series, listing date, and a `.NS` ticker — the NSE book is the more liquid of the two, so its last trade is the better price to show. The row only gains `BSE` in `exchanges` and the scrip code.
+2. **ISIN must be well-formed to join on.** 12 alphanumerics. BSE's `"NA"` placeholders appear on two scrips that are otherwise unrelated.
+3. **BSE tickers can collide with NSE ones.** Two do today: BSE's `FOCUS` is Focus Business Solution, NSE's is Focus Lighting and Fixtures; likewise `KALYANI`. Since `symbol` is the key quotes join on, the BSE-only row falls back to its numeric scrip code (`543312`), which can never collide with an NSE symbol. Yahoo is still queried by scrip id, so only the label changes.
+
 ---
 
 ## 2.2 Prices — Yahoo `v8/finance/spark`
@@ -94,9 +156,11 @@ No authentication, no cookie, no crumb. Only a `User-Agent` is needed.
 
 ### Symbol mapping
 
-NSE symbol + `.NS` suffix. `RELIANCE` → `RELIANCE.NS`.
+NSE symbol + `.NS`, or BSE scrip id + `.BO`. `RELIANCE` → `RELIANCE.NS`; `TANFACIND` → `TANFACIND.BO`. Resolved once at merge time and stored as `Security.ticker` / `securities.yahoo_ticker`, because a BSE-only row's ticker cannot be derived from its display symbol.
 
-Symbols containing `&` (e.g. `M&MFIN`, `ARE&M`) **must** be URL-encoded or they truncate the query string. The code encodes the whole joined parameter with `encodeURIComponent()`.
+> ⚠️ For BSE, use the **alphabetic scrip id, not the numeric scrip code**. Both resolve for older scrips (`504346.BO` and `RRP.BO` both work), but anything listed recently is reachable only by id — `544467.BO` (NSDL) 404s where `NSDL.BO` returns data. Measured across a 20-scrip sample spanning the whole list: id form 20/20, code form 16/20.
+
+Symbols containing `&` (e.g. `M&MFIN`, `ARE&M`) **must** be URL-encoded or they truncate the query string. The code encodes the whole joined parameter with `encodeURIComponent()`. Note that `encodeURIComponent` also applies to the *path* of the chart endpoint, where it produces `ARE%26M.NS` — and `URL.pathname` keeps that escape rather than decoding it, so the Worker's allowlist has to permit `%`. See [Gotchas](07-gotchas.md).
 
 ### The 20-symbol hard cap
 

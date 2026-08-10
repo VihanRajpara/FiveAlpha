@@ -4,13 +4,14 @@
 
 ## The problem
 
-Display every share listed on India's National Stock Exchange in one table, with live prices and history, using only free data.
+Display every company listed on India's two cash exchanges — NSE and BSE — in one table, with live prices and history, using only free data.
 
-Three constraints shape the entire design:
+Four constraints shape the entire design:
 
-1. **Neither upstream sends CORS headers.** A browser cannot call NSE or Yahoo Finance directly. Something server-side must sit in between. This is not optional and it is not a preference — it is a hard browser security boundary.
-2. **NSE actively fingerprints callers.** The archive endpoint returns 403 without a `Referer`, and silently *hangs* on certain browser header combinations (see [Gotchas](07-gotchas.md#1-nses-waf-hangs-on-browser-header-fingerprints)).
-3. **Yahoo caps price requests at 20 symbols.** 2,397 shares ÷ 20 = **120 requests** for one full refresh. That volume has to be batched, pooled, and streamed — you cannot do it in one call.
+1. **No upstream sends CORS headers.** A browser cannot call NSE, BSE or Yahoo Finance directly. Something server-side must sit in between. This is not optional and it is not a preference — it is a hard browser security boundary.
+2. **Both exchanges fingerprint callers.** NSE's archive endpoint returns 403 without a `Referer`, and silently *hangs* on certain browser header combinations (see [Gotchas](07-gotchas.md#1-nses-waf-hangs-on-browser-header-fingerprints)). BSE's API wants a matching `Referer` and `Origin`.
+3. **The two exchange lists overlap and share no key but ISIN.** ~2,300 of BSE's 5,099 active scrips are the same companies already in NSE's list. Merging them on ISIN is what keeps the table one row per *company* instead of two rows quoting the same business — see [Data sources §2.1](02-data-sources.md).
+4. **Yahoo caps price requests at 20 symbols.** ~5,200 companies ÷ 20 = **~260 requests** for one full refresh. That volume has to be batched, pooled, and streamed — you cannot do it in one call.
 
 ## The two-mode design
 
@@ -35,6 +36,7 @@ flowchart TB
     end
 
     NSE["NSE archives<br/>EQUITY_L.csv"]
+    BSE["BSE API<br/>scrip master"]
     YF["Yahoo Finance<br/>spark · chart"]
 
     UI --> DS
@@ -42,11 +44,14 @@ flowchart TB
     DS -->|"VITE_SUPABASE_URL set<br/>list + prices"| PG
     DS -->|"chart history, either mode"| CF
     VP --> NSE
+    VP --> BSE
     VP --> YF
     CF --> YF
     CF --> NSE
+    CF --> BSE
     CR --> EF
     EF --> NSE
+    EF --> BSE
     EF --> YF
     EF --> PG
 ```
@@ -71,10 +76,12 @@ Both adapters implement the same interface ([src/types.ts](../src/types.ts)):
 export interface DataSource {
   readonly kind: 'direct' | 'supabase';
   listSecurities(): Promise<Security[]>;
-  fetchQuotes(symbols: string[], onBatch?: (batch: Quote[]) => void): Promise<Quote[]>;
-  fetchCandles(symbol: string, range: ChartRange): Promise<Candle[]>;
+  fetchQuotes(targets: QuoteTarget[], onBatch?: (batch: Quote[]) => void): Promise<Quote[]>;
+  fetchCandles(ticker: string, range: ChartRange): Promise<Candle[]>;
 }
 ```
+
+`QuoteTarget` is `{ symbol, ticker }`: the display key the table joins on, and the exchange-qualified Yahoo ticker to ask for. They differ for every BSE-only row, so neither can be derived from the other.
 
 No component imports `directSource` or `supabaseSource`. They import `activeSource`. Switching backends is an env var, not a code change, and no UI component contains a branch on which mode is running.
 
@@ -131,7 +138,7 @@ The rule applied throughout: state lives at the **lowest** node that can serve e
 |---|---|
 | **Vite** | Its dev-server proxy is what makes zero-setup mode possible. Pinned to v5 because Vite 7 requires Node 20+ and this machine runs Node 18.20.3. |
 | **@tanstack/react-table** | Headless — supplies sorting logic and column definitions but zero markup, so the CSS-grid row layout the virtualizer needs is unconstrained. |
-| **@tanstack/react-virtual** | Not optional. 2,397 rows × 11 columns ≈ 26,000 cells. Rendering all of them janks badly; only ~33 rows are ever in the DOM. |
+| **@tanstack/react-virtual** | Not optional. ~5,200 rows × 13 columns ≈ 68,000 cells. Rendering all of them janks badly; only ~33 rows are ever in the DOM. |
 | **@supabase/supabase-js** | Postgres client, RLS-aware, works against the anon key. |
 | **(no chart library)** | The chart is ~150 lines of hand-written SVG in [PriceChart.tsx](../src/components/PriceChart.tsx). A charting dependency would have been larger than the entire rest of the bundle for one area chart with a crosshair. |
 
@@ -158,7 +165,8 @@ The rule applied throughout: state lives at the **lowest** node that can serve e
 │   │   └── PriceChart.tsx      SVG chart
 │   └── lib/
 │       ├── dataSource.ts       adapter selection
-│       ├── directSource.ts     NSE + Yahoo via the /api proxy
+│       ├── listings.ts         NSE + BSE master lists, merged on ISIN
+│       ├── directSource.ts     NSE + BSE + Yahoo via the /api proxy
 │       ├── supabaseSource.ts   Postgres reads (list + prices only)
 │       ├── yahooCandles.ts     chart history, fetched on demand by both
 │       ├── supabaseClient.ts   client construction / null when unconfigured
@@ -176,7 +184,7 @@ The rule applied throughout: state lives at the **lowest** node that can serve e
     │   └── 0004_drop_candles.sql  removes the stored history
     └── functions/
         ├── _shared/upstream.ts shared helpers
-        ├── sync-securities/    NSE list → securities
+        ├── sync-securities/    NSE + BSE lists, merged → securities
         └── sync-quotes/        Yahoo spark → quotes
 ```
 

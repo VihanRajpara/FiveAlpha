@@ -138,8 +138,8 @@ Define the contract first — it is what makes the two backends interchangeable.
 export interface DataSource {
   readonly kind: 'direct' | 'supabase';
   listSecurities(): Promise<Security[]>;
-  fetchQuotes(symbols: string[], onBatch?: (batch: Quote[]) => void): Promise<Quote[]>;
-  fetchCandles(symbol: string, range: ChartRange): Promise<Candle[]>;
+  fetchQuotes(targets: QuoteTarget[], onBatch?: (batch: Quote[]) => void): Promise<Quote[]>;
+  fetchCandles(ticker: string, range: ChartRange): Promise<Candle[]>;
 }
 ```
 

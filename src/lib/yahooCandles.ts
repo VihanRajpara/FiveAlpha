@@ -18,11 +18,6 @@ import type { Candle, ChartRange } from '../types';
  * there is no CORS to negotiate.
  */
 
-/** NSE symbols map to Yahoo tickers by suffixing the exchange. */
-export function toYahooSymbol(symbol: string): string {
-  return `${symbol}.NS`;
-}
-
 interface ChartResponse {
   chart?: {
     result?: {
@@ -41,15 +36,16 @@ interface ChartResponse {
   };
 }
 
-export async function fetchYahooCandles(symbol: string, range: ChartRange): Promise<Candle[]> {
+/** `ticker` is the exchange-qualified Yahoo symbol — `TCS.NS` or `TANFACIND.BO`. */
+export async function fetchYahooCandles(ticker: string, range: ChartRange): Promise<Candle[]> {
   // Daily bars stay readable up to a year; beyond that switch to weekly.
   const interval = range === '5y' ? '1wk' : '1d';
   const url = `/api/yahoo/v8/finance/chart/${encodeURIComponent(
-    toYahooSymbol(symbol),
+    ticker,
   )}?range=${range}&interval=${interval}`;
 
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Yahoo returned ${res.status} for ${symbol}`);
+  if (!res.ok) throw new Error(`Yahoo returned ${res.status} for ${ticker}`);
 
   const payload = (await res.json()) as ChartResponse;
   const result = payload.chart?.result?.[0];

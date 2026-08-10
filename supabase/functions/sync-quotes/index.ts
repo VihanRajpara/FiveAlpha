@@ -1,6 +1,6 @@
 // Refreshes public.quotes for every symbol via Yahoo's spark endpoint.
-// ~2,400 symbols / 20 per request = ~120 upstream calls, which fits comfortably
-// inside one invocation at concurrency 8.
+// ~5,200 companies / 20 per request = ~260 upstream calls, which still fits
+// inside one invocation at concurrency 8 (it was ~120 before BSE was added).
 import {
   adminClient,
   assertAuthorized,
@@ -11,7 +11,7 @@ import {
   json,
   mapPool,
   SPARK_BATCH_SIZE,
-  toYahooSymbol,
+  toNseTicker,
 } from '../_shared/upstream.ts';
 
 const CONCURRENCY = 8;
@@ -43,21 +43,26 @@ Deno.serve(async (req) => {
     const supabase = adminClient();
 
     // PostgREST caps responses at 1000 rows, so page through the symbol list.
-    const symbols: string[] = [];
+    // `*` rather than naming yahoo_ticker: that would 400 outright on a database
+    // that hasn't run migration 0005, where falling back to `SYMBOL.NS` is
+    // exactly right because every row is an NSE listing.
+    const targets: { symbol: string; ticker: string }[] = [];
     for (let page = 0; ; page++) {
       const from = page * 1000;
       const { data, error } = await supabase
         .from('securities')
-        .select('symbol')
+        .select('*')
         .order('symbol')
         .range(from, from + 999);
       if (error) return json({ error: error.message, stage: 'read-symbols' }, 500);
-      const batch = (data ?? []) as { symbol: string }[];
-      symbols.push(...batch.map((r) => r.symbol));
+      const batch = (data ?? []) as { symbol: string; yahoo_ticker?: string | null }[];
+      targets.push(
+        ...batch.map((r) => ({ symbol: r.symbol, ticker: r.yahoo_ticker || toNseTicker(r.symbol) })),
+      );
       if (batch.length < 1000) break;
     }
 
-    if (symbols.length === 0) {
+    if (targets.length === 0) {
       return json({ error: 'securities is empty — run sync-securities first' }, 409);
     }
 
@@ -65,10 +70,10 @@ Deno.serve(async (req) => {
     let failedBatches = 0;
 
     const batches = await mapPool(
-      chunk(symbols, SPARK_BATCH_SIZE),
+      chunk(targets, SPARK_BATCH_SIZE),
       CONCURRENCY,
       async (batch): Promise<QuoteRow[]> => {
-        const query = batch.map(toYahooSymbol).join(',');
+        const query = batch.map((t) => t.ticker).join(',');
         // interval=5m, not 1d: a daily bar carries the session OPEN as its
         // timestamp (09:15 IST), so a current price would be dated hours ago.
         const url =
@@ -80,9 +85,10 @@ Deno.serve(async (req) => {
 
           const payload = await res.json() as Record<string, SparkEntry | null>;
 
-          // Yahoo drops unknown tickers from the response, so iterate the request.
-          return batch.map((symbol) => {
-            const entry = payload[toYahooSymbol(symbol)];
+          // Yahoo drops unknown tickers from the response, so iterate the
+          // request. Rows are keyed back to `symbol`, the securities PK.
+          return batch.map(({ symbol, ticker }) => {
+            const entry = payload[ticker];
             const closeArr = entry?.close ?? [];
             const stamps = entry?.timestamp ?? [];
 
@@ -118,7 +124,7 @@ Deno.serve(async (req) => {
 
     return json({
       ok: true,
-      requested: symbols.length,
+      requested: targets.length,
       priced: rows.length,
       failedBatches,
     });

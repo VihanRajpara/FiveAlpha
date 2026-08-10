@@ -1,25 +1,29 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createColumnHelper,
   flexRender,
   getCoreRowModel,
+  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
+  type PaginationState,
   type Row,
   type SortingState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { CAP_SHORT, classRank } from '../lib/classification';
+import { ExchangeBadges } from './ExchangeBadges';
 import { SelectMenu } from './SelectMenu';
 import { formatDate, formatPercent, formatPrice } from '../lib/format';
-import type { SecurityWithQuote } from '../types';
+import type { Classification, SecurityWithQuote } from '../types';
 
 /**
  * Three layouts, because a 1,200px-wide screener is unusable on a phone:
  *
  *  - `wide`   — every column, horizontally scrollable.
- *  - `medium` — the six columns worth having when the viewport can't hold
- *               eleven; no horizontal scroll.
+ *  - `medium` — the seven columns worth having when the viewport can't hold
+ *               thirteen; no horizontal scroll.
  *  - `mobile` — abandons the grid entirely for stacked rows, with a sort
  *               control standing in for the clickable column headers.
  */
@@ -28,8 +32,23 @@ type Layout = 'wide' | 'medium' | 'mobile';
 /** Row heights per layout — must track `--row-h`, which is set from these. */
 const ROW_HEIGHT: Record<Layout, number> = { wide: 48, medium: 48, mobile: 68 };
 
-/** Columns dropped in `medium`, in priority order of what matters least. */
-const MEDIUM_HIDDEN = new Set(['index', 'previousClose', 'isin', 'listingDate', 'faceValue']);
+/**
+ * Columns dropped in `medium`, in priority order of what matters least. `series`
+ * goes too: at this width there is room for two classification columns, and
+ * segment/cap plus exchange say more about a stock than EQ-vs-BE does. `exchange`
+ * survives because it is the one column that distinguishes the ~2,800 BSE-only
+ * rows from everything else.
+ */
+const MEDIUM_HIDDEN = new Set([
+  'index',
+  'series',
+  'previousClose',
+  'isin',
+  'listingDate',
+  'faceValue',
+]);
+
+const PAGE_SIZES = [25, 50, 100, 250];
 
 const helper = createColumnHelper<SecurityWithQuote>();
 
@@ -55,15 +74,56 @@ function numericSort(
   return av - bv;
 }
 
-/** Renders a price cell, or a shimmer while that symbol's quote is still in flight. */
-function PriceCell({ value }: { value: number | null | undefined }) {
-  if (value === null || value === undefined) return <span className="skeleton" />;
+/**
+ * A missing number means one of two different things, and they must not look
+ * alike: before the quote pass finishes it means "not fetched yet" (shimmer),
+ * and afterwards it means "this symbol has no price" (an em dash).
+ *
+ * The second case is not an edge case since BSE was added. Yahoo answers a
+ * thinly traded scrip with a previous close but no traded bar for the session,
+ * so `price`, `change` and `changePercent` stay null while `previousClose` has
+ * a value — a row that shimmered in three columns forever while showing a
+ * number in the fourth.
+ */
+function Missing({ loaded }: { loaded: boolean }) {
+  return loaded ? <span className="num muted-dash">—</span> : <span className="skeleton" />;
+}
+
+function PriceCell({ value, loaded }: { value: number | null | undefined; loaded: boolean }) {
+  if (value === null || value === undefined) return <Missing loaded={loaded} />;
   return <span className="num">{formatPrice(value)}</span>;
 }
 
+function ChevronIcon({ d }: { d: string }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={d} />
+    </svg>
+  );
+}
+
+const FIRST = 'M18 18 12 12l6-6M11 18 5 12l6-6';
+const PREV = 'm15 18-6-6 6-6';
+const NEXT = 'm9 18 6-6-6-6';
+const LAST = 'm6 18 6-6-6-6M13 18l6-6-6-6';
+
+/**
+ * Segment + cap band. The F&O mark is the one that earns colour — it is the
+ * distinction people scan for, and only ~200 of 2,400 rows carry it.
+ */
+function TypeCell({ cls }: { cls: Classification | undefined }) {
+  if (!cls) return <span className="skeleton" />;
+  return (
+    <span className="type-cell">
+      {cls.fno && <span className="badge fno">F&amp;O</span>}
+      <span className={`badge cap cap-${cls.capBand}`}>{CAP_SHORT[cls.capBand]}</span>
+    </span>
+  );
+}
+
 /** The tonal up/down chip, shared by the grid cell and the mobile row. */
-function ChangeChip({ value }: { value: number | null | undefined }) {
-  if (value === null || value === undefined) return <span className="skeleton" />;
+function ChangeChip({ value, loaded }: { value: number | null | undefined; loaded: boolean }) {
+  if (value === null || value === undefined) return <Missing loaded={loaded} />;
   return (
     <span className={`chg-chip num ${value >= 0 ? 'up' : 'down'}`}>
       <span className="arrow" aria-hidden>
@@ -76,13 +136,22 @@ function ChangeChip({ value }: { value: number | null | undefined }) {
 
 interface Props {
   rows: SecurityWithQuote[];
+  /** False until the first quote pass settles — see `Missing`. */
+  quotesLoaded: boolean;
   sorting: SortingState;
   onSortingChange: React.Dispatch<React.SetStateAction<SortingState>>;
   selectedSymbol: string | null;
   onSelect: (row: SecurityWithQuote) => void;
 }
 
-export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onSelect }: Props) {
+export function StockTable({
+  rows,
+  quotesLoaded,
+  sorting,
+  onSortingChange,
+  selectedSymbol,
+  onSelect,
+}: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isMobile = useMediaQuery('(max-width: 700px)');
@@ -90,11 +159,22 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
   const layout: Layout = isMobile ? 'mobile' : isMedium ? 'medium' : 'wide';
   const rowHeight = ROW_HEIGHT[layout];
 
-  // Re-sorting while scrolled halfway down would otherwise leave the user in the
-  // middle of the new order, hiding the rows they just sorted for.
+  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
+
+  // Re-sorting or paging while scrolled halfway down would otherwise leave the
+  // user in the middle of the new list, hiding the rows they just asked for.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
-  }, [sorting]);
+  }, [sorting, pagination.pageIndex]);
+
+  // A new filter usually means a shorter list; staying on page 12 of what is
+  // now a three-page result would show an empty table. Keyed on row count
+  // rather than on `rows` itself, because a price refresh rebuilds that array
+  // without changing which securities are listed — and being thrown back to
+  // page 1 every time quotes land would be maddening.
+  useEffect(() => {
+    setPagination((p) => (p.pageIndex === 0 ? p : { ...p, pageIndex: 0 }));
+  }, [rows.length, sorting]);
 
   const columns = useMemo(
     () => [
@@ -112,6 +192,21 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
         header: 'Series',
         cell: (ctx) => <span className={`badge ${ctx.getValue()}`}>{ctx.getValue()}</span>,
       }),
+      // Sorted on the joined string, which puts BSE-only rows in their own block
+      // ("BSE" < "NSE,BSE") rather than interleaving them alphabetically.
+      helper.accessor((r) => r.exchanges.join(','), {
+        id: 'exchange',
+        header: 'Exch',
+        cell: (ctx) => <ExchangeBadges exchanges={ctx.row.original.exchanges} />,
+      }),
+      // Sorted on a rank rather than a label, so the order is F&O-first and then
+      // largest-to-smallest instead of alphabetical.
+      helper.accessor((r) => classRank(r.cls), {
+        id: 'segment',
+        header: 'Type',
+        sortingFn: numericSort,
+        cell: (ctx) => <TypeCell cls={ctx.row.original.cls} />,
+      }),
       // `?? undefined` lets TanStack push symbols without a quote to the bottom
       // instead of sorting them as if they were priced at zero.
       helper.accessor((r) => r.quote?.price ?? undefined, {
@@ -119,7 +214,7 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
         header: 'LTP',
         sortUndefined: 'last',
         sortingFn: numericSort,
-        cell: (ctx) => <PriceCell value={ctx.row.original.quote?.price} />,
+        cell: (ctx) => <PriceCell value={ctx.row.original.quote?.price} loaded={quotesLoaded} />,
       }),
       helper.accessor((r) => r.quote?.change ?? undefined, {
         id: 'change',
@@ -128,7 +223,7 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
         sortingFn: numericSort,
         cell: (ctx) => {
           const v = ctx.row.original.quote?.change;
-          if (v === null || v === undefined) return <span className="skeleton" />;
+          if (v === null || v === undefined) return <Missing loaded={quotesLoaded} />;
           return (
             <span className={`num ${v >= 0 ? 'up' : 'down'}`}>
               {v >= 0 ? '+' : ''}
@@ -142,14 +237,18 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
         header: 'Chg %',
         sortUndefined: 'last',
         sortingFn: numericSort,
-        cell: (ctx) => <ChangeChip value={ctx.row.original.quote?.changePercent} />,
+        cell: (ctx) => (
+          <ChangeChip value={ctx.row.original.quote?.changePercent} loaded={quotesLoaded} />
+        ),
       }),
       helper.accessor((r) => r.quote?.previousClose ?? undefined, {
         id: 'previousClose',
         header: 'Prev close',
         sortUndefined: 'last',
         sortingFn: numericSort,
-        cell: (ctx) => <PriceCell value={ctx.row.original.quote?.previousClose} />,
+        cell: (ctx) => (
+          <PriceCell value={ctx.row.original.quote?.previousClose} loaded={quotesLoaded} />
+        ),
       }),
       helper.accessor('isin', {
         header: 'ISIN',
@@ -171,22 +270,40 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
         cell: (ctx) => <span className="num">{ctx.row.original.faceValue ?? '—'}</span>,
       }),
     ],
-    [],
+    [quotesLoaded],
   );
 
   const table = useReactTable({
     data: rows,
     columns,
-    state: { sorting },
+    state: { sorting, pagination },
     onSortingChange,
+    onPaginationChange: setPagination,
     // Without this a third click clears sorting entirely, which reads as a bug
     // on a screener — cycle asc ↔ desc instead.
     enableSortingRemoval: false,
+    // Page resets are handled above, deliberately narrower than TanStack's
+    // default of resetting on any data change.
+    autoResetPageIndex: false,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
   });
 
   const tableRows = table.getRowModel().rows;
+  const pageCount = table.getPageCount();
+
+  // Belt and braces for any narrowing the row-count effect can't see (a filter
+  // that happens to leave the same number of rows across a shorter list).
+  useEffect(() => {
+    if (pageCount > 0 && pagination.pageIndex > pageCount - 1) {
+      setPagination((p) => ({ ...p, pageIndex: pageCount - 1 }));
+    }
+  }, [pageCount, pagination.pageIndex]);
+
+  const total = rows.length;
+  const firstOnPage = total === 0 ? 0 : pagination.pageIndex * pagination.pageSize + 1;
+  const lastOnPage = Math.min(total, (pagination.pageIndex + 1) * pagination.pageSize);
 
   const virtualizer = useVirtualizer({
     count: tableRows.length,
@@ -221,6 +338,7 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
     if (id === 'symbol') return 'td sym';
     if (id === 'name') return 'td name';
     if (id === 'isin' || id === 'listingDate') return 'td muted';
+    if (id === 'exchange') return 'td exch';
     return `td${align}`;
   };
 
@@ -309,6 +427,13 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
                   <div className="stack-main">
                     <span className="stack-sym">
                       {row.original.symbol}
+                      {row.original.cls?.fno && <span className="badge fno">F&amp;O</span>}
+                      {/* Only the exception is worth a badge here — a phone row
+                          has space for three chips at most, and most rows are on
+                          NSE, so marking those says nothing. */}
+                      {!row.original.exchanges.includes('NSE') && (
+                        <span className="badge exch exch-BSE">BSE</span>
+                      )}
                       <span className={`badge ${row.original.series}`}>{row.original.series}</span>
                     </span>
                     <span className="stack-name">{row.original.name}</span>
@@ -316,12 +441,12 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
                   <div className="stack-side">
                     <span className="stack-price num">
                       {q?.price === null || q?.price === undefined ? (
-                        <span className="skeleton" />
+                        <Missing loaded={quotesLoaded} />
                       ) : (
                         formatPrice(q.price)
                       )}
                     </span>
-                    <ChangeChip value={q?.changePercent} />
+                    <ChangeChip value={q?.changePercent} loaded={quotesLoaded} />
                   </div>
                 </div>
               );
@@ -335,13 +460,81 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
                   .map((cell) => (
                     <div key={cell.id} className={cellClass(cell.column.id)}>
                       {cell.column.id === 'index'
-                        ? virtualRow.index + 1
+                        ? // Position in the whole result, not within the page.
+                          pagination.pageIndex * pagination.pageSize + virtualRow.index + 1
                         : flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </div>
                   ))}
               </div>
             );
           })}
+        </div>
+      </div>
+
+      <div className="pagebar">
+        <div className="pagebar-group">
+          <span className="pagebar-label">Rows per page</span>
+          <SelectMenu
+            ariaLabel="Rows per page"
+            value={String(pagination.pageSize)}
+            options={PAGE_SIZES.map((n) => ({ value: String(n), label: String(n) }))}
+            // Changing page size mid-list has no sensible landing spot, so go
+            // back to the top rather than guess.
+            onChange={(v) => setPagination({ pageIndex: 0, pageSize: Number(v) })}
+            minMenuWidth={96}
+          />
+        </div>
+
+        <span className="num pagebar-range">
+          {total === 0
+            ? 'No matches'
+            : `${firstOnPage.toLocaleString('en-IN')}–${lastOnPage.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')}`}
+        </span>
+
+        <div className="pagebar-group">
+          <button
+            type="button"
+            className="page-btn"
+            onClick={() => table.setPageIndex(0)}
+            disabled={!table.getCanPreviousPage()}
+            aria-label="First page"
+            title="First page"
+          >
+            <ChevronIcon d={FIRST} />
+          </button>
+          <button
+            type="button"
+            className="page-btn"
+            onClick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
+            aria-label="Previous page"
+            title="Previous page"
+          >
+            <ChevronIcon d={PREV} />
+          </button>
+          <span className="pagebar-page num">
+            {pageCount === 0 ? '0 of 0' : `${pagination.pageIndex + 1} of ${pageCount.toLocaleString('en-IN')}`}
+          </span>
+          <button
+            type="button"
+            className="page-btn"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+            aria-label="Next page"
+            title="Next page"
+          >
+            <ChevronIcon d={NEXT} />
+          </button>
+          <button
+            type="button"
+            className="page-btn"
+            onClick={() => table.setPageIndex(pageCount - 1)}
+            disabled={!table.getCanNextPage()}
+            aria-label="Last page"
+            title="Last page"
+          >
+            <ChevronIcon d={LAST} />
+          </button>
         </div>
       </div>
     </>

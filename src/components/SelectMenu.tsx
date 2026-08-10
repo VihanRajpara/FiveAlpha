@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom';
 export interface MenuOption {
   value: string;
   label: string;
+  /** Optional second line. Used where the label alone is a bare code. */
+  hint?: string;
 }
 
 interface Props {
@@ -13,9 +15,13 @@ interface Props {
   onChange: (value: string) => void;
   /** Announced to screen readers in place of a visible <label>. */
   ariaLabel: string;
+  /** Floor for the popup width; it never goes narrower than its trigger. */
+  minMenuWidth?: number;
 }
 
 const ITEM_H = 40;
+/** A hint adds a second line, so the height used to size the popup must grow. */
+const ITEM_H_WITH_HINT = 58;
 const MAX_MENU_H = 320;
 
 /**
@@ -29,7 +35,7 @@ const MAX_MENU_H = 320;
  * card, which clips its overflow to keep the rounded corners; an absolutely
  * positioned menu would be cut off at the card edge.
  */
-export function SelectMenu({ id, value, options, onChange, ariaLabel }: Props) {
+export function SelectMenu({ id, value, options, onChange, ariaLabel, minMenuWidth = 200 }: Props) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [pos, setPos] = useState<{
@@ -52,8 +58,9 @@ export function SelectMenu({ id, value, options, onChange, ariaLabel }: Props) {
     const btn = btnRef.current;
     if (!btn) return;
     const r = btn.getBoundingClientRect();
-    const width = Math.max(r.width, 200);
-    const wanted = Math.min(MAX_MENU_H, options.length * ITEM_H + 12);
+    const width = Math.max(r.width, minMenuWidth);
+    const itemH = options.some((o) => o.hint) ? ITEM_H_WITH_HINT : ITEM_H;
+    const wanted = Math.min(MAX_MENU_H, options.length * itemH + 12);
 
     // Drop upward when there isn't room below — on a phone the sort bar can sit
     // low enough that a downward menu would run off the viewport. Whichever
@@ -204,7 +211,14 @@ export function SelectMenu({ id, value, options, onChange, ariaLabel }: Props) {
                 <span className="menu-check" aria-hidden>
                   {i === selectedIndex ? '✓' : ''}
                 </span>
-                {o.label}
+                {o.hint ? (
+                  <span className="menu-text">
+                    <span>{o.label}</span>
+                    <span className="menu-hint">{o.hint}</span>
+                  </span>
+                ) : (
+                  o.label
+                )}
               </div>
             ))}
           </div>,

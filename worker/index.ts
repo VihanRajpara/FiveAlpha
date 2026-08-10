@@ -3,10 +3,11 @@
  *
  * The site itself is still just ./dist served from the edge — but the deployed
  * build now fetches chart history live instead of reading it from a Supabase
- * table, and neither Yahoo nor NSE sends CORS headers, so the browser cannot
+ * table, and none of Yahoo, NSE or BSE sends CORS headers, so the browser cannot
  * call them itself. This Worker is the production counterpart of the Vite dev
- * proxy in vite.config.ts: same `/api/yahoo/*` and `/api/nse/*` paths, same
- * header rewriting, so `src/lib/yahooCandles.ts` works unchanged in both.
+ * proxy in vite.config.ts: same `/api/yahoo/*`, `/api/nse/*` and `/api/bse/*`
+ * paths, same header rewriting, so `src/lib/yahooCandles.ts` and
+ * `src/lib/listings.ts` work unchanged in both.
  *
  * Anything that is not an /api/ path falls through to the static assets.
  */
@@ -38,7 +39,12 @@ interface Upstream {
 const UPSTREAMS: Record<string, Upstream> = {
   '/api/yahoo': {
     origin: 'https://query1.finance.yahoo.com',
-    allow: /^\/v8\/finance\/(chart\/[A-Za-z0-9.\-&]+|spark)$/,
+    // `%` is in the class because the ticker reaches us percent-encoded:
+    // `encodeURIComponent('ARE&M.NS')` is `ARE%26M.NS`, and `URL.pathname` keeps
+    // the escape rather than decoding it. Without `%` every ampersand ticker —
+    // ARE&M on NSE, J&KBANK, a slew of BSE scrip ids — 403s here while working
+    // fine against the Vite dev proxy.
+    allow: /^\/v8\/finance\/(chart\/[A-Za-z0-9.\-&%]+|spark)$/,
     headers: {
       'User-Agent': BROWSER_UA,
       Accept: 'application/json',
@@ -48,7 +54,10 @@ const UPSTREAMS: Record<string, Upstream> = {
   },
   '/api/nse': {
     origin: 'https://nsearchives.nseindia.com',
-    allow: /^\/content\/equities\/EQUITY_L\.csv$/,
+    // The equity master list, the F&O market-lots file (derivatives
+    // eligibility), and the index constituent lists (cap bands). Still an
+    // explicit allowlist — this must not become an open proxy to NSE.
+    allow: /^\/content\/(equities\/EQUITY_L|fo\/fo_mktlots|indices\/ind_[a-z0-9]+list)\.csv$/,
     headers: {
       'User-Agent': BROWSER_UA,
       // NSE only serves the archives to requests that look like they came from its site.
@@ -56,6 +65,25 @@ const UPSTREAMS: Record<string, Upstream> = {
       Accept: 'text/csv,application/csv,*/*',
       'Accept-Language': 'en-US,en;q=0.9',
     },
+    ttl: 21_600,
+  },
+  '/api/bse': {
+    origin: 'https://api.bseindia.com',
+    // Exactly one endpoint: the scrip master behind BSE's "List of Securities"
+    // page. The query string carries the filters and is not matched here, so the
+    // allowlist deliberately pins the path alone.
+    allow: /^\/BseIndiaAPI\/api\/ListofScripData\/w$/,
+    headers: {
+      'User-Agent': BROWSER_UA,
+      // Same story as NSE: served only to requests that look like BSE's own site.
+      Referer: 'https://www.bseindia.com/',
+      Origin: 'https://www.bseindia.com',
+      Accept: 'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+    // The scrip master changes on listings and group reclassifications, i.e.
+    // daily at most — and the response is ~1.8 MB, so caching it matters more
+    // here than anywhere else in this file.
     ttl: 21_600,
   },
 };

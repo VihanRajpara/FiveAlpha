@@ -125,7 +125,7 @@ Structurally it looks like streaming. It is a no-op: `await mapPool(...)` does n
 Call it inside the worker, as each batch resolves:
 
 ```ts
-const quotes = batch.map((symbol) => buildQuote(symbol, payload[toYahooSymbol(symbol)]));
+const quotes = batch.map((t) => buildQuote(t.symbol, payload[t.ticker]));
 if (quotes.length > 0) onBatch?.(quotes);   // inside the pool worker
 return quotes;
 ```
@@ -369,6 +369,38 @@ export function parseNseDate(value: string): string | null {
 ```
 
 Returns ISO `yyyy-mm-dd`, which sorts correctly as text and inserts directly into a Postgres `date`. Returns `null` rather than throwing — one malformed row should not fail the load of 2,396 good ones.
+
+---
+
+## 11. `URL.pathname` does not decode percent-escapes
+
+Found while adding BSE, but it was already breaking NSE symbols in production.
+
+### Symptom
+
+Charts for `ARE&M` and `J&KBANK` worked under `npm run dev` and 403'd on the deployed Worker. Every other symbol was fine.
+
+### Diagnosis
+
+The chart URL is built with `encodeURIComponent(ticker)`, so `ARE&M.NS` goes out as `ARE%26M.NS` — correct, and necessary, or the `&` would terminate the path in the eyes of anything parsing a query string. The Worker then validates the upstream path against an allow-list:
+
+```ts
+allow: /^\/v8\/finance\/(chart\/[A-Za-z0-9.\-&]+|spark)$/
+```
+
+The character class permits a literal `&`, which reads as though it covers this case. It does not. `new URL(request.url).pathname` **preserves** percent-escapes rather than decoding them, so the string being tested is `/v8/finance/chart/ARE%26M.NS` — and `%` is not in the class. The Vite dev proxy has no allow-list at all, which is exactly why the bug was invisible in development.
+
+### Fix
+
+Add `%` to the class. Do **not** decode the pathname before matching: `decodeURIComponent` on a path is how directory-traversal filters get bypassed (`%2e%2e%2f` → `../`), and forwarding the still-encoded path is also what Yahoo wants to receive.
+
+```ts
+allow: /^\/v8\/finance\/(chart\/[A-Za-z0-9.\-&%]+|spark)$/
+```
+
+### Lesson
+
+An allow-list built for the *decoded* form of a value silently rejects the encoded form. Test the regex against `new URL(...).pathname`, not against the string you think you sent.
 
 ---
 

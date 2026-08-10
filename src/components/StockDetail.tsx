@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { activeSource } from '../lib/dataSource';
+import { CAP_LABEL } from '../lib/classification';
 import { formatDate, formatPercent, formatPrice, formatVolume } from '../lib/format';
-import type { Candle, ChartRange, Quote, Security } from '../types';
+import type { Candle, ChartRange, Classification, Quote, Security } from '../types';
+import { ExchangeBadges } from './ExchangeBadges';
 import { PriceChart } from './PriceChart';
 
 const RANGES: ChartRange[] = ['1mo', '6mo', '1y', '5y'];
@@ -15,10 +17,12 @@ const RANGE_LABEL: Record<ChartRange, string> = {
 interface Props {
   security: Security;
   quote?: Quote;
+  /** Undefined until the NSE segment/index lists have loaded. */
+  cls?: Classification;
   onClose: () => void;
 }
 
-export function StockDetail({ security, quote, onClose }: Props) {
+export function StockDetail({ security, quote, cls, onClose }: Props) {
   const [range, setRange] = useState<ChartRange>('1y');
   const [candles, setCandles] = useState<Candle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +40,7 @@ export function StockDetail({ security, quote, onClose }: Props) {
     setError(null);
 
     activeSource
-      .fetchCandles(security.symbol, range)
+      .fetchCandles(security.ticker, range)
       .then((rows) => {
         if (!cancelled) setCandles(rows);
       })
@@ -50,7 +54,7 @@ export function StockDetail({ security, quote, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [security.symbol, range]);
+  }, [security.ticker, range]);
 
   const change = quote?.change ?? null;
   const positive = (change ?? 0) >= 0;
@@ -71,6 +75,8 @@ export function StockDetail({ security, quote, onClose }: Props) {
             <h2>{security.symbol}</h2>
             <p>{security.name}</p>
           </div>
+          {cls?.fno && <span className="badge fno">F&amp;O</span>}
+          <ExchangeBadges exchanges={security.exchanges} />
           <span className={`badge ${security.series}`}>{security.series}</span>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             ✕
@@ -140,6 +146,41 @@ export function StockDetail({ security, quote, onClose }: Props) {
             <dt>Volume</dt>
             <dd className="num">{formatVolume(last?.volume)}</dd>
           </div>
+          <div className="fact">
+            <dt>Segment</dt>
+            <dd>
+              {cls ? (
+                cls.fno ? (
+                  <span className="up">F&amp;O + Cash</span>
+                ) : (
+                  'Cash only'
+                )
+              ) : (
+                '—'
+              )}
+            </dd>
+          </div>
+          <div className="fact">
+            <dt>Cap band</dt>
+            <dd>{cls ? CAP_LABEL[cls.capBand] : '—'}</dd>
+          </div>
+          <div className="fact">
+            <dt>Exchanges</dt>
+            <dd>{security.exchanges.join(' + ')}</dd>
+          </div>
+          {/* Which book the price above came from. For a dual-listed name the two
+              exchanges quote within a few paise of each other, but saying so
+              beats leaving the reader to guess. */}
+          <div className="fact">
+            <dt>Price feed</dt>
+            <dd className="num">{security.ticker}</dd>
+          </div>
+          {security.bseCode && (
+            <div className="fact">
+              <dt>BSE scrip code</dt>
+              <dd className="num">{security.bseCode}</dd>
+            </div>
+          )}
           <div className="fact">
             <dt>ISIN</dt>
             <dd className="num">{security.isin || '—'}</dd>

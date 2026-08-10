@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node \"C:/Users/admin/AppData/Local/Temp/claude/d--Code-Space-NSE/4e96077d-28eb-451a-92f6-ec223501b1ef/scratchpad/filters.mjs\")",
+      "Bash(npm run *)"
+    ]
+  }
+}
