@@ -3,9 +3,11 @@ import type { SortingState } from '@tanstack/react-table';
 import { StockTable } from './components/StockTable';
 import { StockDetail } from './components/StockDetail';
 import { ThemeToggle } from './components/ThemeToggle';
+import { Filters, type FilterGroupSpec } from './components/Filters';
 import { useMarketData } from './hooks/useMarketData';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
-import type { SecurityWithQuote } from './types';
+import { UNCLASSIFIED } from './lib/classification';
+import type { CapBand, SecurityWithQuote } from './types';
 
 /** Prices older than this during a live session are worth flagging. */
 const STALE_AFTER_MS = 15 * 60 * 1000;
@@ -20,10 +22,51 @@ const SERIES_HINT: Record<string, string> = {
   BZ: 'Surveillance / T2T',
 };
 
+const SEGMENT_FILTERS = ['ALL', 'FNO', 'CASH'] as const;
+type SegmentFilter = (typeof SEGMENT_FILTERS)[number];
+
+const SEGMENT_LABEL: Record<SegmentFilter, string> = {
+  ALL: 'All',
+  FNO: 'F&O',
+  CASH: 'Cash only',
+};
+
+const SEGMENT_HINT: Record<SegmentFilter, string> = {
+  ALL: 'Both segments',
+  FNO: 'Futures & options available on this underlying',
+  CASH: 'No listed derivatives — cash market only',
+};
+
+// `satisfies` ties these to CapBand, so a typo here fails the build rather than
+// silently matching no rows.
+const CAP_FILTERS = ['ALL', 'large', 'mid', 'small', 'micro'] as const satisfies readonly (
+  | 'ALL'
+  | CapBand
+)[];
+type CapFilter = (typeof CAP_FILTERS)[number];
+
+const CAP_FILTER_LABEL: Record<CapFilter, string> = {
+  ALL: 'All',
+  large: 'Large',
+  mid: 'Mid',
+  small: 'Small',
+  micro: 'Micro',
+};
+
+const CAP_FILTER_HINT: Record<CapFilter, string> = {
+  ALL: 'Every cap band',
+  large: 'NIFTY 100 constituents',
+  mid: 'NIFTY Midcap 150 constituents',
+  small: 'NIFTY Smallcap 250 constituents',
+  micro: 'Outside the NIFTY 500',
+};
+
 export default function App() {
   const {
     securities,
     quotes,
+    classification,
+    classificationReady,
     loading,
     quoteProgress,
     refreshingQuotes,
@@ -44,18 +87,31 @@ export default function App() {
 
   const [search, setSearch] = useState('');
   const [series, setSeries] = useState<SeriesFilter>('ALL');
+  const [segment, setSegment] = useState<SegmentFilter>('ALL');
+  const [cap, setCap] = useState<CapFilter>('ALL');
   const [sorting, setSorting] = useState<SortingState>([{ id: 'symbol', desc: false }]);
   const [selected, setSelected] = useState<SecurityWithQuote | null>(null);
 
   const joined = useMemo<SecurityWithQuote[]>(
-    () => securities.map((s) => ({ ...s, quote: quotes.get(s.symbol) })),
-    [securities, quotes],
+    () =>
+      securities.map((s) => ({
+        ...s,
+        quote: quotes.get(s.symbol),
+        // Absence from both NSE lists is itself the answer — cash-only, outside
+        // the NIFTY 500 — so unmatched symbols get the default rather than
+        // undefined. Before the lists land, `cls` is left undefined so the UI
+        // can tell "not classified yet" from "classified as micro/cash".
+        cls: classificationReady ? classification.get(s.symbol) ?? UNCLASSIFIED : undefined,
+      })),
+    [securities, quotes, classification, classificationReady],
   );
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return joined.filter((row) => {
       if (series !== 'ALL' && row.series !== series) return false;
+      if (segment !== 'ALL' && (row.cls?.fno ?? false) !== (segment === 'FNO')) return false;
+      if (cap !== 'ALL' && row.cls?.capBand !== cap) return false;
       if (q === '') return true;
       return (
         row.symbol.toLowerCase().includes(q) ||
@@ -63,7 +119,52 @@ export default function App() {
         row.isin.toLowerCase().includes(q)
       );
     });
-  }, [joined, search, series]);
+  }, [joined, search, series, segment, cap]);
+
+  /**
+   * One description of the filters, rendered as inline chips on wide screens
+   * and as a sheet on narrow ones. Keeping it in a single place is what stops
+   * the two layouts diverging as filters get added.
+   */
+  const filterGroups = useMemo<FilterGroupSpec[]>(
+    () => [
+      {
+        key: 'series',
+        label: 'Series',
+        value: series,
+        options: SERIES_FILTERS.map((s) => ({ value: s, label: s, hint: SERIES_HINT[s] })),
+        onChange: (v) => setSeries(v as SeriesFilter),
+      },
+      // Segment and cap read from the NSE lists, so they stay disabled until
+      // those land — offering an "F&O" filter that matches nothing would look
+      // like the app had lost the data.
+      {
+        key: 'segment',
+        label: 'Segment',
+        value: segment,
+        disabled: !classificationReady,
+        options: SEGMENT_FILTERS.map((s) => ({
+          value: s,
+          label: SEGMENT_LABEL[s],
+          hint: SEGMENT_HINT[s],
+        })),
+        onChange: (v) => setSegment(v as SegmentFilter),
+      },
+      {
+        key: 'cap',
+        label: 'Cap',
+        value: cap,
+        disabled: !classificationReady,
+        options: CAP_FILTERS.map((c) => ({
+          value: c,
+          label: CAP_FILTER_LABEL[c],
+          hint: CAP_FILTER_HINT[c],
+        })),
+        onChange: (v) => setCap(v as CapFilter),
+      },
+    ],
+    [series, segment, cap, classificationReady],
+  );
 
   const breadth = useMemo(() => {
     let up = 0;
@@ -160,28 +261,7 @@ export default function App() {
       </header>
 
       <div className="subbar">
-        <div className="segmented">
-          {SERIES_FILTERS.map((s) => (
-            <button key={s} data-active={s === series} onClick={() => setSeries(s)} title={SERIES_HINT[s]}>
-              {s}
-            </button>
-          ))}
-        </div>
-
-        <div className="spacer" />
-
-        <span className="pill">
-          <span className={`dot${refreshingQuotes ? ' busy' : ''}`} />
-          {sourceKind === 'supabase' ? 'Supabase' : 'Direct (dev proxy)'}
-        </span>
-
-        <span
-          className="pill"
-          title={marketOpen ? 'NSE 09:15–15:30 IST' : 'Outside 09:15–15:30 IST, Mon–Fri'}
-        >
-          <span className={`dot${marketOpen ? '' : ' off'}`} />
-          Market {marketOpen ? 'open' : 'closed'}
-        </span>
+        <Filters groups={filterGroups} resultCount={rows.length} />
       </div>
 
       {/* Breadth across whatever the current filter selects — the closest thing
@@ -260,7 +340,22 @@ export default function App() {
         </div>
       </main>
 
+      {/* Source and market state are status, not filters — they live beside the
+          other provenance rather than competing with the filter chips. */}
       <footer className="statusbar">
+        <span className="pill">
+          <span className={`dot${refreshingQuotes ? ' busy' : ''}`} />
+          {sourceKind === 'supabase' ? 'Supabase' : 'Direct (dev proxy)'}
+        </span>
+
+        <span
+          className="pill"
+          title={marketOpen ? 'NSE 09:15–15:30 IST' : 'Outside 09:15–15:30 IST, Mon–Fri'}
+        >
+          <span className={`dot${marketOpen ? '' : ' off'}`} />
+          Market {marketOpen ? 'open' : 'closed'}
+        </span>
+
         {refreshingQuotes && (
           <>
             <span className="progress" aria-hidden>
@@ -300,6 +395,7 @@ export default function App() {
         <StockDetail
           security={selectedRow}
           quote={selectedRow.quote}
+          cls={selectedRow.cls}
           onClose={() => setSelected(null)}
         />
       )}

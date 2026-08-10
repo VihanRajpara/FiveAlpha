@@ -237,10 +237,190 @@ body {
   border-bottom: 1px solid var(--outline-faint);
 }
 
+.filters-inline {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* Compact trigger that stands in for the chips below 1180px. */
+.filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--outline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.filter-trigger:hover {
+  background: var(--surface-2);
+}
+
+.filter-trigger[data-active='true'] {
+  background: var(--primary-container);
+  border-color: transparent;
+  color: var(--primary);
+}
+
+.filter-count {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- filter sheet ---------- */
+
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  z-index: 50;
+  animation: fade-in 0.2s ease;
+}
+
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 51;
+  display: flex;
+  flex-direction: column;
+  max-height: 86vh;
+  max-height: 86dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  border-radius: 16px 16px 0 0;
+  box-shadow: var(--elev-3);
+  animation: sheet-up 0.26s cubic-bezier(0.2, 0, 0, 1);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.sheet::before {
+  content: '';
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 999px;
+  background: var(--outline);
+  flex: none;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 20px 12px;
+}
+
+.sheet-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.sheet-group {
+  padding: 14px 20px;
+  border-top: 1px solid var(--outline-faint);
+}
+
+/* The label sits above its chips here rather than beside them. */
+.sheet-group .filter-group {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.sheet-group .segmented {
+  flex-wrap: wrap;
+}
+
+.sheet-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--outline-faint);
+  background: var(--surface);
+}
+
+.sheet-foot .btn {
+  flex: 1;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid var(--outline);
+  box-shadow: none;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  background: var(--primary-container);
+  box-shadow: none;
+}
+
+.btn.ghost:disabled {
+  background: transparent;
+  border-color: var(--outline-faint);
+  color: var(--on-surface-faint);
+}
+
+/* A labelled cluster of chips. The label is what keeps three filter rows from
+   reading as one undifferentiated wall of pills. */
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--on-surface-faint);
+  white-space: nowrap;
+}
+
 .segmented {
   display: inline-flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.segmented button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.segmented button:disabled:hover {
+  background: transparent;
+  color: var(--on-surface-variant);
 }
 
 /* Material 3 filter chips — outlined when off, tonal when on. */
@@ -436,14 +616,14 @@ body {
    can't hold them. */
 .table-wrap[data-layout='wide'] .grid-row {
   grid-template-columns:
-    64px 148px minmax(220px, 1.8fr) 76px 116px 104px 120px
+    64px 148px minmax(200px, 1.6fr) 76px 132px 116px 104px 120px
     116px 152px 116px 76px;
-  min-width: 1280px;
+  min-width: 1400px;
 }
 
 /* Tablet: the six columns worth keeping, sized to fit with no side-scroll. */
 .table-wrap[data-layout='medium'] .grid-row {
-  grid-template-columns: 128px minmax(110px, 1.6fr) 68px 104px 96px 116px;
+  grid-template-columns: 124px minmax(104px, 1.5fr) 124px 100px 92px 112px;
   min-width: 0;
 }
 
@@ -583,6 +763,43 @@ body {
 .badge.EQ {
   background: var(--primary-container);
   color: var(--primary);
+}
+
+/* Derivatives mark. The only filled accent badge in the table — roughly 200 of
+   2,400 rows carry it, so it reads as a highlight rather than as noise. */
+.badge.fno {
+  background: var(--primary);
+  color: var(--on-primary);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Cap bands are outlined rather than filled: every row has one, so a filled
+   chip on all 2,400 would flatten the F&O mark next to it. */
+.badge.cap {
+  background: transparent;
+  border: 1px solid var(--outline);
+  color: var(--on-surface-variant);
+  padding: 1px 7px;
+}
+
+.badge.cap-large {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.badge.cap-micro {
+  color: var(--on-surface-faint);
+}
+
+.type-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tr[data-selected='true'] .badge.cap {
+  border-color: var(--primary);
 }
 
 .up {
@@ -1223,29 +1440,17 @@ body {
   .subbar {
     gap: 8px;
     padding: 8px var(--gutter);
-    /* The chips outnumber the room; let them scroll sideways rather than
-       stack into three ragged rows. */
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    scrollbar-width: none;
   }
 
-  .subbar::-webkit-scrollbar {
-    display: none;
+  /* Comfortable tap targets inside the sheet, where there is room for them. */
+  .sheet-group .segmented button {
+    height: 36px;
   }
 
-  .segmented {
-    flex-wrap: nowrap;
-  }
-
-  .segmented button {
-    height: 30px;
-    padding: 0 13px;
-    flex: none;
-  }
-
-  .pill {
-    flex: none;
+  .statusbar .pill {
+    height: 24px;
+    padding: 0 10px;
+    font-size: 11px;
   }
 
   .summary {

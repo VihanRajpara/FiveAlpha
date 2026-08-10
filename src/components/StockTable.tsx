@@ -12,9 +12,10 @@ import {
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { CAP_SHORT, classRank } from '../lib/classification';
 import { SelectMenu } from './SelectMenu';
 import { formatDate, formatPercent, formatPrice } from '../lib/format';
-import type { SecurityWithQuote } from '../types';
+import type { Classification, SecurityWithQuote } from '../types';
 
 /**
  * Three layouts, because a 1,200px-wide screener is unusable on a phone:
@@ -30,8 +31,19 @@ type Layout = 'wide' | 'medium' | 'mobile';
 /** Row heights per layout — must track `--row-h`, which is set from these. */
 const ROW_HEIGHT: Record<Layout, number> = { wide: 48, medium: 48, mobile: 68 };
 
-/** Columns dropped in `medium`, in priority order of what matters least. */
-const MEDIUM_HIDDEN = new Set(['index', 'previousClose', 'isin', 'listingDate', 'faceValue']);
+/**
+ * Columns dropped in `medium`, in priority order of what matters least. `series`
+ * goes too: at this width there is room for one classification column, and
+ * segment/cap says more about a stock than EQ-vs-BE does.
+ */
+const MEDIUM_HIDDEN = new Set([
+  'index',
+  'series',
+  'previousClose',
+  'isin',
+  'listingDate',
+  'faceValue',
+]);
 
 const PAGE_SIZES = [25, 50, 100, 250];
 
@@ -77,6 +89,20 @@ const FIRST = 'M18 18 12 12l6-6M11 18 5 12l6-6';
 const PREV = 'm15 18-6-6 6-6';
 const NEXT = 'm9 18 6-6-6-6';
 const LAST = 'm6 18 6-6-6-6M13 18l6-6-6-6';
+
+/**
+ * Segment + cap band. The F&O mark is the one that earns colour — it is the
+ * distinction people scan for, and only ~200 of 2,400 rows carry it.
+ */
+function TypeCell({ cls }: { cls: Classification | undefined }) {
+  if (!cls) return <span className="skeleton" />;
+  return (
+    <span className="type-cell">
+      {cls.fno && <span className="badge fno">F&amp;O</span>}
+      <span className={`badge cap cap-${cls.capBand}`}>{CAP_SHORT[cls.capBand]}</span>
+    </span>
+  );
+}
 
 /** The tonal up/down chip, shared by the grid cell and the mobile row. */
 function ChangeChip({ value }: { value: number | null | undefined }) {
@@ -139,6 +165,14 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
       helper.accessor('series', {
         header: 'Series',
         cell: (ctx) => <span className={`badge ${ctx.getValue()}`}>{ctx.getValue()}</span>,
+      }),
+      // Sorted on a rank rather than a label, so the order is F&O-first and then
+      // largest-to-smallest instead of alphabetical.
+      helper.accessor((r) => classRank(r.cls), {
+        id: 'segment',
+        header: 'Type',
+        sortingFn: numericSort,
+        cell: (ctx) => <TypeCell cls={ctx.row.original.cls} />,
       }),
       // `?? undefined` lets TanStack push symbols without a quote to the bottom
       // instead of sorting them as if they were priced at zero.
@@ -355,6 +389,7 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
                   <div className="stack-main">
                     <span className="stack-sym">
                       {row.original.symbol}
+                      {row.original.cls?.fno && <span className="badge fno">F&amp;O</span>}
                       <span className={`badge ${row.original.series}`}>{row.original.series}</span>
                     </span>
                     <span className="stack-name">{row.original.name}</span>

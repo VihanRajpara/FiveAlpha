@@ -34,7 +34,23 @@ export interface Candle {
 
 export type ChartRange = '1mo' | '6mo' | '1y' | '5y';
 
-export type SecurityWithQuote = Security & { quote?: Quote };
+/**
+ * Market-cap band, derived from NSE index membership rather than from a
+ * computed market cap — NSE rebalances these lists semi-annually against its
+ * own free-float methodology, which is the classification the market actually
+ * refers to. The three named bands partition the Nifty 500 exactly
+ * (50 + 50 + 150 + 250); everything outside it is `micro`.
+ */
+export type CapBand = 'large' | 'mid' | 'small' | 'micro';
+
+/** What kind of instrument a symbol is, beyond its settlement series. */
+export interface Classification {
+  /** Derivatives available on this underlying (NSE F&O market-lots file). */
+  fno: boolean;
+  capBand: CapBand;
+}
+
+export type SecurityWithQuote = Security & { quote?: Quote; cls?: Classification };
 
 /**
  * The two interchangeable backends. `direct` hits NSE/Yahoo through the Vite dev
