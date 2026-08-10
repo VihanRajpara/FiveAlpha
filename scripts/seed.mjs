@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 /**
- * Local ingestion for the NSE app — the same work the Edge Functions do, but run
+ * Local ingestion for the app — the same work the Edge Functions do, but run
  * from your machine so no `supabase login` / function deploy is needed.
  *
  * Node has no CORS restriction and no WAF-fingerprint problem, so it can call
- * NSE and Yahoo directly. Writes go through PostgREST with a SECRET key, which
- * bypasses RLS.
+ * NSE, BSE and Yahoo directly. Writes go through PostgREST with a SECRET key,
+ * which bypasses RLS.
  *
- *   node scripts/seed.mjs securities        mirror EQUITY_L.csv    (~2,400 rows)
+ *   node scripts/seed.mjs securities        NSE + BSE, merged     (~5,200 rows)
  *   node scripts/seed.mjs quotes            refresh every price
  *   node scripts/seed.mjs all               securities → quotes
+ *
+ * `securities` requires supabase/migrations/0005_bse.sql. It refuses to run
+ * without it rather than write BSE rows that would then be priced as NSE ones.
  *
  * Chart history is not seeded: it is fetched live from Yahoo when a chart is
  * opened, so nothing stores it. See supabase/migrations/0004_drop_candles.sql.
@@ -28,8 +31,28 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const EQUITY_LIST_URL = 'https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv';
+/** BSE's scrip master — the feed behind its own "List of Securities" page. */
+const BSE_LIST_URL =
+  'https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w' +
+  '?Group=&Scripcode=&industry=&segment=Equity&status=Active';
 const SPARK_BATCH_SIZE = 20; // Yahoo 400s above this
 const CONCURRENCY = 6; // Yahoo refuses connections past ~8
+
+const NSE_HEADERS = {
+  'User-Agent': BROWSER_UA,
+  // NSE returns 403 without a Referer that looks like its own site.
+  Referer: 'https://www.nseindia.com/',
+  Accept: 'text/csv,application/csv,*/*',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+const BSE_HEADERS = {
+  'User-Agent': BROWSER_UA,
+  Referer: 'https://www.bseindia.com/',
+  Origin: 'https://www.bseindia.com',
+  Accept: 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
 
 // ---------------------------------------------------------------------------
 // env
@@ -125,6 +148,14 @@ const restHeaders = {
 const OPTIONAL_COLUMNS = { price_time: '0003_price_time.sql' };
 const warnedColumns = new Set();
 
+/**
+ * Columns there is no safe way to continue without. Dropping `yahoo_ticker` or
+ * `exchanges` would not degrade the seed, it would corrupt it: every BSE-only
+ * row would land looking like an NSE symbol and then be priced as one. So these
+ * stop the run with the migration to apply instead.
+ */
+const REQUIRED_COLUMNS = { exchanges: '0005_bse.sql', yahoo_ticker: '0005_bse.sql', bse_code: '0005_bse.sql' };
+
 async function upsert(table, rows, onConflict) {
   const url = `${SUPABASE_URL}/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`;
 
@@ -139,6 +170,16 @@ async function upsert(table, rows, onConflict) {
   if (res.ok) return;
 
   const body = (await res.text()).slice(0, 400);
+
+  const required = Object.keys(REQUIRED_COLUMNS).find(
+    (col) => body.includes(`'${col}'`) && /PGRST204|schema cache/.test(body),
+  );
+  if (required) {
+    throw new Error(
+      `column "${required}" is missing — run supabase/migrations/${REQUIRED_COLUMNS[required]} ` +
+        `in the Supabase SQL Editor, then re-run this command.`,
+    );
+  }
 
   // "Could not find the 'price_time' column of 'quotes' in the schema cache"
   const missing = Object.keys(OPTIONAL_COLUMNS).find(
@@ -227,27 +268,80 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-const toYahoo = (symbol) => `${symbol}.NS`;
+const toNseTicker = (symbol) => `${symbol}.NS`;
+/** Yahoo keys BSE listings on the alphabetic scrip id, not the numeric code. */
+const toBseTicker = (scripId) => `${scripId}.BO`;
+
+/**
+ * BSE ships a couple of placeholder rows whose ISIN is the literal "NA".
+ * Joining on that would merge two unrelated companies into one.
+ */
+const isUsableIsin = (value) => /^[A-Za-z0-9]{12}$/.test(value);
+
+/**
+ * Folds BSE's scrip master into the NSE list on ISIN, giving one row per
+ * company. Mirrors mergeListings in src/lib/listings.ts and in the Edge
+ * Functions' _shared/upstream.ts — all three must agree, since whichever runs
+ * decides what the table holds.
+ */
+function mergeListings(nse, bse, now) {
+  const byIsin = new Map();
+  for (const s of bse) {
+    // First scrip wins; a second line against one ISIN (partly paid, another
+    // class of share) adds nothing beyond "this company trades on BSE".
+    if (isUsableIsin(s.isin) && !byIsin.has(s.isin)) byIsin.set(s.isin, s);
+  }
+
+  const merged = [];
+  const matched = new Set();
+  const taken = new Set();
+
+  for (const row of nse) {
+    const scrip = isUsableIsin(row.isin) ? byIsin.get(row.isin) : undefined;
+    taken.add(row.symbol);
+    if (scrip) matched.add(scrip.code);
+    merged.push(scrip ? { ...row, exchanges: ['NSE', 'BSE'], bse_code: scrip.code } : row);
+  }
+
+  for (const scrip of bse) {
+    if (matched.has(scrip.code)) continue;
+
+    // A BSE ticker can collide with an unrelated NSE one (BSE's FOCUS is Focus
+    // Business Solution; NSE's is Focus Lighting and Fixtures). `symbol` is the
+    // primary key, so the loser falls back to its numeric scrip code, which can
+    // never collide with an NSE symbol. Yahoo is still queried by scrip id.
+    const symbol = taken.has(scrip.id) ? scrip.code : scrip.id;
+    taken.add(symbol);
+
+    merged.push({
+      symbol,
+      name: scrip.name,
+      series: scrip.group,
+      isin: isUsableIsin(scrip.isin) ? scrip.isin : '',
+      // BSE's scrip master publishes none of these three.
+      listing_date: null,
+      face_value: scrip.faceValue,
+      paid_up_value: null,
+      market_lot: null,
+      exchanges: ['BSE'],
+      yahoo_ticker: toBseTicker(scrip.id),
+      bse_code: scrip.code,
+      updated_at: now,
+    });
+  }
+
+  return merged;
+}
 
 // ---------------------------------------------------------------------------
 // tasks
 // ---------------------------------------------------------------------------
 
-async function syncSecurities() {
-  process.stdout.write('securities: fetching EQUITY_L.csv … ');
-  // NSE returns 403 without a Referer that looks like its own site.
-  const res = await fetchWithTimeout(EQUITY_LIST_URL, {
-    headers: {
-      'User-Agent': BROWSER_UA,
-      Referer: 'https://www.nseindia.com/',
-      Accept: 'text/csv,application/csv,*/*',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-  });
+async function fetchNseRows(now) {
+  const res = await fetchWithTimeout(EQUITY_LIST_URL, { headers: NSE_HEADERS });
   if (!res.ok) throw new Error(`NSE responded ${res.status}`);
 
-  const now = new Date().toISOString();
-  const rows = parseCsvObjects(await res.text())
+  return parseCsvObjects(await res.text())
     .map((r) => ({
       symbol: r['SYMBOL'] ?? '',
       name: r['NAME OF COMPANY'] ?? '',
@@ -257,34 +351,94 @@ async function syncSecurities() {
       face_value: toNumber(r['FACE VALUE']),
       paid_up_value: toNumber(r['PAID UP VALUE']),
       market_lot: toNumber(r['MARKET LOT']),
+      exchanges: ['NSE'],
+      yahoo_ticker: toNseTicker(r['SYMBOL'] ?? ''),
+      bse_code: null,
       updated_at: now,
     }))
     .filter((r) => r.symbol !== '');
+}
+
+async function fetchBseScrips() {
+  // ~1.8 MB of JSON, so it gets more headroom than the NSE CSV.
+  const res = await fetchWithTimeout(BSE_LIST_URL, { headers: BSE_HEADERS }, 45_000);
+  if (!res.ok) throw new Error(`BSE responded ${res.status}`);
+
+  const payload = await res.json();
+  if (!Array.isArray(payload)) throw new Error('BSE returned an unexpected payload');
+
+  return payload
+    .filter((r) => (r.Segment ?? '').trim() === 'Equity' && (r.Status ?? '').trim() === 'Active')
+    .map((r) => ({
+      code: (r.SCRIP_CD ?? '').trim(),
+      id: (r.scrip_id ?? '').trim(),
+      name: (r.Scrip_Name ?? '').trim(),
+      isin: (r.ISIN_NUMBER ?? '').trim(),
+      group: (r.GROUP ?? '').trim(),
+      faceValue: toNumber(r.FACE_VALUE ?? ''),
+    }))
+    .filter((s) => s.code !== '' && s.id !== '');
+}
+
+async function syncSecurities() {
+  process.stdout.write('securities: fetching NSE EQUITY_L.csv and BSE scrip master … ');
+  const now = new Date().toISOString();
+
+  // Settled independently: BSE is the flakier upstream, and losing it should
+  // cost the BSE-only rows rather than the whole sync.
+  const [nseResult, bseResult] = await Promise.allSettled([fetchNseRows(now), fetchBseScrips()]);
+  if (nseResult.status === 'rejected') throw nseResult.reason;
+
+  const bseFailed = bseResult.status === 'rejected';
+  const scrips = bseFailed ? [] : bseResult.value;
+  const rows = mergeListings(nseResult.value, scrips, now);
 
   console.log(`${rows.length} rows`);
   if (rows.length === 0) throw new Error('NSE returned an empty list');
+  if (bseFailed) {
+    console.warn(`  ! BSE unavailable (${bseResult.reason.message}) — writing NSE listings only,`);
+    console.warn('    and leaving exchanges/bse_code untouched so stored merges survive.');
+  }
 
-  for (const part of chunk(rows, 500)) await upsert('securities', part, 'symbol');
+  // With BSE unreachable the merge sees no scrips, so every row claims {NSE}
+  // and a null scrip code. Writing that would demote yesterday's correctly
+  // merged dual listings on nothing more than a timeout, so those two columns
+  // are dropped and whatever is stored survives. `yahoo_ticker` stays: for an
+  // NSE row it is SYMBOL.NS either way, and it is NOT NULL with no default.
+  const payload = bseFailed
+    ? rows.map(({ exchanges: _e, bse_code: _b, ...rest }) => rest)
+    : rows;
 
-  const bySeries = rows.reduce((a, r) => ((a[r.series] = (a[r.series] || 0) + 1), a), {});
-  console.log(`securities: upserted ${rows.length} —`,
-    Object.entries(bySeries).map(([k, v]) => `${k} ${v}`).join(' · '));
+  for (const part of chunk(payload, 500)) await upsert('securities', part, 'symbol');
+
+  const onNse = rows.filter((r) => r.exchanges.includes('NSE')).length;
+  const onBse = rows.filter((r) => r.exchanges.includes('BSE')).length;
+  console.log(
+    `securities: upserted ${rows.length} — NSE ${onNse} · BSE ${onBse} · ` +
+      `both ${onNse + onBse - rows.length} · BSE only ${rows.length - onNse}`,
+  );
   return rows.length;
 }
 
 async function syncQuotes() {
-  const symbols = (await selectAll('securities', 'symbol', '&order=symbol')).map((r) => r.symbol);
-  if (symbols.length === 0) throw new Error('securities is empty — run `securities` first');
+  // `*` rather than naming yahoo_ticker: that would 400 outright on a database
+  // without migration 0005, where falling back to SYMBOL.NS is exactly right
+  // because every row there is an NSE listing.
+  const targets = (await selectAll('securities', '*', '&order=symbol')).map((r) => ({
+    symbol: r.symbol,
+    ticker: r.yahoo_ticker || toNseTicker(r.symbol),
+  }));
+  if (targets.length === 0) throw new Error('securities is empty — run `securities` first');
 
-  const batches = chunk(symbols, SPARK_BATCH_SIZE);
-  console.log(`quotes: ${symbols.length} symbols → ${batches.length} batches (concurrency ${CONCURRENCY})`);
+  const batches = chunk(targets, SPARK_BATCH_SIZE);
+  console.log(`quotes: ${targets.length} symbols → ${batches.length} batches (concurrency ${CONCURRENCY})`);
 
   const now = new Date().toISOString();
   let failed = 0;
   let done = 0;
 
   const results = await mapPool(batches, CONCURRENCY, async (batch) => {
-    const query = batch.map(toYahoo).join(',');
+    const query = batch.map((t) => t.ticker).join(',');
     // interval=5m, not 1d: a daily bar is stamped with the session OPEN (09:15
     // IST), which would date an current price to hours ago. Same price, usable
     // timestamp.
@@ -294,8 +448,9 @@ async function syncQuotes() {
       if (!res.ok) { failed++; return []; }
       const payload = await res.json();
       // Yahoo silently drops unknown tickers, so map over the request batch.
-      return batch.map((symbol) => {
-        const e = payload[toYahoo(symbol)];
+      // Rows are keyed back to `symbol`, the securities primary key.
+      return batch.map(({ symbol, ticker }) => {
+        const e = payload[ticker];
         const closeArr = e?.close ?? [];
         const stamps = e?.timestamp ?? [];
 
@@ -327,7 +482,19 @@ async function syncQuotes() {
   const rows = results.flat();
   for (const part of chunk(rows, 500)) await upsert('quotes', part, 'symbol');
 
-  console.log(`quotes: priced ${rows.length}/${symbols.length} (${((rows.length / symbols.length) * 100).toFixed(2)}%), failed batches ${failed}/${batches.length}`);
+  // Two different numbers, and only the second is what the table shows as LTP.
+  // A row is kept when it has a price *or* a previous close, so "rows written"
+  // overstates coverage: a scrip that did not trade today still yields a
+  // previous close. That is the whole reason the UI has to distinguish "no
+  // price yet" from "no price" — several hundred rows land in the latter.
+  const withPrice = rows.filter((r) => r.price !== null).length;
+  const pct = (n) => `${((n / targets.length) * 100).toFixed(2)}%`;
+  console.log(
+    `quotes: wrote ${rows.length}/${targets.length} (${pct(rows.length)}) — ` +
+      `with a last traded price ${withPrice} (${pct(withPrice)}), ` +
+      `previous close only ${rows.length - withPrice}; ` +
+      `failed batches ${failed}/${batches.length}`,
+  );
   return rows.length;
 }
 

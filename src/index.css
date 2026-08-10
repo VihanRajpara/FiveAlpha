@@ -244,7 +244,7 @@ body {
   min-width: 0;
 }
 
-/* Compact trigger that stands in for the chips below 1180px. */
+/* Compact trigger that stands in for the chips below 1460px. */
 .filter-trigger {
   display: inline-flex;
   align-items: center;
@@ -612,18 +612,21 @@ body {
   align-items: center;
 }
 
-/* Full screener: eleven columns, scrolled horizontally when the viewport
-   can't hold them. */
+/* Full screener: thirteen columns, scrolled horizontally when the viewport
+   can't hold them. Order matches the column definitions in StockTable:
+   # · Symbol · Company · Series · Exch · Type · LTP · Chg · Chg% · Prev ·
+   ISIN · Listed · FV */
 .table-wrap[data-layout='wide'] .grid-row {
   grid-template-columns:
-    64px 148px minmax(200px, 1.6fr) 76px 132px 116px 104px 120px
+    64px 148px minmax(200px, 1.6fr) 76px 108px 132px 116px 104px 120px
     116px 152px 116px 76px;
-  min-width: 1400px;
+  min-width: 1508px;
 }
 
-/* Tablet: the six columns worth keeping, sized to fit with no side-scroll. */
+/* Tablet: the seven columns worth keeping, sized to fit with no side-scroll —
+   Symbol · Company · Exch · Type · LTP · Chg · Chg%. */
 .table-wrap[data-layout='medium'] .grid-row {
-  grid-template-columns: 124px minmax(104px, 1.5fr) 124px 100px 92px 112px;
+  grid-template-columns: 118px minmax(96px, 1.5fr) 100px 118px 96px 88px 108px;
   min-width: 0;
 }
 
@@ -792,10 +795,35 @@ body {
   color: var(--on-surface-faint);
 }
 
-.type-cell {
+/* Exchange chips. Outlined and deliberately quieter than the cap band next to
+   them: on a dual-listed row both are present and neither is news, so the chip
+   is there to be scanned past, not read. */
+.badge.exch {
+  background: transparent;
+  border: 1px solid var(--outline);
+  color: var(--on-surface-faint);
+  padding: 1px 6px;
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+}
+
+/* BSE-only rows are the ~2,800 new ones, and on those the chip IS the news —
+   it is the only thing separating them from an NSE listing at a glance. */
+.exch-cell .badge.exch-BSE:only-child,
+.stack-sym .badge.exch-BSE {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.type-cell,
+.exch-cell {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
+}
+
+.td.exch {
+  white-space: nowrap;
 }
 
 .tr[data-selected='true'] .badge.cap {
@@ -958,6 +986,39 @@ body {
   flex: none;
   font-size: 12px;
   color: var(--primary);
+}
+
+/* Two-line items, used where the label is a bare code (BSE settlement groups)
+   and needs its meaning alongside. The fixed height above has to give way. */
+.menu-item:has(.menu-hint) {
+  height: auto;
+  min-height: 58px;
+  align-items: flex-start;
+  padding: 9px 12px;
+}
+
+.menu-item:has(.menu-hint) .menu-check {
+  line-height: 1.5;
+}
+
+.menu-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.menu-hint {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--on-surface-variant);
+  white-space: normal;
+}
+
+/* A price that will never arrive, as opposed to one still in flight. Muted so a
+   column of them reads as absence rather than as data. */
+.muted-dash {
+  color: var(--on-surface-faint);
 }
 
 .sortbar .dir {

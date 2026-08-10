@@ -150,7 +150,7 @@ The single most important line in the data layer is *where* `onBatch` is called 
 const results = await mapPool(batches, SPARK_CONCURRENCY, async (batch) => {
   const res = await fetch(url);
   const payload = await res.json();
-  const quotes = batch.map((symbol) => buildQuote(symbol, payload[toYahooSymbol(symbol)]));
+  const quotes = batch.map((t) => buildQuote(t.symbol, payload[t.ticker]));
   if (quotes.length > 0) onBatch?.(quotes);   // ← here, not after the await below
   return quotes;
 });

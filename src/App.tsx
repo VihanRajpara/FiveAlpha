@@ -7,19 +7,27 @@ import { Filters, type FilterGroupSpec } from './components/Filters';
 import { useMarketData } from './hooks/useMarketData';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
 import { UNCLASSIFIED } from './lib/classification';
+import { compareSeries, describeSeries } from './lib/listings';
 import type { CapBand, SecurityWithQuote } from './types';
 
 /** Prices older than this during a live session are worth flagging. */
 const STALE_AFTER_MS = 15 * 60 * 1000;
 
-const SERIES_FILTERS = ['ALL', 'EQ', 'BE', 'BZ'] as const;
-type SeriesFilter = (typeof SERIES_FILTERS)[number];
+const EXCHANGE_FILTERS = ['ALL', 'NSE', 'BSE', 'BSE_ONLY'] as const;
+type ExchangeFilter = (typeof EXCHANGE_FILTERS)[number];
 
-const SERIES_HINT: Record<string, string> = {
-  ALL: 'Every listed share',
-  EQ: 'Rolling settlement',
-  BE: 'Trade-to-trade',
-  BZ: 'Surveillance / T2T',
+const EXCHANGE_LABEL: Record<ExchangeFilter, string> = {
+  ALL: 'All',
+  NSE: 'NSE',
+  BSE: 'BSE',
+  BSE_ONLY: 'BSE only',
+};
+
+const EXCHANGE_HINT: Record<ExchangeFilter, string> = {
+  ALL: 'Both exchanges',
+  NSE: 'Listed on NSE (may also be on BSE)',
+  BSE: 'Listed on BSE (may also be on NSE)',
+  BSE_ONLY: 'On BSE and not on NSE',
 };
 
 const SEGMENT_FILTERS = ['ALL', 'FNO', 'CASH'] as const;
@@ -69,6 +77,7 @@ export default function App() {
     classificationReady,
     loading,
     quoteProgress,
+    quotesLoaded,
     refreshingQuotes,
     error,
     lastFetchedAt,
@@ -86,7 +95,10 @@ export default function App() {
   }, []);
 
   const [search, setSearch] = useState('');
-  const [series, setSeries] = useState<SeriesFilter>('ALL');
+  const [exchange, setExchange] = useState<ExchangeFilter>('ALL');
+  // Not a closed union any more: the available series depend on which exchange
+  // is selected, and BSE's group letters are data, not a list we can enumerate.
+  const [series, setSeries] = useState<string>('ALL');
   const [segment, setSegment] = useState<SegmentFilter>('ALL');
   const [cap, setCap] = useState<CapFilter>('ALL');
   const [sorting, setSorting] = useState<SortingState>([{ id: 'symbol', desc: false }]);
@@ -106,9 +118,52 @@ export default function App() {
     [securities, quotes, classification, classificationReady],
   );
 
+  /**
+   * Everything the exchange filter admits, before the other filters run.
+   *
+   * Split out because the series options are derived from it: NSE publishes
+   * EQ/BE/BZ and BSE publishes A/B/X/XT/T/Z/M/…, and which vocabulary applies
+   * depends entirely on the exchange selection. Offering the union would put
+   * fourteen chips on screen that match nothing for the current exchange.
+   */
+  const exchangeRows = useMemo(
+    () =>
+      joined.filter((row) => {
+        if (exchange === 'NSE') return row.exchanges.includes('NSE');
+        if (exchange === 'BSE') return row.exchanges.includes('BSE');
+        if (exchange === 'BSE_ONLY') return !row.exchanges.includes('NSE');
+        return true;
+      }),
+    [joined, exchange],
+  );
+
+  /** Series present in the current exchange selection, with their row counts. */
+  const seriesOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of exchangeRows) {
+      if (row.series) counts.set(row.series, (counts.get(row.series) ?? 0) + 1);
+    }
+
+    return [
+      { value: 'ALL', label: 'All', hint: 'Every settlement series and group' },
+      ...[...counts.keys()].sort(compareSeries).map((code) => ({
+        value: code,
+        label: code,
+        hint: `${describeSeries(code)} · ${counts.get(code)!.toLocaleString('en-IN')}`,
+      })),
+    ];
+  }, [exchangeRows]);
+
+  // Switching exchange can retire the selected series — picking EQ and then
+  // "BSE only" would otherwise leave a filter applied that matches nothing, and
+  // an empty table with no visible cause.
+  useEffect(() => {
+    if (series !== 'ALL' && !seriesOptions.some((o) => o.value === series)) setSeries('ALL');
+  }, [seriesOptions, series]);
+
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return joined.filter((row) => {
+    return exchangeRows.filter((row) => {
       if (series !== 'ALL' && row.series !== series) return false;
       if (segment !== 'ALL' && (row.cls?.fno ?? false) !== (segment === 'FNO')) return false;
       if (cap !== 'ALL' && row.cls?.capBand !== cap) return false;
@@ -116,10 +171,12 @@ export default function App() {
       return (
         row.symbol.toLowerCase().includes(q) ||
         row.name.toLowerCase().includes(q) ||
-        row.isin.toLowerCase().includes(q)
+        row.isin.toLowerCase().includes(q) ||
+        // BSE-only names are far better known by scrip code than by ticker.
+        (row.bseCode?.includes(q) ?? false)
       );
     });
-  }, [joined, search, series, segment, cap]);
+  }, [exchangeRows, search, series, segment, cap]);
 
   /**
    * One description of the filters, rendered as inline chips on wide screens
@@ -128,12 +185,25 @@ export default function App() {
    */
   const filterGroups = useMemo<FilterGroupSpec[]>(
     () => [
+      // First, because it is the widest cut: it decides whether you are looking
+      // at ~2,400 NSE rows or all ~5,200.
+      {
+        key: 'exchange',
+        label: 'Exchange',
+        value: exchange,
+        options: EXCHANGE_FILTERS.map((e) => ({
+          value: e,
+          label: EXCHANGE_LABEL[e],
+          hint: EXCHANGE_HINT[e],
+        })),
+        onChange: (v) => setExchange(v as ExchangeFilter),
+      },
       {
         key: 'series',
         label: 'Series',
         value: series,
-        options: SERIES_FILTERS.map((s) => ({ value: s, label: s, hint: SERIES_HINT[s] })),
-        onChange: (v) => setSeries(v as SeriesFilter),
+        options: seriesOptions,
+        onChange: setSeries,
       },
       // Segment and cap read from the NSE lists, so they stay disabled until
       // those land — offering an "F&O" filter that matches nothing would look
@@ -163,7 +233,7 @@ export default function App() {
         onChange: (v) => setCap(v as CapFilter),
       },
     ],
-    [series, segment, cap, classificationReady],
+    [exchange, series, seriesOptions, segment, cap, classificationReady],
   );
 
   const breadth = useMemo(() => {
@@ -179,6 +249,14 @@ export default function App() {
     }
     return { up, down, flat, priced: up + down + flat };
   }, [rows]);
+
+  // Honest about which lists actually loaded: if BSE's API was unreachable the
+  // merge falls back to NSE alone, and the header should say so rather than
+  // claim coverage the table doesn't have.
+  const listedOn = useMemo(
+    () => (securities.some((s) => s.exchanges.includes('BSE')) ? 'NSE + BSE' : 'NSE'),
+    [securities],
+  );
 
   const marketOpen = isMarketOpen(now);
 
@@ -216,7 +294,7 @@ export default function App() {
             <span className="count num">
               {loading
                 ? 'Loading…'
-                : `NSE · ${rows.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} securities`}
+                : `${listedOn} · ${rows.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} companies`}
             </span>
           </div>
         </div>
@@ -297,11 +375,11 @@ export default function App() {
           {loading ? (
             <div className="center-msg" style={{ flex: 1 }}>
               <div className="spinner" />
-              <strong>Fetching the NSE equity list…</strong>
+              <strong>Fetching the NSE and BSE equity lists…</strong>
               <span>
                 {sourceKind === 'supabase'
                   ? 'Reading the securities table from Supabase.'
-                  : 'Reading EQUITY_L.csv straight from NSE archives.'}
+                  : 'Reading EQUITY_L.csv from NSE archives and the scrip master from BSE.'}
               </span>
             </div>
           ) : error && securities.length === 0 ? (
@@ -327,13 +405,14 @@ export default function App() {
               ) : (
                 <span>
                   Run <code>npm run dev</code> so the proxy in <code>vite.config.ts</code> can reach
-                  NSE, or configure Supabase in <code>.env</code>.
+                  NSE and BSE, or configure Supabase in <code>.env</code>.
                 </span>
               )}
             </div>
           ) : (
             <StockTable
               rows={rows}
+              quotesLoaded={quotesLoaded}
               sorting={sorting}
               onSortingChange={setSorting}
               selectedSymbol={selectedRow?.symbol ?? null}
@@ -353,7 +432,9 @@ export default function App() {
 
         <span
           className="pill"
-          title={marketOpen ? 'NSE 09:15–15:30 IST' : 'Outside 09:15–15:30 IST, Mon–Fri'}
+          title={
+            marketOpen ? 'NSE & BSE 09:15–15:30 IST' : 'Outside 09:15–15:30 IST, Mon–Fri'
+          }
         >
           <span className={`dot${marketOpen ? '' : ' off'}`} />
           Market {marketOpen ? 'open' : 'closed'}
@@ -390,7 +471,8 @@ export default function App() {
         <div className="spacer" />
 
         <span style={{ color: 'var(--on-surface-faint)' }}>
-          List: NSE EQUITY_L.csv · Prices: Yahoo Finance · ~15 min delayed, not for trading
+          Lists: NSE EQUITY_L.csv + BSE scrip master, merged on ISIN · Prices: Yahoo Finance
+          (NSE book where dual-listed) · ~15 min delayed, not for trading
         </span>
       </footer>
 

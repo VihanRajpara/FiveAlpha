@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { SelectMenu } from './SelectMenu';
 
 export interface FilterOption {
   value: string;
@@ -19,30 +20,60 @@ export interface FilterGroupSpec {
 }
 
 /**
- * Below this width the three chip groups (~1,016px of chips before gaps) cannot
- * share a line, and wrapping them reads as a broken bar rather than a designed
- * one. They move into a sheet instead.
+ * Above this many options, chips stop working: they wrap onto a second line and
+ * the filter bar reads as broken. The series filter crosses it as soon as BSE
+ * groups are in play — NSE contributes 3 series, BSE another 14 — so that group
+ * renders as a dropdown instead. The threshold is here rather than at the call
+ * site because it is a fact about the chip layout, not about any one filter.
  */
-const COMPACT_QUERY = '(max-width: 1179px)';
+const MAX_CHIPS = 6;
+
+/**
+ * Below this width the four chip groups cannot share a line, and wrapping them
+ * reads as a broken bar rather than a designed one. They move into a sheet
+ * instead.
+ *
+ * Sized for the *widest* configuration, not the usual one: Series renders as
+ * chips only when the exchange selection narrows it to EQ/BE/BZ, and that is the
+ * case that needs the most room. Series + Segment + Cap come to ~1,019px
+ * including labels and gaps, Exchange adds ~372px, and the subbar contributes
+ * 2 × 20px of gutter — hence ~1,460px. When Series collapses to a dropdown
+ * (any selection that admits BSE groups) the bar is ~150px narrower and simply
+ * has room to spare.
+ */
+const COMPACT_QUERY = '(max-width: 1459px)';
 
 function ChipGroup({ group }: { group: FilterGroupSpec }) {
   return (
     <div className="filter-group">
       <span className="filter-label">{group.label}</span>
-      <div className="segmented">
-        {group.options.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            data-active={o.value === group.value}
-            disabled={group.disabled}
-            onClick={() => group.onChange(o.value)}
-            title={o.hint}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
+      {group.options.length > MAX_CHIPS ? (
+        // The hints carry the meaning of each code here. In the chip layout they
+        // are a tooltip, which is fine for "EQ"; in a list of BSE group letters
+        // it is the difference between a usable control and a row of initials.
+        <SelectMenu
+          ariaLabel={group.label}
+          value={group.value}
+          options={group.options.map((o) => ({ value: o.value, label: o.label, hint: o.hint }))}
+          onChange={group.onChange}
+          minMenuWidth={280}
+        />
+      ) : (
+        <div className="segmented">
+          {group.options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              data-active={o.value === group.value}
+              disabled={group.disabled}
+              onClick={() => group.onChange(o.value)}
+              title={o.hint}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import {
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { CAP_SHORT, classRank } from '../lib/classification';
+import { ExchangeBadges } from './ExchangeBadges';
 import { SelectMenu } from './SelectMenu';
 import { formatDate, formatPercent, formatPrice } from '../lib/format';
 import type { Classification, SecurityWithQuote } from '../types';
@@ -21,8 +22,8 @@ import type { Classification, SecurityWithQuote } from '../types';
  * Three layouts, because a 1,200px-wide screener is unusable on a phone:
  *
  *  - `wide`   — every column, horizontally scrollable.
- *  - `medium` — the six columns worth having when the viewport can't hold
- *               eleven; no horizontal scroll.
+ *  - `medium` — the seven columns worth having when the viewport can't hold
+ *               thirteen; no horizontal scroll.
  *  - `mobile` — abandons the grid entirely for stacked rows, with a sort
  *               control standing in for the clickable column headers.
  */
@@ -33,8 +34,10 @@ const ROW_HEIGHT: Record<Layout, number> = { wide: 48, medium: 48, mobile: 68 };
 
 /**
  * Columns dropped in `medium`, in priority order of what matters least. `series`
- * goes too: at this width there is room for one classification column, and
- * segment/cap says more about a stock than EQ-vs-BE does.
+ * goes too: at this width there is room for two classification columns, and
+ * segment/cap plus exchange say more about a stock than EQ-vs-BE does. `exchange`
+ * survives because it is the one column that distinguishes the ~2,800 BSE-only
+ * rows from everything else.
  */
 const MEDIUM_HIDDEN = new Set([
   'index',
@@ -71,9 +74,23 @@ function numericSort(
   return av - bv;
 }
 
-/** Renders a price cell, or a shimmer while that symbol's quote is still in flight. */
-function PriceCell({ value }: { value: number | null | undefined }) {
-  if (value === null || value === undefined) return <span className="skeleton" />;
+/**
+ * A missing number means one of two different things, and they must not look
+ * alike: before the quote pass finishes it means "not fetched yet" (shimmer),
+ * and afterwards it means "this symbol has no price" (an em dash).
+ *
+ * The second case is not an edge case since BSE was added. Yahoo answers a
+ * thinly traded scrip with a previous close but no traded bar for the session,
+ * so `price`, `change` and `changePercent` stay null while `previousClose` has
+ * a value — a row that shimmered in three columns forever while showing a
+ * number in the fourth.
+ */
+function Missing({ loaded }: { loaded: boolean }) {
+  return loaded ? <span className="num muted-dash">—</span> : <span className="skeleton" />;
+}
+
+function PriceCell({ value, loaded }: { value: number | null | undefined; loaded: boolean }) {
+  if (value === null || value === undefined) return <Missing loaded={loaded} />;
   return <span className="num">{formatPrice(value)}</span>;
 }
 
@@ -105,8 +122,8 @@ function TypeCell({ cls }: { cls: Classification | undefined }) {
 }
 
 /** The tonal up/down chip, shared by the grid cell and the mobile row. */
-function ChangeChip({ value }: { value: number | null | undefined }) {
-  if (value === null || value === undefined) return <span className="skeleton" />;
+function ChangeChip({ value, loaded }: { value: number | null | undefined; loaded: boolean }) {
+  if (value === null || value === undefined) return <Missing loaded={loaded} />;
   return (
     <span className={`chg-chip num ${value >= 0 ? 'up' : 'down'}`}>
       <span className="arrow" aria-hidden>
@@ -119,13 +136,22 @@ function ChangeChip({ value }: { value: number | null | undefined }) {
 
 interface Props {
   rows: SecurityWithQuote[];
+  /** False until the first quote pass settles — see `Missing`. */
+  quotesLoaded: boolean;
   sorting: SortingState;
   onSortingChange: React.Dispatch<React.SetStateAction<SortingState>>;
   selectedSymbol: string | null;
   onSelect: (row: SecurityWithQuote) => void;
 }
 
-export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onSelect }: Props) {
+export function StockTable({
+  rows,
+  quotesLoaded,
+  sorting,
+  onSortingChange,
+  selectedSymbol,
+  onSelect,
+}: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isMobile = useMediaQuery('(max-width: 700px)');
@@ -166,6 +192,13 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
         header: 'Series',
         cell: (ctx) => <span className={`badge ${ctx.getValue()}`}>{ctx.getValue()}</span>,
       }),
+      // Sorted on the joined string, which puts BSE-only rows in their own block
+      // ("BSE" < "NSE,BSE") rather than interleaving them alphabetically.
+      helper.accessor((r) => r.exchanges.join(','), {
+        id: 'exchange',
+        header: 'Exch',
+        cell: (ctx) => <ExchangeBadges exchanges={ctx.row.original.exchanges} />,
+      }),
       // Sorted on a rank rather than a label, so the order is F&O-first and then
       // largest-to-smallest instead of alphabetical.
       helper.accessor((r) => classRank(r.cls), {
@@ -181,7 +214,7 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
         header: 'LTP',
         sortUndefined: 'last',
         sortingFn: numericSort,
-        cell: (ctx) => <PriceCell value={ctx.row.original.quote?.price} />,
+        cell: (ctx) => <PriceCell value={ctx.row.original.quote?.price} loaded={quotesLoaded} />,
       }),
       helper.accessor((r) => r.quote?.change ?? undefined, {
         id: 'change',
@@ -190,7 +223,7 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
         sortingFn: numericSort,
         cell: (ctx) => {
           const v = ctx.row.original.quote?.change;
-          if (v === null || v === undefined) return <span className="skeleton" />;
+          if (v === null || v === undefined) return <Missing loaded={quotesLoaded} />;
           return (
             <span className={`num ${v >= 0 ? 'up' : 'down'}`}>
               {v >= 0 ? '+' : ''}
@@ -204,14 +237,18 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
         header: 'Chg %',
         sortUndefined: 'last',
         sortingFn: numericSort,
-        cell: (ctx) => <ChangeChip value={ctx.row.original.quote?.changePercent} />,
+        cell: (ctx) => (
+          <ChangeChip value={ctx.row.original.quote?.changePercent} loaded={quotesLoaded} />
+        ),
       }),
       helper.accessor((r) => r.quote?.previousClose ?? undefined, {
         id: 'previousClose',
         header: 'Prev close',
         sortUndefined: 'last',
         sortingFn: numericSort,
-        cell: (ctx) => <PriceCell value={ctx.row.original.quote?.previousClose} />,
+        cell: (ctx) => (
+          <PriceCell value={ctx.row.original.quote?.previousClose} loaded={quotesLoaded} />
+        ),
       }),
       helper.accessor('isin', {
         header: 'ISIN',
@@ -233,7 +270,7 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
         cell: (ctx) => <span className="num">{ctx.row.original.faceValue ?? '—'}</span>,
       }),
     ],
-    [],
+    [quotesLoaded],
   );
 
   const table = useReactTable({
@@ -301,6 +338,7 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
     if (id === 'symbol') return 'td sym';
     if (id === 'name') return 'td name';
     if (id === 'isin' || id === 'listingDate') return 'td muted';
+    if (id === 'exchange') return 'td exch';
     return `td${align}`;
   };
 
@@ -390,6 +428,12 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
                     <span className="stack-sym">
                       {row.original.symbol}
                       {row.original.cls?.fno && <span className="badge fno">F&amp;O</span>}
+                      {/* Only the exception is worth a badge here — a phone row
+                          has space for three chips at most, and most rows are on
+                          NSE, so marking those says nothing. */}
+                      {!row.original.exchanges.includes('NSE') && (
+                        <span className="badge exch exch-BSE">BSE</span>
+                      )}
                       <span className={`badge ${row.original.series}`}>{row.original.series}</span>
                     </span>
                     <span className="stack-name">{row.original.name}</span>
@@ -397,12 +441,12 @@ export function StockTable({ rows, sorting, onSortingChange, selectedSymbol, onS
                   <div className="stack-side">
                     <span className="stack-price num">
                       {q?.price === null || q?.price === undefined ? (
-                        <span className="skeleton" />
+                        <Missing loaded={quotesLoaded} />
                       ) : (
                         formatPrice(q.price)
                       )}
                     </span>
-                    <ChangeChip value={q?.changePercent} />
+                    <ChangeChip value={q?.changePercent} loaded={quotesLoaded} />
                   </div>
                 </div>
               );

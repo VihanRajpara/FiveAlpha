@@ -44,8 +44,174 @@ export function json(body: unknown, status = 200): Response {
   });
 }
 
-export function toYahooSymbol(symbol: string): string {
+export function toNseTicker(symbol: string): string {
   return `${symbol}.NS`;
+}
+
+/**
+ * Yahoo keys BSE listings on the alphabetic scrip id (`TANFACIND.BO`), not the
+ * numeric scrip code — recent listings are unreachable by code.
+ */
+export function toBseTicker(scripId: string): string {
+  return `${scripId}.BO`;
+}
+
+// ---------------------------------------------------------------------------
+// NSE + BSE master lists
+//
+// Mirrors src/lib/listings.ts. The browser reaches these through a proxy and
+// Deno reaches them directly, so the fetch differs, but the merge must not —
+// the whole point is that Supabase stores the same rows direct mode computes.
+// ---------------------------------------------------------------------------
+
+export const EQUITY_LIST_URL = 'https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv';
+
+export const BSE_LIST_URL =
+  'https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w' +
+  '?Group=&Scripcode=&industry=&segment=Equity&status=Active';
+
+export const NSE_HEADERS = {
+  'User-Agent': BROWSER_UA,
+  // NSE only serves the archives to requests that look like they came from its site.
+  Referer: 'https://www.nseindia.com/',
+  Accept: 'text/csv,application/csv,*/*',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+export const BSE_HEADERS = {
+  'User-Agent': BROWSER_UA,
+  Referer: 'https://www.bseindia.com/',
+  Origin: 'https://www.bseindia.com',
+  Accept: 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+/** A row of public.securities, as written by the syncs. */
+export interface SecurityRow {
+  symbol: string;
+  name: string;
+  series: string;
+  isin: string;
+  listing_date: string | null;
+  face_value: number | null;
+  paid_up_value: number | null;
+  market_lot: number | null;
+  exchanges: string[];
+  yahoo_ticker: string;
+  bse_code: string | null;
+  updated_at: string;
+}
+
+export interface BseScrip {
+  code: string;
+  id: string;
+  name: string;
+  isin: string;
+  group: string;
+  faceValue: number | null;
+}
+
+/**
+ * BSE ships a couple of placeholder rows whose ISIN is the literal "NA". Joining
+ * on that would merge two unrelated companies, so only a well-formed 12-character
+ * identifier counts.
+ */
+function isUsableIsin(value: string): boolean {
+  return /^[A-Za-z0-9]{12}$/.test(value);
+}
+
+export function parseNseSecurities(csv: string, now: string): SecurityRow[] {
+  return parseCsvObjects(csv)
+    .map((row) => {
+      const symbol = row['SYMBOL'] ?? '';
+      return {
+        symbol,
+        name: row['NAME OF COMPANY'] ?? '',
+        series: row['SERIES'] ?? '',
+        isin: row['ISIN NUMBER'] ?? '',
+        listing_date: parseNseDate(row['DATE OF LISTING'] ?? ''),
+        face_value: toNumber(row['FACE VALUE']),
+        paid_up_value: toNumber(row['PAID UP VALUE']),
+        market_lot: toNumber(row['MARKET LOT']),
+        exchanges: ['NSE'],
+        yahoo_ticker: toNseTicker(symbol),
+        bse_code: null,
+        updated_at: now,
+      };
+    })
+    .filter((r) => r.symbol !== '');
+}
+
+export function parseBseScrips(payload: unknown): BseScrip[] {
+  if (!Array.isArray(payload)) throw new Error('BSE returned an unexpected payload');
+
+  return (payload as Record<string, string | null>[])
+    .filter((r) => (r.Segment ?? '').trim() === 'Equity' && (r.Status ?? '').trim() === 'Active')
+    .map((r) => ({
+      code: (r.SCRIP_CD ?? '').trim(),
+      id: (r.scrip_id ?? '').trim(),
+      name: (r.Scrip_Name ?? '').trim(),
+      isin: (r.ISIN_NUMBER ?? '').trim(),
+      group: (r.GROUP ?? '').trim(),
+      faceValue: toNumber(r.FACE_VALUE ?? ''),
+    }))
+    .filter((s) => s.code !== '' && s.id !== '');
+}
+
+/**
+ * Folds BSE into NSE on ISIN, producing one row per company.
+ *
+ * Dual-listed names keep their NSE symbol, series and `.NS` ticker and simply
+ * gain `BSE` in `exchanges` — the NSE book is the more liquid one, so its last
+ * trade is the better price to carry. BSE-only names become new rows.
+ */
+export function mergeListings(nse: SecurityRow[], bse: BseScrip[], now: string): SecurityRow[] {
+  const byIsin = new Map<string, BseScrip>();
+  for (const scrip of bse) {
+    // First scrip wins; a second line against one ISIN (partly paid, another
+    // class of share) adds nothing beyond "this company trades on BSE".
+    if (isUsableIsin(scrip.isin) && !byIsin.has(scrip.isin)) byIsin.set(scrip.isin, scrip);
+  }
+
+  const merged: SecurityRow[] = [];
+  const matched = new Set<string>();
+  const taken = new Set<string>();
+
+  for (const row of nse) {
+    const scrip = isUsableIsin(row.isin) ? byIsin.get(row.isin) : undefined;
+    taken.add(row.symbol);
+    if (scrip) matched.add(scrip.code);
+    merged.push(scrip ? { ...row, exchanges: ['NSE', 'BSE'], bse_code: scrip.code } : row);
+  }
+
+  for (const scrip of bse) {
+    if (matched.has(scrip.code)) continue;
+
+    // A BSE ticker can collide with an unrelated NSE one (BSE's FOCUS is Focus
+    // Business Solution; NSE's is Focus Lighting and Fixtures). `symbol` is the
+    // primary key, so the loser falls back to its numeric scrip code, which can
+    // never collide with an NSE symbol. Yahoo is still queried by scrip id.
+    const symbol = taken.has(scrip.id) ? scrip.code : scrip.id;
+    taken.add(symbol);
+
+    merged.push({
+      symbol,
+      name: scrip.name,
+      series: scrip.group,
+      isin: isUsableIsin(scrip.isin) ? scrip.isin : '',
+      // BSE's scrip master publishes none of these.
+      listing_date: null,
+      face_value: scrip.faceValue,
+      paid_up_value: null,
+      market_lot: null,
+      exchanges: ['BSE'],
+      yahoo_ticker: toBseTicker(scrip.id),
+      bse_code: scrip.code,
+      updated_at: now,
+    });
+  }
+
+  return merged;
 }
 
 export function chunk<T>(items: T[], size: number): T[][] {

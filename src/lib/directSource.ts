@@ -1,7 +1,7 @@
 import type { DataSource, Quote, Security } from '../types';
-import { parseCsvObjects } from './csv';
-import { chunk, mapPool, parseNseDate, toNumber } from './format';
-import { fetchYahooCandles, toYahooSymbol } from './yahooCandles';
+import { chunk, mapPool } from './format';
+import { fetchBseScrips, fetchNseSecurities, mergeListings } from './listings';
+import { fetchYahooCandles } from './yahooCandles';
 
 /** Yahoo rejects the whole request with a 400 if more than 20 symbols are passed. */
 const SPARK_BATCH_SIZE = 20;
@@ -15,8 +15,6 @@ const SPARK_CONCURRENCY = 6;
  * way — this only buys timestamp resolution.
  */
 const SPARK_INTERVAL = '5m';
-
-const EQUITY_LIST_URL = '/api/nse/content/equities/EQUITY_L.csv';
 
 interface SparkEntry {
   symbol?: string;
@@ -61,33 +59,34 @@ function buildQuote(symbol: string, entry: SparkEntry | null | undefined): Quote
 export const directSource: DataSource = {
   kind: 'direct',
 
+  /**
+   * Both exchange lists, merged on ISIN into one row per company.
+   *
+   * Settled independently: BSE's API is the flakier of the two, and losing it
+   * should cost the ~2,800 BSE-only rows, not the whole table. NSE failing is
+   * still fatal, because without it there is no list at all.
+   */
   async listSecurities(): Promise<Security[]> {
-    const res = await fetch(EQUITY_LIST_URL);
-    if (!res.ok) {
-      throw new Error(`NSE returned ${res.status} for the equity list. Is the dev proxy running?`);
+    const [nseResult, bseResult] = await Promise.allSettled([
+      fetchNseSecurities(),
+      fetchBseScrips(),
+    ]);
+
+    if (nseResult.status === 'rejected') throw nseResult.reason;
+
+    if (bseResult.status === 'rejected') {
+      console.warn('BSE scrip list unavailable — showing NSE listings only.', bseResult.reason);
+      return nseResult.value;
     }
 
-    const rows = parseCsvObjects(await res.text());
-
-    return rows
-      .map((row) => ({
-        symbol: row['SYMBOL'] ?? '',
-        name: row['NAME OF COMPANY'] ?? '',
-        series: row['SERIES'] ?? '',
-        isin: row['ISIN NUMBER'] ?? '',
-        listingDate: parseNseDate(row['DATE OF LISTING'] ?? ''),
-        faceValue: toNumber(row['FACE VALUE']),
-        paidUpValue: toNumber(row['PAID UP VALUE']),
-        marketLot: toNumber(row['MARKET LOT']),
-      }))
-      .filter((s) => s.symbol !== '');
+    return mergeListings(nseResult.value, bseResult.value);
   },
 
-  async fetchQuotes(symbols, onBatch): Promise<Quote[]> {
-    const batches = chunk(symbols, SPARK_BATCH_SIZE);
+  async fetchQuotes(targets, onBatch): Promise<Quote[]> {
+    const batches = chunk(targets, SPARK_BATCH_SIZE);
 
     const results = await mapPool(batches, SPARK_CONCURRENCY, async (batch) => {
-      const query = batch.map(toYahooSymbol).join(',');
+      const query = batch.map((t) => t.ticker).join(',');
       const url = `/api/yahoo/v8/finance/spark?symbols=${encodeURIComponent(query)}&range=1d&interval=${SPARK_INTERVAL}`;
 
       try {
@@ -97,19 +96,18 @@ export const directSource: DataSource = {
         const payload = (await res.json()) as Record<string, SparkEntry | null>;
 
         // Yahoo keys the response by ticker and silently drops unknown symbols,
-        // so map over the request batch rather than over the response.
-        const quotes = batch.map((symbol) =>
-          buildQuote(symbol, payload[toYahooSymbol(symbol)]),
-        );
+        // so map over the request batch rather than over the response. Quotes
+        // are keyed back to `symbol`, which is what the table joins on.
+        const quotes = batch.map((t) => buildQuote(t.symbol, payload[t.ticker]));
 
         // Publish here, inside the worker, so rows and the progress bar fill in
         // as each batch lands. Calling onBatch after `await mapPool` instead
-        // would hold every update back until all 120 requests had finished —
-        // roughly 45 seconds of an apparently frozen table in the browser.
+        // would hold every update back until all ~260 requests had finished —
+        // a minute or more of an apparently frozen table in the browser.
         if (quotes.length > 0) onBatch?.(quotes);
         return quotes;
       } catch {
-        // A failed chunk shouldn't sink the other 119 — those rows just stay blank.
+        // A failed chunk shouldn't sink the other ~259 — those rows stay blank.
         return [];
       }
     });

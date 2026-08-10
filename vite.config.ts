@@ -3,8 +3,8 @@ import react from '@vitejs/plugin-react';
 import type { ClientRequest } from 'node:http';
 
 /**
- * Dev-only proxy to NSE and Yahoo. Neither sends CORS headers, so the browser
- * cannot call them directly; both are fetched server-side here instead.
+ * Dev-only proxy to NSE, BSE and Yahoo. None of them sends CORS headers, so the
+ * browser cannot call them directly; all three are fetched server-side here.
  *
  * The proxy deliberately *replaces* the request headers rather than adding to
  * them. Vite's `proxy.headers` option only merges, which leaves Chromium's own
@@ -39,6 +39,20 @@ const NSE_HEADERS = {
   'Accept-Encoding': 'gzip, deflate',
 };
 
+/**
+ * BSE's API is the one its own site calls, and it is served only to requests
+ * that look like they came from there — hence the Referer and Origin. Unlike
+ * NSE it answers JSON, so the Accept header differs too.
+ */
+const BSE_HEADERS = {
+  'User-Agent': BROWSER_UA,
+  Referer: 'https://www.bseindia.com/',
+  Origin: 'https://www.bseindia.com',
+  Accept: 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'gzip, deflate',
+};
+
 const YAHOO_HEADERS = {
   'User-Agent': BROWSER_UA,
   Accept: 'application/json',
@@ -57,6 +71,14 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/nse/, ''),
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq) => replaceHeaders(proxyReq, NSE_HEADERS));
+        },
+      },
+      '/api/bse': {
+        target: 'https://api.bseindia.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/bse/, ''),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => replaceHeaders(proxyReq, BSE_HEADERS));
         },
       },
       '/api/yahoo': {

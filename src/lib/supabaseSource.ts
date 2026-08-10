@@ -1,5 +1,6 @@
-import type { DataSource, Quote, Security } from '../types';
+import type { DataSource, Exchange, Quote, Security } from '../types';
 import { supabase } from './supabaseClient';
+import { toNseTicker } from './listings';
 import { fetchYahooCandles } from './yahooCandles';
 
 /** PostgREST caps a response at 1000 rows by default, so paginate explicitly. */
@@ -19,6 +20,10 @@ interface SecurityRow {
   face_value: number | null;
   paid_up_value: number | null;
   market_lot: number | null;
+  /** Null before migration 0005 — everything was NSE-only then. */
+  exchanges?: Exchange[] | null;
+  yahoo_ticker?: string | null;
+  bse_code?: string | null;
 }
 
 interface QuoteRow {
@@ -71,12 +76,14 @@ async function fetchAll<T>(table: string, columns: string, orderBy: string): Pro
 export const supabaseSource: DataSource = {
   kind: 'supabase',
 
+  /**
+   * The rows are already merged — `sync-securities` folds BSE into NSE before
+   * writing, so this stays a plain read. `*` rather than a column list for the
+   * same reason as `fetchQuotes` below: naming `exchanges` explicitly would 400
+   * on a database that hasn't run migration 0005 yet.
+   */
   async listSecurities(): Promise<Security[]> {
-    const rows = await fetchAll<SecurityRow>(
-      'securities',
-      'symbol,name,series,isin,listing_date,face_value,paid_up_value,market_lot',
-      'symbol',
-    );
+    const rows = await fetchAll<SecurityRow>('securities', '*', 'symbol');
 
     return rows.map((r) => ({
       symbol: r.symbol,
@@ -87,10 +94,15 @@ export const supabaseSource: DataSource = {
       faceValue: r.face_value,
       paidUpValue: r.paid_up_value,
       marketLot: r.market_lot,
+      // Pre-0005 databases hold NSE listings and nothing else, so that is the
+      // honest reading of a missing column — not "exchange unknown".
+      exchanges: r.exchanges?.length ? r.exchanges : ['NSE'],
+      ticker: r.yahoo_ticker || toNseTicker(r.symbol),
+      bseCode: r.bse_code ?? null,
     }));
   },
 
-  async fetchQuotes(_symbols, onBatch): Promise<Quote[]> {
+  async fetchQuotes(_targets, onBatch): Promise<Quote[]> {
     // The sync-quotes function already refreshed these; just read the table.
     // `*` rather than a column list: naming `price_time` explicitly would 400 on
     // a project that hasn't run migration 0003 yet, and the table is narrow
