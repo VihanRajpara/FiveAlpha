@@ -2,9 +2,9 @@ import { useMemo, useRef, useState } from 'react';
 import type { Candle } from '../types';
 import { formatPrice } from '../lib/format';
 
-const W = 520;
-const H = 190;
-const PAD = { top: 12, right: 46, bottom: 20, left: 8 };
+const W = 560;
+const H = 220;
+const PAD = { top: 14, right: 52, bottom: 18, left: 8 };
 
 interface Props {
   candles: Candle[];
@@ -35,16 +35,19 @@ export function PriceChart({ candles, positive }: Props) {
 
     const plotW = W - PAD.left - PAD.right;
     const plotH = H - PAD.top - PAD.bottom;
+    const yOf = (v: number) => PAD.top + (1 - (v - min) / span) * plotH;
 
     const points: Point[] = candles
       .filter((c): c is Candle & { close: number } => typeof c.close === 'number')
       .map((c, i, arr) => ({
         x: PAD.left + (i / (arr.length - 1)) * plotW,
-        y: PAD.top + (1 - (c.close - min) / span) * plotH,
+        y: yOf(c.close),
         candle: c,
       }));
 
-    return { points, min, max, plotH };
+    // The opening close of the window is the reference the return is measured
+    // against, so it gets Finance's dotted baseline.
+    return { points, min, max, baselineY: yOf(values[0]), baseline: values[0] };
   }, [candles]);
 
   if (!model) {
@@ -55,7 +58,7 @@ export function PriceChart({ candles, positive }: Props) {
     );
   }
 
-  const { points, min, max } = model;
+  const { points, min, max, baselineY, baseline } = model;
   const stroke = positive ? 'var(--up)' : 'var(--down)';
   const gradientId = positive ? 'grad-up' : 'grad-down';
 
@@ -77,80 +80,100 @@ export function PriceChart({ candles, positive }: Props) {
   }
 
   const label = hover ?? points[points.length - 1];
+  // Keep the bubble inside the plot instead of letting it hang off either edge.
+  const tipLeft = Math.min(88, Math.max(12, (label.x / W) * 100));
 
   return (
     <div className="chart-box">
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${W} ${H}`}
-        role="img"
-        aria-label={`Price history, ${formatPrice(min)} to ${formatPrice(max)}`}
-        onMouseMove={handleMove}
-        onMouseLeave={() => setHover(null)}
-      >
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={stroke} stopOpacity="0.26" />
-            <stop offset="100%" stopColor={stroke} stopOpacity="0" />
-          </linearGradient>
-        </defs>
+      <div className="chart-plot">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          role="img"
+          aria-label={`Price history, ${formatPrice(min)} to ${formatPrice(max)}`}
+          onMouseMove={handleMove}
+          onMouseLeave={() => setHover(null)}
+        >
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={stroke} stopOpacity="0.24" />
+              <stop offset="100%" stopColor={stroke} stopOpacity="0" />
+            </linearGradient>
+          </defs>
 
-        {/* High / low guide rails */}
-        {[
-          { v: max, y: PAD.top },
-          { v: min, y: H - PAD.bottom },
-        ].map(({ v, y }) => (
-          <g key={v}>
+          {/* High / low guide rails */}
+          {[
+            { key: 'max', v: max, y: PAD.top },
+            { key: 'min', v: min, y: H - PAD.bottom },
+          ].map(({ key, v, y }) => (
+            <g key={key}>
+              <line x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} stroke="var(--outline-faint)" />
+              <text
+                x={W - PAD.right + 8}
+                y={y + 4}
+                fill="var(--on-surface-faint)"
+                className="num"
+                style={{ fontSize: 11 }}
+              >
+                {formatPrice(v)}
+              </text>
+            </g>
+          ))}
+
+          {/* Window-open reference line */}
+          <line
+            x1={PAD.left}
+            x2={W - PAD.right}
+            y1={baselineY}
+            y2={baselineY}
+            stroke="var(--on-surface-faint)"
+            strokeWidth="1"
+            strokeDasharray="2 4"
+            opacity="0.7"
+          />
+          <text
+            x={W - PAD.right + 8}
+            y={baselineY + 4}
+            fill="var(--on-surface-faint)"
+            className="num"
+            style={{ fontSize: 11 }}
+          >
+            {formatPrice(baseline)}
+          </text>
+
+          <path d={area} fill={`url(#${gradientId})`} />
+          <path
+            d={line}
+            fill="none"
+            stroke={stroke}
+            strokeWidth="2"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+
+          {hover && (
             <line
-              x1={PAD.left}
-              x2={W - PAD.right}
-              y1={y}
-              y2={y}
-              stroke="var(--border)"
-              strokeDasharray="3 3"
+              x1={hover.x}
+              x2={hover.x}
+              y1={PAD.top}
+              y2={H - PAD.bottom}
+              stroke="var(--on-surface-faint)"
+              strokeWidth="1"
             />
-            <text
-              x={W - PAD.right + 6}
-              y={y + 3.5}
-              fontSize="10"
-              fill="var(--text-faint)"
-              className="num"
-            >
-              {formatPrice(v)}
-            </text>
-          </g>
-        ))}
-
-        <path d={area} fill={`url(#${gradientId})`} />
-        <path d={line} fill="none" stroke={stroke} strokeWidth="1.6" strokeLinejoin="round" />
+          )}
+          <circle cx={label.x} cy={label.y} r="4" fill={stroke} stroke="var(--surface)" strokeWidth="2" />
+        </svg>
 
         {hover && (
-          <line
-            x1={hover.x}
-            x2={hover.x}
-            y1={PAD.top}
-            y2={H - PAD.bottom}
-            stroke="var(--text-faint)"
-            strokeWidth="1"
-            strokeDasharray="3 3"
-          />
+          <div className="chart-tip" style={{ left: `${tipLeft}%` }}>
+            <span>{hover.candle.date}</span>
+            <b className="num">{formatPrice(hover.candle.close)}</b>
+          </div>
         )}
-        <circle cx={label.x} cy={label.y} r="3.4" fill={stroke} stroke="var(--panel)" strokeWidth="1.6" />
-      </svg>
+      </div>
 
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          fontSize: 11,
-          color: 'var(--text-dim)',
-          padding: '2px 8px 0',
-        }}
-      >
+      <div className="chart-dates">
         <span>{points[0].candle.date}</span>
-        <span className="num" style={{ fontWeight: 600, color: 'var(--text)' }}>
-          {label.candle.date} · {formatPrice(label.candle.close)}
-        </span>
         <span>{points[points.length - 1].candle.date}</span>
       </div>
     </div>

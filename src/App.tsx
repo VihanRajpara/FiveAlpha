@@ -67,13 +67,15 @@ export default function App() {
   const breadth = useMemo(() => {
     let up = 0;
     let down = 0;
+    let flat = 0;
     for (const row of rows) {
       const c = row.quote?.change;
       if (c === null || c === undefined) continue;
       if (c > 0) up++;
       else if (c < 0) down++;
+      else flat++;
     }
-    return { up, down };
+    return { up, down, flat, priced: up + down + flat };
   }, [rows]);
 
   const marketOpen = isMarketOpen(now);
@@ -91,43 +93,45 @@ export default function App() {
   // Keep the drawer showing live prices as refreshes land.
   const selectedRow = selected ? joined.find((r) => r.symbol === selected.symbol) ?? selected : null;
 
+  const pct = (n: number) =>
+    breadth.priced === 0 ? '—' : `${Math.round((n / breadth.priced) * 100)}% of priced`;
+
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <h1>NSE Listed Shares</h1>
-          <span className="count num">
-            {loading ? 'loading…' : `${rows.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')}`}
+          <span className="logo" aria-hidden>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 17l5.5-6 4 4L21 6" />
+              <path d="M15 6h6v6" />
+            </svg>
           </span>
+          <div>
+            <h1>NSE Listed Shares</h1>
+            <span className="count num">
+              {loading
+                ? 'Loading…'
+                : `${rows.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} securities`}
+            </span>
+          </div>
         </div>
 
+        <div className="spacer" />
+
         <div className="search">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="11" cy="11" r="7" />
             <path d="m20 20-3.5-3.5" strokeLinecap="round" />
           </svg>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search symbol, company or ISIN…"
+            placeholder="Search symbol, company or ISIN"
             aria-label="Search shares"
           />
         </div>
 
-        <div className="segmented">
-          {SERIES_FILTERS.map((s) => (
-            <button key={s} data-active={s === series} onClick={() => setSeries(s)} title={SERIES_HINT[s]}>
-              {s}
-            </button>
-          ))}
-        </div>
-
         <div className="spacer" />
-
-        <span className="pill">
-          <span className={`dot${refreshingQuotes ? ' busy' : ''}`} />
-          {sourceKind === 'supabase' ? 'Supabase' : 'Direct (dev proxy)'}
-        </span>
 
         {/* Named for what it actually does. In Supabase mode this re-reads the
             quotes table — it does not fetch from Yahoo, so it cannot make
@@ -152,59 +156,108 @@ export default function App() {
         </button>
       </header>
 
-      {loading ? (
-        <div className="center-msg" style={{ flex: 1 }}>
-          <div className="spinner" />
-          <strong>Fetching the NSE equity list…</strong>
-          <span>
-            {sourceKind === 'supabase'
-              ? 'Reading the securities table from Supabase.'
-              : 'Reading EQUITY_L.csv straight from NSE archives.'}
-          </span>
+      <div className="subbar">
+        <div className="segmented">
+          {SERIES_FILTERS.map((s) => (
+            <button key={s} data-active={s === series} onClick={() => setSeries(s)} title={SERIES_HINT[s]}>
+              {s}
+            </button>
+          ))}
         </div>
-      ) : error && securities.length === 0 ? (
-        <div className="center-msg" style={{ flex: 1 }}>
-          <strong>Couldn’t load the equity list</strong>
-          <span>{error}</span>
-          {/* The fix differs entirely by mode, and in Supabase mode the most
-              common cause by far is that the migration hasn't been run yet. */}
-          {sourceKind === 'supabase' ? (
-            missingTable ? (
-              <span>
-                The tables don’t exist yet. Paste{' '}
-                <code>supabase/migrations/0001_init.sql</code> into the Supabase SQL Editor and run
-                it, then seed with <code>npm run seed</code>.
-              </span>
-            ) : (
-              <span>
-                Check <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> in{' '}
-                <code>.env</code>, and that the read policies from{' '}
-                <code>0001_init.sql</code> were applied.
-              </span>
-            )
-          ) : (
-            <span>
-              Run <code>npm run dev</code> so the proxy in <code>vite.config.ts</code> can reach NSE,
-              or configure Supabase in <code>.env</code>.
-            </span>
-          )}
-        </div>
-      ) : (
-        <StockTable
-          rows={rows}
-          sorting={sorting}
-          onSortingChange={setSorting}
-          selectedSymbol={selectedRow?.symbol ?? null}
-          onSelect={setSelected}
-        />
-      )}
 
-      <footer className="statusbar">
-        <span>
-          <strong className="num" style={{ color: 'var(--up)' }}>{breadth.up}</strong> advancing ·{' '}
-          <strong className="num" style={{ color: 'var(--down)' }}>{breadth.down}</strong> declining
+        <div className="spacer" />
+
+        <span className="pill">
+          <span className={`dot${refreshingQuotes ? ' busy' : ''}`} />
+          {sourceKind === 'supabase' ? 'Supabase' : 'Direct (dev proxy)'}
         </span>
 
+        <span
+          className="pill"
+          title={marketOpen ? 'NSE 09:15–15:30 IST' : 'Outside 09:15–15:30 IST, Mon–Fri'}
+        >
+          <span className={`dot${marketOpen ? '' : ' off'}`} />
+          Market {marketOpen ? 'open' : 'closed'}
+        </span>
+      </div>
+
+      {/* Breadth across whatever the current filter selects — the closest thing
+          this dataset has to a market summary. */}
+      <section className="summary" aria-label="Market breadth">
+        <div className="stat">
+          <div className="stat-label">Advancing</div>
+          <div className="stat-value num up">{breadth.up.toLocaleString('en-IN')}</div>
+          <div className="stat-sub">{pct(breadth.up)}</div>
+        </div>
+        <div className="stat">
+          <div className="stat-label">Declining</div>
+          <div className="stat-value num down">{breadth.down.toLocaleString('en-IN')}</div>
+          <div className="stat-sub">{pct(breadth.down)}</div>
+        </div>
+        <div className="stat">
+          <div className="stat-label">Unchanged</div>
+          <div className="stat-value num">{breadth.flat.toLocaleString('en-IN')}</div>
+          <div className="stat-sub">{pct(breadth.flat)}</div>
+        </div>
+        <div className="stat">
+          <div className="stat-label">Priced</div>
+          <div className="stat-value num">{breadth.priced.toLocaleString('en-IN')}</div>
+          <div className="stat-sub">of {rows.length.toLocaleString('en-IN')} shown</div>
+        </div>
+      </section>
+
+      <main className="content">
+        <div className="card">
+          {loading ? (
+            <div className="center-msg" style={{ flex: 1 }}>
+              <div className="spinner" />
+              <strong>Fetching the NSE equity list…</strong>
+              <span>
+                {sourceKind === 'supabase'
+                  ? 'Reading the securities table from Supabase.'
+                  : 'Reading EQUITY_L.csv straight from NSE archives.'}
+              </span>
+            </div>
+          ) : error && securities.length === 0 ? (
+            <div className="center-msg" style={{ flex: 1 }}>
+              <strong>Couldn’t load the equity list</strong>
+              <span>{error}</span>
+              {/* The fix differs entirely by mode, and in Supabase mode the most
+                  common cause by far is that the migration hasn't been run yet. */}
+              {sourceKind === 'supabase' ? (
+                missingTable ? (
+                  <span>
+                    The tables don’t exist yet. Paste{' '}
+                    <code>supabase/migrations/0001_init.sql</code> into the Supabase SQL Editor and
+                    run it, then seed with <code>npm run seed</code>.
+                  </span>
+                ) : (
+                  <span>
+                    Check <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_PUBLISHABLE_KEY</code>{' '}
+                    in <code>.env</code>, and that the read policies from <code>0001_init.sql</code>{' '}
+                    were applied.
+                  </span>
+                )
+              ) : (
+                <span>
+                  Run <code>npm run dev</code> so the proxy in <code>vite.config.ts</code> can reach
+                  NSE, or configure Supabase in <code>.env</code>.
+                </span>
+              )}
+            </div>
+          ) : (
+            <StockTable
+              rows={rows}
+              sorting={sorting}
+              onSortingChange={setSorting}
+              selectedSymbol={selectedRow?.symbol ?? null}
+              onSelect={setSelected}
+            />
+          )}
+        </div>
+      </main>
+
+      <footer className="statusbar">
         {refreshingQuotes && (
           <>
             <span className="progress" aria-hidden>
@@ -214,12 +267,7 @@ export default function App() {
           </>
         )}
 
-        <div className="spacer" />
         {error && securities.length > 0 && <span style={{ color: 'var(--down)' }}>{error}</span>}
-
-        <span title={marketOpen ? 'NSE 09:15–15:30 IST' : 'Outside 09:15–15:30 IST, Mon–Fri'}>
-          <span className={`dot${marketOpen ? '' : ' off'}`} /> Market {marketOpen ? 'open' : 'closed'}
-        </span>
 
         {/* The age of the prices themselves — NOT when they were last fetched.
             In Supabase mode those differ by however long ago the sync ran. */}
@@ -238,7 +286,9 @@ export default function App() {
             : 'Prices pending'}
         </span>
 
-        <span style={{ color: 'var(--text-faint)' }}>
+        <div className="spacer" />
+
+        <span style={{ color: 'var(--on-surface-faint)' }}>
           List: NSE EQUITY_L.csv · Prices: Yahoo Finance · ~15 min delayed, not for trading
         </span>
       </footer>

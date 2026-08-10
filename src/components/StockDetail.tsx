@@ -79,10 +79,18 @@ export function StockDetail({ security, quote, onClose }: Props) {
 
         <div className="drawer-price">
           <span className="ltp num">{formatPrice(quote?.price)}</span>
-          <span className={`num ${trendClass}`} style={{ fontWeight: 600, fontSize: 14 }}>
-            {change === null ? '—' : `${change >= 0 ? '+' : ''}${change.toFixed(2)}`}{' '}
-            {formatPercent(quote?.changePercent)}
-          </span>
+          {change === null ? (
+            <span style={{ color: 'var(--on-surface-faint)' }}>No quote yet</span>
+          ) : (
+            <span className={`chg-chip num ${trendClass}`}>
+              <span className="arrow" aria-hidden>
+                {positive ? '▲' : '▼'}
+              </span>
+              {`${change >= 0 ? '+' : ''}${change.toFixed(2)} (${formatPercent(
+                quote?.changePercent,
+              )})`}
+            </span>
+          )}
         </div>
 
         {loading ? (
@@ -108,7 +116,11 @@ export function StockDetail({ security, quote, onClose }: Props) {
           </div>
           {windowReturn !== null && (
             <span className={`num ${windowReturn >= 0 ? 'up' : 'down'}`} style={{ fontWeight: 600 }}>
-              {formatPercent(windowReturn)} over {RANGE_LABEL[range]}
+              {formatPercent(windowReturn)}
+              <span style={{ color: 'var(--on-surface-variant)', fontWeight: 400 }}>
+                {' '}
+                over {RANGE_LABEL[range]}
+              </span>
             </span>
           )}
         </div>
