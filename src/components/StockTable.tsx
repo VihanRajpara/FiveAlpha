@@ -171,16 +171,32 @@ function ScreenCell({
   screened,
   format,
   tone,
+  approx,
 }: {
   value: number | null | undefined;
   screened: boolean;
   format: (v: number) => string;
   tone?: 'up' | 'down' | null;
+  /** See `ScreenResult.approx` — a bound from the scan pass, not a measured high. */
+  approx?: boolean;
 }) {
   if (value === null || value === undefined) {
     return screened ? <span className="num muted-dash">—</span> : <span className="skeleton" />;
   }
-  return <span className={`num${tone ? ` ${tone}` : ''}`}>{format(value)}</span>;
+  return (
+    <span
+      className={`num${tone ? ` ${tone}` : ''}`}
+      title={
+        approx
+          ? 'Approximate: measured against the highest monthly close rather than the true high, ' +
+            'which the screen only pays for on rows it cannot otherwise decide. The real figure is this or lower.'
+          : undefined
+      }
+    >
+      {approx && '≈'}
+      {format(value)}
+    </span>
+  );
 }
 
 interface Props {
@@ -344,11 +360,16 @@ export function StockTable({
                     value={result?.metrics.pctOfHigh}
                     screened={result !== undefined}
                     format={formatFromHigh}
+                    approx={result?.approx}
                     // Within 5% of a decade high is the thing being looked for;
                     // colouring it is the difference between a column of
-                    // numbers and a column you can skim.
+                    // numbers and a column you can skim. Never on an approximate
+                    // figure: those are bounds on rows the screen already
+                    // rejected, and a green one would read as a near miss.
                     tone={
-                      result?.metrics.pctOfHigh !== undefined && result.metrics.pctOfHigh >= 95
+                      !result?.approx &&
+                      result?.metrics.pctOfHigh !== undefined &&
+                      result.metrics.pctOfHigh >= 95
                         ? 'up'
                         : null
                     }
@@ -562,8 +583,12 @@ export function StockTable({
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const row = tableRows[virtualRow.index];
             const result = screenResults?.get(row.original.symbol);
+            // `key` is deliberately *not* in here. It is not a prop — React
+            // reads it off the element before rendering — so spreading it warns
+            // and, in a list this one virtualises, would be the one attribute
+            // that must not go astray. It is passed explicitly at both call
+            // sites below.
             const shared = {
-              key: row.id,
               'data-selected': row.original.symbol === selectedSymbol,
               // Only meaningful when the screen's non-matches are on show; the
               // CSS dims everything that isn't a pass so the matches stay
@@ -577,7 +602,7 @@ export function StockTable({
             if (layout === 'mobile') {
               const q = row.original.quote;
               return (
-                <div {...shared} className="tr row-stack">
+                <div key={row.id} {...shared} className="tr row-stack">
                   <div className="stack-main">
                     <span className="stack-sym">
                       {row.original.symbol}
@@ -593,6 +618,7 @@ export function StockTable({
                     <span className="stack-name">{row.original.name}</span>
                     {result && (
                       <span className="stack-screen num">
+                        {result.approx && '≈'}
                         {formatFromHigh(result.metrics.pctOfHigh)} from 10Y high
                         {result.metrics.monthlyRsi14 !== null &&
                           result.metrics.monthlyRsi14 !== undefined &&
@@ -618,7 +644,7 @@ export function StockTable({
             }
 
             return (
-              <div {...shared} className="tr grid-row">
+              <div key={row.id} {...shared} className="tr grid-row">
                 {row
                   .getVisibleCells()
                   .filter((cell) => isVisible(cell.column.id))

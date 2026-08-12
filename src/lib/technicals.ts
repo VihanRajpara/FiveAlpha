@@ -1,5 +1,5 @@
 import type { Candle } from '../types';
-import { fetchYahooBars } from './yahooCandles';
+import { SPARK_BATCH_SIZE, fetchYahooBars, fetchYahooSparkBars } from './yahooCandles';
 
 /**
  * The technical half of a screen: the ten-year high a price is measured
@@ -119,14 +119,25 @@ export function collapseMonths(bars: Candle[]): Candle[] {
       out.push({ ...bar });
       continue;
     }
-    prev.high = Math.max(prev.high ?? -Infinity, bar.high ?? -Infinity);
-    prev.low = Math.min(prev.low ?? Infinity, bar.low ?? Infinity);
+    prev.high = merge(prev.high, bar.high, Math.max);
+    prev.low = merge(prev.low, bar.low, Math.min);
     prev.close = bar.close ?? prev.close;
-    prev.volume = Math.max(prev.volume ?? 0, bar.volume ?? 0);
+    prev.volume = merge(prev.volume, bar.volume, Math.max);
   }
 
   return out;
 }
+
+/**
+ * Null-preserving, which matters only for the close-only bars the scan pass
+ * builds: `Math.max(null ?? -Infinity, null ?? -Infinity)` would quietly turn a
+ * "there is no high here" into `-Infinity` and hand it on as if it were a price.
+ */
+const merge = (
+  a: number | null,
+  b: number | null,
+  pick: (x: number, y: number) => number,
+): number | null => (a === null ? b : b === null ? a : pick(a, b));
 
 /**
  * A monthly high above this multiple of its own close is a bad tick, not a
@@ -248,4 +259,176 @@ export function fetchTechnicalsCached(
   pending.catch(() => cache.delete(ticker));
   cache.set(ticker, pending);
   return pending;
+}
+
+/**
+ * Whether the *exact* figures for a ticker are already in hand or in flight.
+ *
+ * The runner asks before scanning: a bound on a number we already know exactly
+ * is pure cost, so a re-run skips straight to the confirmed value.
+ */
+export const hasTechnicals = (ticker: string): boolean => cache.has(ticker);
+
+// ---------------------------------------------------------------------------
+// The scan pass
+// ---------------------------------------------------------------------------
+
+/**
+ * What twenty symbols' worth of monthly *closes* can answer.
+ *
+ * This is the cheap half of the two-pass screen, and the split is drawn exactly
+ * where Yahoo's own endpoints draw it. `spark` batches twenty symbols per
+ * request but carries closes alone; `chart` carries the full OHLC but costs one
+ * request per symbol. So:
+ *
+ *   · **Exact** here — RSI (Wilder's runs on closes and nothing else), the bar
+ *     count, the first date, and how many calendar years the history spans.
+ *     These are computed from the same collapsed series `computeTechnicals`
+ *     uses, so the two passes cannot disagree about them.
+ *   · **Bounded** here — the ten-year high. `closeHigh` is the highest monthly
+ *     close, and a month's close is never above its high, so
+ *     `closeHigh <= high10y` **always**. That inequality is the entire basis on
+ *     which the runner is allowed to reject a row without paying for its bars.
+ */
+export interface CoarseTechnicals {
+  /**
+   * Highest monthly close in the window: a **lower bound** on `high10y`, never
+   * the thing itself. Usable to prove a share is far from its high; useless —
+   * and actively dangerous — for proving it is near one, because understating
+   * the high overstates how close the price is to it.
+   */
+  closeHigh: number;
+  /** Close of the most recent monthly bar. */
+  close: number;
+  /**
+   * Wilder RSI(14) on monthly closes — identical to the exact pass's figure
+   * **when `density` is 1**, and not otherwise. See `density`.
+   */
+  monthlyRsi14: number | null;
+  bars: number;
+  since: string;
+  /** History spans `DECADE_YEARS`, i.e. a ten-year high exists at all. */
+  decade: boolean;
+  /**
+   * Bars present as a fraction of the calendar months the history spans.
+   *
+   * The one place the two endpoints genuinely disagree, and it took measuring to
+   * find: for thinly traded shares `spark` **omits months altogether** where
+   * `chart` carries a close. AHLWEST comes back with 76 monthly bars against the
+   * chart's 120 over the same window, and an RSI computed on the survivors is
+   * not an approximation of the real one — it is a different series. Measured
+   * over 800 NSE symbols the two RSIs agree to 1e-6 wherever `density` is 1 and
+   * diverge by up to 20 points where it is not.
+   *
+   * So this is not a quality score, it is a licence: at 1 the RSI may be used to
+   * reject a row, below it the figure is unusable and the row has to be
+   * confirmed. The `closeHigh` bound is unaffected — dropping bars can only
+   * lower a maximum, which leaves it a lower bound.
+   */
+  density: number;
+}
+
+/**
+ * Highest close, ignoring single-bar spikes.
+ *
+ * The same problem `SPIKE_RATIO` solves for highs, in the direction that hurts
+ * here: `closeHigh` is only ever used to *reject* rows, so one bad tick in a
+ * decade would push the bound up and throw away a share that is genuinely at
+ * its high. A close more than double both neighbouring months is that tick.
+ *
+ * The RSI is deliberately left unguarded. It is computed from the same closes
+ * in both passes, so a tick that moves it moves it identically in each; filtering
+ * one and not the other would make the cheap pass disagree with the exact one.
+ */
+function maxCleanClose(closes: number[]): number {
+  let max = 0;
+
+  for (let i = 0; i < closes.length; i++) {
+    const before = closes[i - 1];
+    const after = closes[i + 1];
+    const neighbour = Math.max(before ?? 0, after ?? 0);
+    if (neighbour > 0 && closes[i] > neighbour * SPIKE_RATIO) continue;
+    if (closes[i] > max) max = closes[i];
+  }
+
+  return max;
+}
+
+/** Calendar months from one `yyyy-mm` to another, inclusive of both. */
+function monthsSpanned(first: string, last: string): number {
+  const [y0, m0] = first.split('-').map(Number);
+  const [y1, m1] = last.split('-').map(Number);
+  return (y1 - y0) * 12 + (m1 - m0) + 1;
+}
+
+export function computeCoarseTechnicals(rawBars: Candle[]): CoarseTechnicals | null {
+  const bars = collapseMonths(rawBars);
+
+  const closes: number[] = [];
+  const years = new Set<string>();
+  const months: string[] = [];
+  for (const bar of bars) {
+    if (typeof bar.close !== 'number') continue;
+    closes.push(bar.close);
+    years.add(bar.date.slice(0, 4));
+    months.push(bar.date.slice(0, 7));
+  }
+
+  if (closes.length === 0) return null;
+
+  const span = monthsSpanned(months[0], months[months.length - 1]);
+
+  return {
+    closeHigh: maxCleanClose(closes),
+    close: closes[closes.length - 1],
+    monthlyRsi14: closes.length >= MIN_BARS ? rsi(closes) : null,
+    bars: bars.length,
+    since: bars[0]?.date ?? '',
+    decade: years.size >= DECADE_YEARS,
+    density: span > 0 ? closes.length / span : 0,
+  };
+}
+
+/**
+ * Re-exported because it is the unit callers have to chunk by, and they should
+ * not need to know that the reason is Yahoo's spark endpoint: `fetchCoarseTechnicals`
+ * passes the list straight through, and Yahoo 400s the whole request above this.
+ */
+export { SPARK_BATCH_SIZE };
+
+const coarseCache = new Map<string, CoarseTechnicals>();
+
+/**
+ * One request per `SPARK_BATCH_SIZE` tickers, remembered for the life of the tab.
+ *
+ * A null value means Yahoo returned nothing for that ticker. Unlike the settled
+ * answers, those are **not** cached: the sampled ones are dead symbols that a
+ * re-run would find dead again, but remembering an absence as a verdict is how
+ * a transient drop becomes permanent, and re-asking costs a twentieth of a
+ * request. Throwing — a batch that failed outright — caches nothing at all.
+ */
+export async function fetchCoarseTechnicals(
+  tickers: string[],
+  signal?: AbortSignal,
+): Promise<Map<string, CoarseTechnicals | null>> {
+  const out = new Map<string, CoarseTechnicals | null>();
+
+  const wanted: string[] = [];
+  for (const ticker of tickers) {
+    const hit = coarseCache.get(ticker);
+    if (hit) out.set(ticker, hit);
+    else wanted.push(ticker);
+  }
+  if (wanted.length === 0) return out;
+
+  const series = await fetchYahooSparkBars(wanted, RANGE, INTERVAL, signal);
+
+  for (const ticker of wanted) {
+    const bars = series.get(ticker);
+    const coarse = bars ? computeCoarseTechnicals(bars) : null;
+    if (coarse) coarseCache.set(ticker, coarse);
+    out.set(ticker, coarse);
+  }
+
+  return out;
 }

@@ -44,7 +44,13 @@
       "Bash(npx --yes tsx@4 nsewide.mts)",
       "Bash(npx --yes tsx@4 why.mts)",
       "Bash(npx --yes tsx@4 threshold.mts)",
-      "Bash(npx --yes tsx@4 full.mts)"
+      "Bash(npx --yes tsx@4 full.mts)",
+      "Bash(curl -s -A \"Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) Chrome/120.0.0.0\" \"https://query1.finance.yahoo.com/v8/finance/spark?symbols=TCS.NS&range=10y&interval=1mo\")",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); k=list\\(d.keys\\(\\)\\); print\\(k\\); e=d[k[0]]; print\\({kk:\\(type\\(v\\).__name__, \\(len\\(v\\) if isinstance\\(v,list\\) else v\\)\\) for kk,v in e.items\\(\\)}\\); print\\('last closes', e['close'][-4:]\\); print\\('last ts', e['timestamp'][-4:]\\)\")",
+      "Bash(python probe.py)",
+      "Bash(node verify.mjs 800)",
+      "Bash(node verify.mjs 2500)",
+      "Bash(curl -s -o /dev/null -w \"app root: %{http_code}\\\\n\" http://localhost:5173/)"
     ]
   }
 }

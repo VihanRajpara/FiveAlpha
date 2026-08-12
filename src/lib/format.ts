@@ -125,8 +125,15 @@ export function chunk<T>(items: T[], size: number): T[][] {
 }
 
 /**
- * Runs `worker` over `items` with bounded concurrency. Yahoo throttles aggressively
- * above ~8 parallel connections, which is why this isn't just Promise.all.
+ * Runs `worker` over `items` with bounded concurrency, rather than Promise.all
+ * over thousands of requests at once.
+ *
+ * The bound used to be justified by Yahoo throttling "above ~8 parallel
+ * connections". That does not survive measurement — see `TECHNICAL_CONCURRENCY`
+ * in src/hooks/useScreen.ts, where 32 in flight returned no errors at all. The
+ * real reasons to keep it are the ones that do not depend on the upstream: the
+ * browser's own per-origin limit, and not queueing 5,000 sockets to be polite
+ * to someone else's server.
  */
 export async function mapPool<T, R>(
   items: T[],

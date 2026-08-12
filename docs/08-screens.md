@@ -37,26 +37,49 @@ The clause above is not a paraphrase — it is the `atlas_query` field on the sc
 | File | Responsibility |
 |---|---|
 | [screens.ts](../src/lib/screens.ts) | The clause as a list of **legs**: the Chartink fragment, a label, a phase, and the predicate. `judge()` turns legs + metrics into a verdict. |
-| [technicals.ts](../src/lib/technicals.ts) | 10-year high, latest close and monthly RSI(14) from one Yahoo request. Includes the Wilder RSI implementation. |
+| [technicals.ts](../src/lib/technicals.ts) | 10-year high, latest close and monthly RSI(14). The exact figures from one `chart` request per symbol, and the cheap `spark` scan that bounds them twenty symbols at a time. Includes the Wilder RSI implementation. |
 | [fundamentals.ts](../src/lib/fundamentals.ts) | Market cap and ROCE from a screener.in company page — see [§2.4](02-data-sources.md#24-fundamentals--screenerin-company-pages). |
-| [useScreen.ts](../src/hooks/useScreen.ts) | The runner: two phases, bounded concurrency, progress, cancellation, the universe cap. |
+| [useScreen.ts](../src/hooks/useScreen.ts) | The runner: three passes, bounded concurrency, progress, cancellation. |
 | [ScreenBar.tsx](../src/components/ScreenBar.tsx) | Picker, run/stop, progress, counts, matches-only toggle, and the collapsed clause panel. |
 | [StockTable.tsx](../src/components/StockTable.tsx) | The four screen columns, and the verdict treatment on rows. |
 
 A leg carries its own Chartink fragment because the UI shows the clause it is running. A screen that silently drops 95% of the table has to be able to say exactly what it did.
 
-## 8.3 Two phases, and why
+## 8.3 Three passes, and why
 
-Technical legs cost **one Yahoo request per row**. Fundamental legs cost **one screener.in page per row**. So the runner evaluates every technical leg first and only scrapes fundamentals for the rows still standing.
+Each pass is more expensive per row than the one before it, so each exists to shrink the input to the next.
 
 ```
-rows ──► phase 1: Yahoo 10y/1mo, concurrency 6 ──► survivors ──► phase 2: screener.in, concurrency 4
-          (every row)                                            (passers only)
+rows ──► scan: spark 10y/1mo, 20 symbols/request ──► undecided ──► confirm: chart 10y/1mo, 1/request ──► survivors ──► fundamentals: screener.in
+          (every row)                                 ~9%                                                  ~5%          (passers only, paced)
 ```
 
-Rows that are already failed, or that came back unjudged, are never scraped — an unknown cannot become a pass, so the request would buy nothing. On the 30-name sample screened during development, phase 2 ran on **6 rows out of 30**.
+**The scan** reads ten years of monthly *closes* for twenty symbols in one request. That answers the RSI leg outright and bounds the ten-year high from below, which is enough to settle **~91%** of a universe without ever fetching its bars.
 
-Phase 2 re-judges the row against *all* legs rather than combining two half-verdicts, so the final answer always comes from one pass over the whole clause.
+**The confirm pass** buys the real intra-month highs, one request per row, for what the bound could not decide.
+
+**The fundamentals pass** scrapes only the rows still standing. An unknown cannot become a pass, so a scrape for one would buy nothing. It re-judges each row against *all* legs rather than combining two half-verdicts, so the final answer always comes from one pass over the whole clause.
+
+### What the scan may conclude, and what it may not
+
+`spark` carries closes and nothing else, so [`judgeScan()`](../src/lib/screens.ts) is written around two facts and refuses to go past them:
+
+- **`closeHigh <= high10y`, always** — a month's close cannot exceed its own high. That proves a price is *far* from its high and proves nothing whatever about one that is near it. Feeding the bound to the `below-high` leg (`close <= high10y`) would fail precisely the shares sitting on a decade high, which is the entire population the screen exists to find. So the bound decides rejections only; it is attached to the metrics for display, flagged `approx`, and shown with a `≈`.
+- **The RSI and the year count are exact only on a whole series.** For thinly traded shares `spark` *omits months altogether* where `chart` carries a close — AHLWEST returns 76 monthly bars against the chart's 120. An RSI over the survivors is not an approximation of the real one, it is a different series. `CoarseTechnicals.density` measures this, and below 1 both the RSI and the year count are withheld and the row goes to the confirm pass.
+
+Measured over all 2,401 NSE symbols on 2026-08-12, against the exact pass run over the same universe:
+
+| | |
+|---|---|
+| Decided by the scan alone | 2,181 (90.8%) |
+| Sent to confirm | 220 (9.2%) |
+| Rows the exact pass passes on its technical legs | 115 |
+| …of those, reached the confirm pass | **115 (all)** |
+| Rows the scan rejected that the exact pass would have kept | **0** |
+| RSI gap where `density` is 1 (1,906 rows) | ≤ 8.6e-4 |
+| RSI gap where it is not (200 rows) | up to 20.8 — withheld |
+
+Both guards earn their place in that table: 19 symbols disagree about whether ten years of history exist, and every one of them is a gappy series that the `density` gate catches.
 
 ## 8.4 Verdicts
 
@@ -72,26 +95,31 @@ Unknowns are real and worth surfacing rather than hiding. Two causes dominate �
 
 ## 8.5 Cost, and why there is no cap
 
-This runs in the browser against a six-connections-per-origin limit, so the request count *is* the wall-clock. **Measured** over 180 NSE symbols through the dev proxy: **26.1s, i.e. 6.9 rows/s** — around 870 ms per request with six in flight.
+The request count *is* the wall-clock, so the whole optimisation is about issuing fewer requests rather than faster ones.
 
-| Universe | Estimate |
-|---|---|
-| 200 | 35s |
-| 500 | 85s |
-| 2,400 (all NSE) | 7 min |
-| 5,229 (everything) | 15 min |
+The per-symbol pass is **measured** at 6.9 rows/s through the dev proxy at six in flight — around 870 ms per request. The scan pass, measured the same way on the same day over 600 symbols, runs **19× that**; over the whole NSE list it was 38×. Batching twenty symbols per request is the entire difference.
+
+| Universe | Before | Now |
+|---|---|---|
+| 500 | 85s | 41s |
+| 2,400 (all NSE) | 7 min | 3 min |
+| 5,229 (everything) | 15 min | 7 min |
+
+The price work over the whole market fell from about a quarter of an hour to under two minutes. What is left is dominated by the **fundamentals pass**: screener.in is rate-limited to one request every 1.2s, and ~5% of a universe surviving to it is over five minutes of pure waiting on a whole-market run. That is now three quarters of the cost and the obvious next thing to attack — batching it behind the Worker's six-hour cache, or precomputing it, rather than paying the pacing gate per run.
 
 The first version of this refused anything above 500 rows outright. That was wrong, and visibly so: the default view is all 5,229 companies, so the run button arrived disabled with its only explanation in a hover tooltip — a working screen that looked broken. **A limit nobody can click past is a dead end, not a guardrail.**
 
-Now `LARGE_RUN = 500` only decides whether the bar warns first. Above it the estimate appears next to the button before anything is fetched, the run reports progress and remaining time throughout, and stopping keeps everything already judged. Narrowing by exchange, cap band or F&O is still the fast route to a shortlist — it is just advice now, not a gate.
+`LARGE_RUN` only decides whether the bar warns first, and is now 1,000 rather than 500 because 500 rows no longer takes long enough to be worth a warning. Above it the estimate appears next to the button before anything is fetched, the run reports progress and remaining time throughout, and stopping keeps everything already judged.
 
-`estimateSeconds()` is calibrated to the measurement above rather than to a guessed round trip. The guessed version assumed 300 ms and under-promised by nearly 3×, which on the whole market is the difference between "5 minutes" and a quarter of an hour.
+`estimateSeconds()` sums all three passes and is calibrated to the measurements above rather than to a guessed round trip. The guessed version assumed 300 ms and under-promised by nearly 3×.
 
 Both fetch layers cache per tab, keyed by ticker and by URL, so a second run only pays for rows it has not seen — **a cached re-run of the same 180 symbols takes 0.18s**. Failures are dropped from the cache rather than remembered as verdicts, so re-running is also how you retry them.
 
 ### When Yahoo says no
 
-One symbol in that 180 returned nothing. That rate does not hold across the whole list: Yahoo carries no history for many thinly traded BSE-only scrips, and it throttles somewhere in the thousands of requests. Either way those rows come back **unjudged**, so phase 1 counts them and the bar reports the total afterwards — a screen that quietly says "3,100 unjudged" without saying why is not reporting at all. Since judged rows are cached, running it again re-asks only for the failures.
+One symbol in that 180 returned nothing. That rate does not hold across the whole list: Yahoo carries no history for many thinly traded BSE-only scrips. Those rows come back **unjudged**, so the scan counts them and the bar reports the total afterwards — a screen that quietly says "3,100 unjudged" without saying why is not reporting at all.
+
+The scan pass changed what a miss means. A symbol it drops from a batch is one Yahoo carries nothing for anywhere: every one sampled also 404s on `chart`, so re-running is not a retry worth advertising. Judged rows are cached either way, which makes a second run near-instant rather than merely cheaper.
 
 ## 8.6 Measured
 
@@ -134,9 +162,9 @@ Two of the ten missed are `ARIHANT` and `DEEPINDS`, where Yahoo's history is too
 
 ### A row is a match when the whole clause says so
 
-Phase 1 stored the verdict over the *technical* legs, so a row that had cleared price and momentum counted as a match before anything asked about market cap or ROCE. That is invisible while phase 2 finishes and completely wrong when it does not — and it did not, because screener.in rate-limits (below). The run aborted and every row it never reached stayed a "match": **109 against Chartink's 64 on the same universe.**
+The price passes stored the verdict over the *technical* legs alone, so a row that had cleared price and momentum counted as a match before anything asked about market cap or ROCE. That is invisible while the fundamentals pass finishes and completely wrong when it does not — and it did not, because screener.in rate-limits (below). The run aborted and every row it never reached stayed a "match": **109 against Chartink's 64 on the same universe.**
 
-Phase 1 now judges against `def.legs` — the whole clause — and the fundamental legs return null on absent metrics, so those rows read **unjudged** until phase 2 answers for them. The technical verdict is still computed, but only to decide which rows are worth a screener.in request.
+They now judge against `def.legs` — the whole clause — and the fundamental legs return null on absent metrics, so those rows read **unjudged** until the fundamentals pass answers for them. The technical verdict is still computed, but only to decide which rows are worth a screener.in request.
 
 ### A ten-year high needs ten years
 
@@ -156,7 +184,7 @@ That was **91 of the 214**. Ninety of the ninety-one had under ten years of hist
 - **Splits Yahoo never applied.** The other shape of bad history: a whole stretch of bars uniformly scaled, each internally consistent, so the spike filter cannot see it. `UEL`, `CLCIND`, `IVZINGOLD`, `SWANDEF` and `DIACABS` are all this. Catching them needs a discontinuity check across adjacent bars, not a within-bar one.
 - **Universe.** Chartink's `{cash}` is 2,869 instruments. Here the universe is whatever the filters select — up to 5,229, including the ~2,800 BSE-only companies Yahoo largely has no history for, which come back unjudged. Screening **NSE only** is the like-for-like comparison.
 - **Fundamentals provider.** ROCE and market cap come from screener.in; Chartink uses its own. Both are "latest annual, consolidated where available", but a company near the `> 10` boundary can land on opposite sides. This is now the largest remaining source of disagreement.
-- **Timing of the fundamentals pass.** screener.in is rate-limited to one request every 1.2s, so phase 2 over ~115 survivors takes a little over two minutes — see [§2.4](02-data-sources.md#24-fundamentals--screenerin-company-pages).
+- **Timing of the fundamentals pass.** screener.in is rate-limited to one request every 1.2s, so the fundamentals pass over ~115 survivors takes a little over two minutes — see [§2.4](02-data-sources.md#24-fundamentals--screenerin-company-pages).
 - **The `<= high` leg is near-tautological** in both, because the current bar's high already contains today's price. It is kept because it is in the clause, and because it is what makes this a run *up to* the high rather than a breakout above one.
 - **Timing.** Chartink's snapshot lags the live quote by minutes, so borderline rows can differ intraday for no deeper reason than that.
 

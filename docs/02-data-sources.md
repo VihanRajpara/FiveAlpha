@@ -10,7 +10,7 @@ Every endpoint used, every endpoint rejected, with the evidence behind each deci
 |---|---|---|---|
 | NSE `EQUITY_L.csv` | none (needs `Referer`) | ✅ used | The NSE master list (2,410 shares) |
 | BSE `ListofScripData/w` | none (needs `Referer`) | ✅ used | The BSE master list (5,099 active equity scrips) |
-| Yahoo `v8/finance/spark` | none | ✅ used | LTP + previous close, 20 symbols/request |
+| Yahoo `v8/finance/spark` | none | ✅ used | Closes only, 20 symbols/request. LTP + previous close for the table; 10y monthly for the screens' scan pass |
 | Yahoo `v8/finance/chart` | none | ✅ used | OHLCV history, 1 symbol/request |
 | screener.in company pages | none | ✅ used (screens only) | Market cap + ROCE, scraped, 1 company/request |
 | Zerodha Kite `/instruments` | none | ⚪ viable fallback | 9,899 NSE instruments (noisy) |
@@ -155,6 +155,8 @@ https://query1.finance.yahoo.com/v8/finance/spark?symbols=<CSV>&range=1d&interva
 
 No authentication, no cookie, no crumb. Only a `User-Agent` is needed.
 
+`range` and `interval` are free parameters, not fixed to the day — `range=10y&interval=1mo` returns ten years of monthly closes for twenty symbols in one request, which is what the screens' scan pass uses. Two behaviours worth knowing before relying on it: symbols Yahoo does not carry are **silently dropped** from the response object rather than returned as null (and a batch it recognises nothing in is a 404 for the whole request), and for thinly traded shares it **omits months** that `chart` returns a close for. The first is benign — every dropped symbol sampled also 404s on `chart` — but the second means a series from `spark` is not always the same series `chart` would give, which [§8.3](08-screens.md#83-three-passes-and-why) has to handle explicitly.
+
 ### Symbol mapping
 
 NSE symbol + `.NS`, or BSE scrip id + `.BO`. `RELIANCE` → `RELIANCE.NS`; `TANFACIND` → `TANFACIND.BO`. Resolved once at merge time and stored as `Security.ticker` / `securities.yahoo_ticker`, because a BSE-only row's ticker cannot be derived from its display symbol.
@@ -232,7 +234,9 @@ Capped at **6** (`SPARK_CONCURRENCY`). Yahoo begins refusing connections above r
 https://query1.finance.yahoo.com/v8/finance/chart/<TICKER>?range=<range>&interval=<interval>
 ```
 
-One request per symbol — there is no batch form. That is precisely why history is fetched on demand rather than ingested: keeping the whole market warm meant ~2,400 requests per pass and half a million stored rows, where a chart is only ever opened one symbol at a time.
+One request per symbol. That is precisely why history is fetched on demand rather than ingested: keeping the whole market warm meant ~2,400 requests per pass and half a million stored rows, where a chart is only ever opened one symbol at a time.
+
+There *is* a batch form for the closes alone — `spark` takes the same `range`/`interval` pair and answers twenty symbols at once. It is not a substitute here, because the drawer's chart needs OHLC and the screens need true intra-month highs, but it is what the screens' scan pass runs on: see [§8.3](08-screens.md#83-three-passes-and-why) for what a close-only series may and may not be used to conclude.
 
 In the browser this is called through `/api/yahoo`, which is the Vite dev proxy under `npm run dev` and the Cloudflare Worker in a deployed build.
 
@@ -324,7 +328,7 @@ Worth stating that way round, because the two call for opposite responses — a 
 | **1.2 s** | **60 of 60, no 429** |
 | 2.5 s | 40 of 40, no 429 |
 
-At four unthrottled connections a screen hit the wall about twenty rows in and aborted, which on a 2,410-row NSE universe meant the fundamental legs were **effectively never evaluated** — and, until phase 1 was fixed to judge the whole clause, every row phase 2 never reached was still being reported as a match.
+At four unthrottled connections a screen hit the wall about twenty rows in and aborted, which on a 2,410-row NSE universe meant the fundamental legs were **effectively never evaluated** — and, until the price passes were fixed to judge the whole clause, every row the fundamentals pass never reached was still being reported as a match.
 
 `MIN_INTERVAL_MS = 1200` in [fundamentals.ts](../src/lib/fundamentals.ts) gates every request through one shared schedule, and a 429 pushes *all* queued callers back rather than just the one that got it — the limit is on the origin, so backing off alone while the rest keep firing only holds the block open. **Measured after the change: 115 survivors, 137s, zero 429s.**
 

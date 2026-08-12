@@ -18,8 +18,14 @@ import type { ScreenDef } from '../lib/screens';
 
 const NONE = 'none';
 
-const PHASE_LABEL: Record<'technical' | 'fundamental', string> = {
-  technical: 'Reading 10 years of monthly bars',
+/**
+ * Named after what the pass is *doing to the rows*, not after the endpoint it
+ * calls: the scan reads twenty symbols a request and settles most of them, then
+ * the confirm pass buys the true intra-month highs for the few it could not.
+ */
+const PHASE_LABEL: Record<'scan' | 'technical' | 'fundamental', string> = {
+  scan: 'Scanning 10 years of monthly closes',
+  technical: 'Confirming 10-year highs',
   fundamental: 'Reading fundamentals',
 };
 
@@ -77,7 +83,7 @@ export function ScreenBar({
             // Only a genuinely empty universe disables this. A large one is
             // slow, not impossible, and it says how slow in the note below.
             disabled={!running && universeCount === 0}
-            title={`Runs over the ${universeCount.toLocaleString('en-IN')} rows the filters currently select — one request each, six at a time.`}
+            title={`Runs over the ${universeCount.toLocaleString('en-IN')} rows the filters currently select — twenty symbols a request, then a closer look at the ones that survive.`}
           >
             {running ? 'Stop' : `Run on ${universeCount.toLocaleString('en-IN')}`}
           </button>
@@ -91,9 +97,11 @@ export function ScreenBar({
             <span className="screen-phase">
               {run.progress.phase ? PHASE_LABEL[run.progress.phase] : ''} · {run.progress.done} of{' '}
               {run.progress.total}
-              {/* Only on the long tail of phase 1, where the number is both
-                  reliable and worth knowing. */}
-              {run.progress.phase === 'technical' &&
+              {/* Only on the long tail of the scan, where the number is both
+                  reliable and worth knowing — it is an estimate for the whole
+                  remaining run, and the scan is the only pass whose count is
+                  the universe rather than a subset of it. */}
+              {run.progress.phase === 'scan' &&
                 run.progress.total - run.progress.done > LARGE_RUN &&
                 ` · ~${formatEstimate(run.progress.total - run.progress.done)} left`}
             </span>
@@ -140,9 +148,10 @@ export function ScreenBar({
       {selected && !running && !hasResults && long && (
         <p className="screen-note">
           {universeCount.toLocaleString('en-IN')} rows takes about {formatEstimate(universeCount)} —
-          one request per row, six at a time, which is all the browser allows. It shows progress and
-          can be stopped at any point, keeping whatever it has already judged. Filtering by exchange,
-          cap band or F&amp;O first gets you to a shortlist faster.
+          prices are read twenty symbols at a time, and most of that estimate is the polite pace of
+          the fundamentals pass over whatever survives. It shows progress and can be stopped at any
+          point, keeping whatever it has already judged. Filtering by exchange, cap band or F&amp;O
+          first gets you to a shortlist faster.
         </p>
       )}
 

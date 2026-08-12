@@ -45,6 +45,17 @@ export interface ScreenLeg {
   label: string;
   /** True = passes, false = fails, null = not enough data to say. */
   test: (m: Partial<ScreenMetrics>) => boolean | null;
+  /**
+   * Optional, and purely an optimisation: the fraction of `high10y` at or below
+   * which this leg cannot pass, i.e. `close <= high10y * coarseFloor` is always
+   * a fail.
+   *
+   * It exists so the scan pass in src/hooks/useScreen.ts can reject a row
+   * against a *lower bound* on the high instead of paying for its bars — sound
+   * only in that one direction, and only for a leg that says so. Omitting it
+   * costs speed, never correctness: the row is simply confirmed exactly.
+   */
+  coarseFloor?: number;
 }
 
 export interface ScreenDef {
@@ -68,6 +79,12 @@ export interface ScreenResult {
   decidedBy: ScreenLeg | null;
   /** Whether a fundamentals page was reached, and which. */
   fundamentalsUrl?: string;
+  /**
+   * `high10y` and `pctOfHigh` are bounds from the scan pass rather than measured
+   * highs — the row was decided without paying for its bars. The verdict is not
+   * approximate; the two numbers are, and the table marks them.
+   */
+  approx?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +119,9 @@ export const ALL_TIME_HIGH_BREAKOUT: ScreenDef = {
       clause: 'daily close > yearly max( 10 , yearly high ) * 0.75',
       label: 'Within 25% of the 10-year high',
       test: (m) => (num(m.close) && num(m.high10y) ? m.close > m.high10y * NEAR_HIGH : null),
+      // The leg the scan pass rejects on: a price already below 75% of the
+      // *lowest possible* ten-year high is below 75% of the real one too.
+      coarseFloor: NEAR_HIGH,
     },
     {
       id: 'below-high',
@@ -167,3 +187,107 @@ export function judge(
 
 export const legsFor = (screen: ScreenDef, phase: Phase) =>
   screen.legs.filter((leg) => leg.phase === phase);
+
+/**
+ * What the scan pass alone can conclude about a row: either a final verdict, or
+ * "this one has to be paid for".
+ */
+export type ScanOutcome =
+  | {
+      kind: 'decided';
+      verdict: Verdict;
+      decidedBy: ScreenLeg | null;
+      metrics: Partial<ScreenMetrics>;
+      /** `metrics.high10y` is the bound rather than the measured high. */
+      approx: boolean;
+    }
+  | { kind: 'confirm' };
+
+/**
+ * Decide a row from monthly closes alone, or send it to the exact pass.
+ *
+ * This is the rule the whole optimisation rests on, so it is stated here as one
+ * pure function rather than spread through the runner. Everything it concludes
+ * follows from two facts about a close-only series:
+ *
+ *   · RSI and the length of the history are **exact**. Wilder's RSI reads
+ *     closes and nothing else, and the calendar years are the bars' own dates.
+ *   · `closeHigh <= high10y`, always, because a month's close cannot exceed its
+ *     own high.
+ *
+ * The second is a one-directional licence and is treated as one. It can prove a
+ * price is *far* from its high — below the floor of a lower bound is below the
+ * floor of the real thing — and it can prove nothing at all about a price near
+ * one. So `high10y` is kept out of every judgement made here; it is attached to
+ * the returned metrics for display, flagged `approx`, and the rows it cannot
+ * settle are confirmed against real intra-month highs.
+ *
+ * Getting that backwards is not a rounding error. Feeding the bound to
+ * `below-high` (`close <= high10y`) would fail precisely the shares sitting on a
+ * decade high, which is the entire population the screen exists to find.
+ */
+export function judgeScan(
+  screen: ScreenDef,
+  scanned: {
+    close: number;
+    monthlyRsi14: number | null;
+    bars: number;
+    closeHigh: number;
+    decade: boolean;
+    density: number;
+  },
+  livePrice?: number | null,
+): ScanOutcome {
+  // The live quote is fresher than the current monthly bar's close during a
+  // session, and using it keeps the screen consistent with the table's price.
+  const close = livePrice ?? scanned.close;
+
+  // Whether the series is whole — see `CoarseTechnicals.density`. A gappy one
+  // gives a *different* RSI, not an imprecise one, and it can under-count the
+  // calendar years too. Both of those are withheld below rather than corrected:
+  // the row goes to the exact pass instead of being rejected on a number
+  // computed over the wrong series.
+  const dense = scanned.density >= 1;
+
+  // Only what the scan measured exactly. Every `judge` call below sees this.
+  const metrics: Partial<ScreenMetrics> = {
+    close,
+    monthlyRsi14: dense ? scanned.monthlyRsi14 : null,
+    bars: scanned.bars,
+  };
+
+  const bounded = scanned.decade && scanned.closeHigh > 0;
+  const shown: Partial<ScreenMetrics> = bounded
+    ? { ...metrics, high10y: scanned.closeHigh, pctOfHigh: (close / scanned.closeHigh) * 100 }
+    : metrics;
+
+  const technicalLegs = legsFor(screen, 'technical');
+
+  // 1. A definite fail on a leg the scan answers exactly — RSI, and anything
+  //    else not written in terms of the ten-year high.
+  const technical = judge(technicalLegs, metrics);
+  if (technical.verdict === 'fail') {
+    return { kind: 'decided', ...judge(screen.legs, metrics), metrics: shown, approx: bounded };
+  }
+
+  // 2. Too short a history for a ten-year high at all: `high10y` is genuinely
+  //    null, the price legs are unanswerable, and the row is unjudged — the
+  //    same answer the exact pass would spend a request arriving at.
+  //
+  //    Only on a whole series. `decade` is one-directional in exactly the way
+  //    `closeHigh` is: bars the scan never saw cannot invent a year, so *true*
+  //    is trustworthy anywhere, while *false* on a gappy series may only mean
+  //    the missing months took a year with them.
+  if (dense && !scanned.decade) {
+    return { kind: 'decided', ...judge(screen.legs, metrics), metrics, approx: false };
+  }
+
+  // 3. Below the floor even against the lowest the high could possibly be.
+  const floorLeg = technicalLegs.find((leg) => leg.coarseFloor !== undefined);
+  if (bounded && floorLeg && close <= scanned.closeHigh * floorLeg.coarseFloor!) {
+    return { kind: 'decided', verdict: 'fail', decidedBy: floorLeg, metrics: shown, approx: true };
+  }
+
+  // 4. The bound cannot settle it. Pay for the bars.
+  return { kind: 'confirm' };
+}
