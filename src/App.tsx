@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SortingState } from '@tanstack/react-table';
 import { StockTable } from './components/StockTable';
 import { StockDetail } from './components/StockDetail';
 import { ThemeToggle } from './components/ThemeToggle';
 import { Filters, type FilterGroupSpec } from './components/Filters';
+import { ScreenBar } from './components/ScreenBar';
 import { useMarketData } from './hooks/useMarketData';
+import { useScreen } from './hooks/useScreen';
+import { SCREENS } from './lib/screens';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
 import { UNCLASSIFIED } from './lib/classification';
 import { compareSeries, describeSeries } from './lib/listings';
@@ -95,7 +98,7 @@ export default function App() {
   }, []);
 
   const [search, setSearch] = useState('');
-  const [exchange, setExchange] = useState<ExchangeFilter>('ALL');
+  const [exchange, setExchange] = useState<ExchangeFilter>('NSE');
   // Not a closed union any more: the available series depend on which exchange
   // is selected, and BSE's group letters are data, not a list we can enumerate.
   const [series, setSeries] = useState<string>('ALL');
@@ -103,6 +106,17 @@ export default function App() {
   const [cap, setCap] = useState<CapFilter>('ALL');
   const [sorting, setSorting] = useState<SortingState>([{ id: 'symbol', desc: false }]);
   const [selected, setSelected] = useState<SecurityWithQuote | null>(null);
+
+  const screenRun = useScreen();
+  const [screenId, setScreenId] = useState<string>('none');
+  // The point of running a screen is the shortlist, so the table cuts to it by
+  // default; the toggle in the bar puts the rejected rows back, dimmed, for
+  // anyone checking the screen's work rather than trusting it.
+  const [matchesOnly, setMatchesOnly] = useState(true);
+  const selectedScreen = useMemo(
+    () => SCREENS.find((s) => s.id === screenId) ?? null,
+    [screenId],
+  );
 
   const joined = useMemo<SecurityWithQuote[]>(
     () =>
@@ -179,6 +193,44 @@ export default function App() {
   }, [exchangeRows, search, series, segment, cap]);
 
   /**
+   * What the table actually shows: the filtered rows, cut to the screen's
+   * matches when one has run and the toggle is on.
+   *
+   * Kept separate from `rows` because the two answer different questions —
+   * `rows` is the universe a run would cover and what the filter controls
+   * count, `screened` is the shortlist. Collapsing them would make the filter
+   * sheet's "Show 12" button report the screen's verdict instead of the
+   * filters'.
+   */
+  const screening = screenRun.status === 'running' || screenRun.results.size > 0;
+
+  const screened = useMemo(
+    () =>
+      // Cutting from the first moment of a run rather than from the first
+      // published batch: the table then fills up with matches as they are
+      // found, instead of showing the whole list and suddenly collapsing.
+      matchesOnly && screening ? rows.filter((row) => screenRun.matches.has(row.symbol)) : rows,
+    [rows, matchesOnly, screening, screenRun.matches],
+  );
+
+  const runScreen = useCallback(() => {
+    if (selectedScreen) {
+      setMatchesOnly(true);
+      screenRun.run(selectedScreen, rows);
+    }
+  }, [selectedScreen, screenRun, rows]);
+
+  const selectScreen = useCallback(
+    (id: string) => {
+      setScreenId(id);
+      // Leaving a previous screen's columns and shortlist behind after picking
+      // "None" would be a table showing the result of something not selected.
+      if (id !== screenRun.screen?.id) screenRun.clear();
+    },
+    [screenRun],
+  );
+
+  /**
    * One description of the filters, rendered as inline chips on wide screens
    * and as a sheet on narrow ones. Keeping it in a single place is what stops
    * the two layouts diverging as filters get added.
@@ -240,7 +292,7 @@ export default function App() {
     let up = 0;
     let down = 0;
     let flat = 0;
-    for (const row of rows) {
+    for (const row of screened) {
       const c = row.quote?.change;
       if (c === null || c === undefined) continue;
       if (c > 0) up++;
@@ -248,7 +300,7 @@ export default function App() {
       else flat++;
     }
     return { up, down, flat, priced: up + down + flat };
-  }, [rows]);
+  }, [screened]);
 
   // Honest about which lists actually loaded: if BSE's API was unreachable the
   // merge falls back to NSE alone, and the header should say so rather than
@@ -294,7 +346,7 @@ export default function App() {
             <span className="count num">
               {loading
                 ? 'Loading…'
-                : `${listedOn} · ${rows.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} companies`}
+                : `${listedOn} · ${screened.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} companies`}
             </span>
           </div>
         </div>
@@ -345,6 +397,17 @@ export default function App() {
         <Filters groups={filterGroups} resultCount={rows.length} />
       </div>
 
+      <ScreenBar
+        screens={SCREENS}
+        selected={selectedScreen}
+        onSelect={selectScreen}
+        run={screenRun}
+        universeCount={rows.length}
+        onRun={runScreen}
+        matchesOnly={matchesOnly}
+        onMatchesOnlyChange={setMatchesOnly}
+      />
+
       {/* Breadth across whatever the current filter selects — the closest thing
           this dataset has to a market summary. */}
       <section className="summary" aria-label="Market breadth">
@@ -366,7 +429,7 @@ export default function App() {
         <div className="stat">
           <div className="stat-label">Priced</div>
           <div className="stat-value num">{breadth.priced.toLocaleString('en-IN')}</div>
-          <div className="stat-sub">of {rows.length.toLocaleString('en-IN')} shown</div>
+          <div className="stat-sub">of {screened.length.toLocaleString('en-IN')} shown</div>
         </div>
       </section>
 
@@ -411,8 +474,11 @@ export default function App() {
             </div>
           ) : (
             <StockTable
-              rows={rows}
+              rows={screened}
               quotesLoaded={quotesLoaded}
+              // Present from the start of a run, empty, so the screen columns
+              // appear shimmering rather than popping in mid-pass.
+              screenResults={screening ? screenRun.results : null}
               sorting={sorting}
               onSortingChange={setSorting}
               selectedSymbol={selectedRow?.symbol ?? null}

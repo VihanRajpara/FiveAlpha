@@ -36,15 +36,42 @@ interface ChartResponse {
   };
 }
 
-/** `ticker` is the exchange-qualified Yahoo symbol — `TCS.NS` or `TANFACIND.BO`. */
-export async function fetchYahooCandles(ticker: string, range: ChartRange): Promise<Candle[]> {
-  // Daily bars stay readable up to a year; beyond that switch to weekly.
-  const interval = range === '5y' ? '1wk' : '1d';
+/**
+ * Yahoo's bar timestamps are the *start* of the period in exchange-local time,
+ * so an NSE bar opening 1 September lands on epoch `2016-08-31T18:30:00Z`.
+ * Slicing that in UTC dates every Indian bar a day early and, at monthly
+ * resolution, files it under the wrong month entirely — which is not cosmetic
+ * once anything groups bars by month, as `src/lib/technicals.ts` now does.
+ *
+ * NSE and BSE are both IST and India has no daylight saving, so a fixed +5:30
+ * is exact rather than an approximation.
+ */
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+const sessionDate = (ts: number) =>
+  new Date(ts * 1000 + IST_OFFSET_MS).toISOString().slice(0, 10);
+
+/**
+ * Bars at an arbitrary range/interval.
+ *
+ * Exported because the chart is no longer the only caller: `src/lib/technicals.ts`
+ * asks for ten years of *monthly* bars, which is not one of the ranges the
+ * drawer offers. Keeping one fetch/parse here means the screens and the chart
+ * cannot disagree about what Yahoo returned.
+ *
+ * `ticker` is the exchange-qualified Yahoo symbol — `TCS.NS` or `TANFACIND.BO`.
+ */
+export async function fetchYahooBars(
+  ticker: string,
+  range: string,
+  interval: string,
+  signal?: AbortSignal,
+): Promise<Candle[]> {
   const url = `/api/yahoo/v8/finance/chart/${encodeURIComponent(
     ticker,
   )}?range=${range}&interval=${interval}`;
 
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`Yahoo returned ${res.status} for ${ticker}`);
 
   const payload = (await res.json()) as ChartResponse;
@@ -55,7 +82,7 @@ export async function fetchYahooCandles(ticker: string, range: ChartRange): Prom
 
   return result.timestamp
     .map((ts, i) => ({
-      date: new Date(ts * 1000).toISOString().slice(0, 10),
+      date: sessionDate(ts),
       open: quote.open?.[i] ?? null,
       high: quote.high?.[i] ?? null,
       low: quote.low?.[i] ?? null,
@@ -63,4 +90,9 @@ export async function fetchYahooCandles(ticker: string, range: ChartRange): Prom
       volume: quote.volume?.[i] ?? null,
     }))
     .filter((c) => c.close !== null);
+}
+
+/** The drawer's chart: daily bars up to a year, weekly beyond it. */
+export function fetchYahooCandles(ticker: string, range: ChartRange): Promise<Candle[]> {
+  return fetchYahooBars(ticker, range, range === '5y' ? '1wk' : '1d');
 }

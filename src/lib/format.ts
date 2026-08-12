@@ -47,6 +47,25 @@ export function formatVolume(value: number | null | undefined): string {
   return String(value);
 }
 
+/** A figure already denominated in ₹ crore — market cap, as screener.in states it. */
+export function formatCrore(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—';
+  return value.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+
+/**
+ * How far below a high a price sits, given the price as a percentage *of* that
+ * high. The screen's own arithmetic is `close / high`, but nobody reads a stock
+ * as "91.8% of its ten-year high" — they read it as 8.2% off it, so the sign is
+ * flipped for display and the boundary case gets a word instead of "-0.0%".
+ */
+export function formatFromHigh(pctOfHigh: number | null | undefined): string {
+  if (pctOfHigh === null || pctOfHigh === undefined) return '—';
+  const below = 100 - pctOfHigh;
+  if (below < 0.05) return 'at high';
+  return `−${below.toFixed(1)}%`;
+}
+
 /**
  * Human-readable age of a timestamp: "just now", "12 min ago", "3 h ago", "2 d ago".
  * Used to state how old the prices actually are, rather than when they were fetched.

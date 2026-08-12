@@ -15,7 +15,8 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { CAP_SHORT, classRank } from '../lib/classification';
 import { ExchangeBadges } from './ExchangeBadges';
 import { SelectMenu } from './SelectMenu';
-import { formatDate, formatPercent, formatPrice } from '../lib/format';
+import { formatCrore, formatDate, formatFromHigh, formatPercent, formatPrice } from '../lib/format';
+import type { ScreenResult } from '../lib/screens';
 import type { Classification, SecurityWithQuote } from '../types';
 
 /**
@@ -33,6 +34,13 @@ type Layout = 'wide' | 'medium' | 'mobile';
 const ROW_HEIGHT: Record<Layout, number> = { wide: 48, medium: 48, mobile: 68 };
 
 /**
+ * A phone row has no columns to put the screen's numbers in, so they go on a
+ * third line under the company name — which the row has to grow to hold. The
+ * virtualiser positions rows by this number, so it cannot be left to the CSS.
+ */
+const MOBILE_SCREEN_ROW_HEIGHT = 86;
+
+/**
  * Columns dropped in `medium`, in priority order of what matters least. `series`
  * goes too: at this width there is room for two classification columns, and
  * segment/cap plus exchange say more about a stock than EQ-vs-BE does. `exchange`
@@ -46,6 +54,23 @@ const MEDIUM_HIDDEN = new Set([
   'isin',
   'listingDate',
   'faceValue',
+]);
+
+/**
+ * With a screen running there are four more columns and the same width to put
+ * them in, so `medium` gives up more of the identity columns: what a row is
+ * matters less than why it passed. What survives is Symbol · Company · LTP ·
+ * Chg% · vs 10Y high · RSI(M) — the two screen columns that decide most rows.
+ * ROCE and market cap fall away here and stay in the drawer; they are the legs
+ * least likely to be the interesting one on a row that already passed.
+ */
+const MEDIUM_HIDDEN_SCREENING = new Set([
+  ...MEDIUM_HIDDEN,
+  'exchange',
+  'segment',
+  'change',
+  'rocePct',
+  'marketCapCr',
 ]);
 
 const PAGE_SIZES = [25, 50, 100, 250];
@@ -134,10 +159,40 @@ function ChangeChip({ value, loaded }: { value: number | null | undefined; loade
   );
 }
 
+/**
+ * The screen's numbers for one row, or a dash once the run has passed it by.
+ *
+ * A blank here is not the same absence as a missing price: the row was either
+ * screened or it wasn't, and `screened` says which. While a run is in flight
+ * most rows are simply not reached yet.
+ */
+function ScreenCell({
+  value,
+  screened,
+  format,
+  tone,
+}: {
+  value: number | null | undefined;
+  screened: boolean;
+  format: (v: number) => string;
+  tone?: 'up' | 'down' | null;
+}) {
+  if (value === null || value === undefined) {
+    return screened ? <span className="num muted-dash">—</span> : <span className="skeleton" />;
+  }
+  return <span className={`num${tone ? ` ${tone}` : ''}`}>{format(value)}</span>;
+}
+
 interface Props {
   rows: SecurityWithQuote[];
   /** False until the first quote pass settles — see `Missing`. */
   quotesLoaded: boolean;
+  /**
+   * Screen output keyed by symbol, or null when no screen has been run. Its
+   * presence is what adds the screen columns — the table has no opinion about
+   * which screen produced them.
+   */
+  screenResults: Map<string, ScreenResult> | null;
   sorting: SortingState;
   onSortingChange: React.Dispatch<React.SetStateAction<SortingState>>;
   selectedSymbol: string | null;
@@ -147,6 +202,7 @@ interface Props {
 export function StockTable({
   rows,
   quotesLoaded,
+  screenResults,
   sorting,
   onSortingChange,
   selectedSymbol,
@@ -157,7 +213,8 @@ export function StockTable({
   const isMobile = useMediaQuery('(max-width: 700px)');
   const isMedium = useMediaQuery('(max-width: 1239px)');
   const layout: Layout = isMobile ? 'mobile' : isMedium ? 'medium' : 'wide';
-  const rowHeight = ROW_HEIGHT[layout];
+  const rowHeight =
+    layout === 'mobile' && screenResults ? MOBILE_SCREEN_ROW_HEIGHT : ROW_HEIGHT[layout];
 
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
 
@@ -269,8 +326,91 @@ export function StockTable({
         sortingFn: numericSort,
         cell: (ctx) => <span className="num">{ctx.row.original.faceValue ?? '—'}</span>,
       }),
+      // The screen's own numbers, appended so they read as an extra section
+      // rather than interleaving with the listing data. Present only while a
+      // screen is loaded: four permanently empty columns would be worse than
+      // none, and the widths in index.css are keyed on the same condition.
+      ...(screenResults
+        ? [
+            helper.accessor((r) => screenResults.get(r.symbol)?.metrics.pctOfHigh ?? undefined, {
+              id: 'pctOfHigh',
+              header: 'vs 10Y high',
+              sortUndefined: 'last',
+              sortingFn: numericSort,
+              cell: (ctx) => {
+                const result = screenResults.get(ctx.row.original.symbol);
+                return (
+                  <ScreenCell
+                    value={result?.metrics.pctOfHigh}
+                    screened={result !== undefined}
+                    format={formatFromHigh}
+                    // Within 5% of a decade high is the thing being looked for;
+                    // colouring it is the difference between a column of
+                    // numbers and a column you can skim.
+                    tone={
+                      result?.metrics.pctOfHigh !== undefined && result.metrics.pctOfHigh >= 95
+                        ? 'up'
+                        : null
+                    }
+                  />
+                );
+              },
+            }),
+            helper.accessor((r) => screenResults.get(r.symbol)?.metrics.monthlyRsi14 ?? undefined, {
+              id: 'monthlyRsi14',
+              header: 'RSI(M)',
+              sortUndefined: 'last',
+              sortingFn: numericSort,
+              cell: (ctx) => {
+                const result = screenResults.get(ctx.row.original.symbol);
+                return (
+                  <ScreenCell
+                    value={result?.metrics.monthlyRsi14}
+                    screened={result !== undefined}
+                    format={(v) => v.toFixed(1)}
+                  />
+                );
+              },
+            }),
+            helper.accessor((r) => screenResults.get(r.symbol)?.metrics.rocePct ?? undefined, {
+              id: 'rocePct',
+              header: 'ROCE',
+              sortUndefined: 'last',
+              sortingFn: numericSort,
+              cell: (ctx) => {
+                const result = screenResults.get(ctx.row.original.symbol);
+                return (
+                  <ScreenCell
+                    value={result?.metrics.rocePct}
+                    // Only rows that cleared the price and momentum legs are
+                    // ever scraped, so an em dash here usually means "never
+                    // asked", not "screener.in had nothing".
+                    screened={result?.metrics.rocePct !== undefined}
+                    format={(v) => `${v.toFixed(1)}%`}
+                  />
+                );
+              },
+            }),
+            helper.accessor((r) => screenResults.get(r.symbol)?.metrics.marketCapCr ?? undefined, {
+              id: 'marketCapCr',
+              header: 'M.Cap ₹Cr',
+              sortUndefined: 'last',
+              sortingFn: numericSort,
+              cell: (ctx) => {
+                const result = screenResults.get(ctx.row.original.symbol);
+                return (
+                  <ScreenCell
+                    value={result?.metrics.marketCapCr}
+                    screened={result?.metrics.marketCapCr !== undefined}
+                    format={formatCrore}
+                  />
+                );
+              },
+            }),
+          ]
+        : []),
     ],
-    [quotesLoaded],
+    [quotesLoaded, screenResults],
   );
 
   const table = useReactTable({
@@ -325,12 +465,17 @@ export function StockTable({
     'changePercent',
     'previousClose',
     'faceValue',
+    'pctOfHigh',
+    'monthlyRsi14',
+    'rocePct',
+    'marketCapCr',
   ]);
 
   // Column visibility is filtered at render rather than through TanStack's
   // visibility state, so hidden columns stay fully sortable from the mobile
   // sort control.
-  const isVisible = (id: string) => layout !== 'medium' || !MEDIUM_HIDDEN.has(id);
+  const mediumHidden = screenResults ? MEDIUM_HIDDEN_SCREENING : MEDIUM_HIDDEN;
+  const isVisible = (id: string) => layout !== 'medium' || !mediumHidden.has(id);
 
   const cellClass = (id: string) => {
     const align = RIGHT_ALIGNED.has(id) ? ' right' : '';
@@ -388,6 +533,9 @@ export function StockTable({
       <div
         className="table-wrap"
         data-layout={layout}
+        // Widths differ once the screen columns are in, and the grid template
+        // lives in CSS, so the condition has to be visible from there too.
+        data-screen={screenResults ? 'true' : undefined}
         ref={scrollRef}
         style={{ '--row-h': `${rowHeight}px` } as React.CSSProperties}
       >
@@ -413,9 +561,15 @@ export function StockTable({
         <div className="tbody" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const row = tableRows[virtualRow.index];
+            const result = screenResults?.get(row.original.symbol);
             const shared = {
               key: row.id,
               'data-selected': row.original.symbol === selectedSymbol,
+              // Only meaningful when the screen's non-matches are on show; the
+              // CSS dims everything that isn't a pass so the matches stay
+              // findable in a mixed list.
+              'data-verdict': result?.verdict,
+              title: result?.decidedBy ? `Fails: ${result.decidedBy.label}` : undefined,
               style: { transform: `translateY(${virtualRow.start}px)` },
               onClick: () => onSelect(row.original),
             };
@@ -437,6 +591,17 @@ export function StockTable({
                       <span className={`badge ${row.original.series}`}>{row.original.series}</span>
                     </span>
                     <span className="stack-name">{row.original.name}</span>
+                    {result && (
+                      <span className="stack-screen num">
+                        {formatFromHigh(result.metrics.pctOfHigh)} from 10Y high
+                        {result.metrics.monthlyRsi14 !== null &&
+                          result.metrics.monthlyRsi14 !== undefined &&
+                          ` · RSI ${result.metrics.monthlyRsi14.toFixed(0)}`}
+                        {result.metrics.rocePct !== null &&
+                          result.metrics.rocePct !== undefined &&
+                          ` · ROCE ${result.metrics.rocePct.toFixed(0)}%`}
+                      </span>
+                    )}
                   </div>
                   <div className="stack-side">
                     <span className="stack-price num">
