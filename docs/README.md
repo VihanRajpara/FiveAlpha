@@ -13,6 +13,7 @@ Complete walkthrough of the NSE Listed Shares app — what it does, where every 
 | 5 | [Supabase backend](05-backend-supabase.md) | Schema, RLS, the three Edge Functions, cron scheduling, the candle rotation cursor |
 | 6 | [Build from scratch](06-build-from-scratch.md) | Every command and file, from an empty folder to a running app |
 | 7 | [Gotchas & debugging](07-gotchas.md) | The failures hit while building this, how each was diagnosed, and how to recognise them again |
+| 8 | [Screens](08-screens.md) | Running a Chartink scan clause over the table: the two-phase runner, the request budget, verdicts, and where it differs from Chartink |
 
 ## The 30-second version
 

@@ -10,8 +10,9 @@ Every endpoint used, every endpoint rejected, with the evidence behind each deci
 |---|---|---|---|
 | NSE `EQUITY_L.csv` | none (needs `Referer`) | ✅ used | The NSE master list (2,410 shares) |
 | BSE `ListofScripData/w` | none (needs `Referer`) | ✅ used | The BSE master list (5,099 active equity scrips) |
-| Yahoo `v8/finance/spark` | none | ✅ used | LTP + previous close, 20 symbols/request |
+| Yahoo `v8/finance/spark` | none | ✅ used | Closes only, 20 symbols/request. LTP + previous close for the table; 10y monthly for the screens' scan pass |
 | Yahoo `v8/finance/chart` | none | ✅ used | OHLCV history, 1 symbol/request |
+| screener.in company pages | none | ✅ used (screens only) | Market cap + ROCE, scraped, 1 company/request |
 | Zerodha Kite `/instruments` | none | ⚪ viable fallback | 9,899 NSE instruments (noisy) |
 | Dhan scrip master | none | ⚪ viable fallback | 26 MB, all segments |
 | Yahoo `v7/finance/quote` | crumb required | ❌ rejected | 401 Unauthorized |
@@ -154,6 +155,8 @@ https://query1.finance.yahoo.com/v8/finance/spark?symbols=<CSV>&range=1d&interva
 
 No authentication, no cookie, no crumb. Only a `User-Agent` is needed.
 
+`range` and `interval` are free parameters, not fixed to the day — `range=10y&interval=1mo` returns ten years of monthly closes for twenty symbols in one request, which is what the screens' scan pass uses. Two behaviours worth knowing before relying on it: symbols Yahoo does not carry are **silently dropped** from the response object rather than returned as null (and a batch it recognises nothing in is a 404 for the whole request), and for thinly traded shares it **omits months** that `chart` returns a close for. The first is benign — every dropped symbol sampled also 404s on `chart` — but the second means a series from `spark` is not always the same series `chart` would give, which [§8.3](08-screens.md#83-three-passes-and-why) has to handle explicitly.
+
 ### Symbol mapping
 
 NSE symbol + `.NS`, or BSE scrip id + `.BO`. `RELIANCE` → `RELIANCE.NS`; `TANFACIND` → `TANFACIND.BO`. Resolved once at merge time and stored as `Security.ticker` / `securities.yahoo_ticker`, because a BSE-only row's ticker cannot be derived from its display symbol.
@@ -231,7 +234,9 @@ Capped at **6** (`SPARK_CONCURRENCY`). Yahoo begins refusing connections above r
 https://query1.finance.yahoo.com/v8/finance/chart/<TICKER>?range=<range>&interval=<interval>
 ```
 
-One request per symbol — there is no batch form. That is precisely why history is fetched on demand rather than ingested: keeping the whole market warm meant ~2,400 requests per pass and half a million stored rows, where a chart is only ever opened one symbol at a time.
+One request per symbol. That is precisely why history is fetched on demand rather than ingested: keeping the whole market warm meant ~2,400 requests per pass and half a million stored rows, where a chart is only ever opened one symbol at a time.
+
+There *is* a batch form for the closes alone — `spark` takes the same `range`/`interval` pair and answers twenty symbols at once. It is not a substitute here, because the drawer's chart needs OHLC and the screens need true intra-month highs, but it is what the screens' scan pass runs on: see [§8.3](08-screens.md#83-three-passes-and-why) for what a close-only series may and may not be used to conclude.
 
 In the browser this is called through `/api/yahoo`, which is the Vite dev proxy under `npm run dev` and the Cloudflare Worker in a deployed build.
 
@@ -273,7 +278,67 @@ Rows where `close` is null are filtered out — a gap in the line is correct, a 
 
 ---
 
-## 2.4 Rejected: Yahoo `v7/finance/quote`
+## 2.4 Fundamentals — screener.in company pages
+
+Used by **screens only** ([§8](08-screens.md)) — nothing on the main table depends on it. The Chartink clause the screens implement has a ROCE leg and a market-cap band, and no other source here can answer either: the exchanges publish listings, not financials, and Yahoo's `quoteSummary` (which carries shares outstanding) now 401s without a crumb, so market cap cannot be reconstructed from a price.
+
+```
+https://www.screener.in/company/TITAN/consolidated/      # keyed by NSE symbol
+https://www.screener.in/company/500325/consolidated/     # keyed by BSE scrip code
+```
+
+Both shapes were verified live. Only a browser `User-Agent` is needed — no cookie, no login.
+
+### Why `/consolidated/`
+
+The standalone page of a holding company reports a materially different ROCE. Reliance measures **7.78%** standalone against **10.3%** consolidated — opposite sides of this screen's `> 10` test. Screener.in serves the consolidated URL with a **200 even for companies that have none**, falling back to standalone figures itself, so there is no redirect to follow and no second request to make.
+
+**Measured:** 227,474 bytes raw · 235,105 through the dev proxy · **no redirects** on any of the four companies tested · **404** for an unknown symbol.
+
+### What is parsed
+
+The ratio strip at the top of the page, which is server-rendered HTML:
+
+```html
+<ul id="top-ratios">
+  <li><span class="name">Market Cap</span>
+      <span class="value">₹ <span class="number">1,800,557</span> Cr.</span></li>
+  <li><span class="name">ROCE</span> … <span class="number">10.3</span> % …
+```
+
+[fundamentals.ts](../src/lib/fundamentals.ts) reads every `<li>` into a name → numbers map and takes `Market Cap` (₹ crore, the same unit Chartink's `market cap` uses) and `ROCE` (percent). Parsing the whole strip rather than two hand-written patterns means P/E, book value or dividend yield cost nothing to add later.
+
+### Failure modes and the request budget
+
+| Situation | Response | Handling |
+|---|---|---|
+| Company not carried (SME scrips, renames) | 404 | `null` — the row is reported **unjudged**, never failed |
+| Markup changes | 200, empty parse | same as above; a screen states how many rows it could not judge |
+| Too many requests | 429 | paced and retried; `RateLimitedError` only once three backoffs are spent |
+
+### The rate limit is a rate, not a quota
+
+Worth stating that way round, because the two call for opposite responses — a quota means give up, a rate means slow down. Measured 2026-08-12, serial requests to distinct company pages:
+
+| gap between requests | outcome |
+|---|---|
+| none | 429 from the 17th |
+| 250 ms | 429 from the ~25th |
+| 600 ms | 429 from the 35th |
+| **1.2 s** | **60 of 60, no 429** |
+| 2.5 s | 40 of 40, no 429 |
+
+At four unthrottled connections a screen hit the wall about twenty rows in and aborted, which on a 2,410-row NSE universe meant the fundamental legs were **effectively never evaluated** — and, until the price passes were fixed to judge the whole clause, every row the fundamentals pass never reached was still being reported as a match.
+
+`MIN_INTERVAL_MS = 1200` in [fundamentals.ts](../src/lib/fundamentals.ts) gates every request through one shared schedule, and a 429 pushes *all* queued callers back rather than just the one that got it — the limit is on the origin, so backing off alone while the rest keep firing only holds the block open. **Measured after the change: 115 survivors, 137s, zero 429s.**
+
+This is the only scraped source in the app and the only one with no contract at all, which is why nothing downstream treats a missing number as a failed test.
+
+It is also the most expensive per row, so the runner never asks it about a row that has already failed on price or momentum — of the 30-name sample screened during development, **6 reached this source**. Both proxies cache responses for 6 hours; the numbers behind them are a daily market cap over quarterly financials, so that costs accuracy nothing.
+
+---
+
+## 2.5 Rejected: Yahoo `v7/finance/quote`
 
 The obvious choice, and it no longer works anonymously.
 
@@ -288,7 +353,7 @@ It now requires a cookie + crumb handshake. That is doable but fragile — the c
 
 **If you find a tutorial using `v7/finance/quote` without auth, it is out of date.**
 
-## 2.5 Rejected: Angel One SmartAPI scrip master
+## 2.6 Rejected: Angel One SmartAPI scrip master
 
 ```
 https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json
@@ -296,7 +361,7 @@ https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.
 
 Connection timeout on every attempt (curl exit 28). May be geo-restricted or simply unreliable. Not pursued further since NSE's own CSV is strictly better for this purpose.
 
-## 2.6 Viable fallbacks (not used)
+## 2.7 Viable fallbacks (not used)
 
 Both work without authentication and are worth knowing about if NSE's archive ever moves.
 
@@ -338,7 +403,7 @@ This *does* carry `SEM_SERIES`, so filtering to EQ/BE is possible — but it mea
 
 ---
 
-## 2.7 Legal and practical notes
+## 2.8 Legal and practical notes
 
 - All endpoints are public and unauthenticated. None are scraped from behind a login.
 - **Prices are delayed.** Yahoo does not provide real-time NSE data on the free tier. The UI states this permanently in the status bar.

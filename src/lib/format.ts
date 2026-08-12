@@ -47,6 +47,25 @@ export function formatVolume(value: number | null | undefined): string {
   return String(value);
 }
 
+/** A figure already denominated in ₹ crore — market cap, as screener.in states it. */
+export function formatCrore(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—';
+  return value.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+
+/**
+ * How far below a high a price sits, given the price as a percentage *of* that
+ * high. The screen's own arithmetic is `close / high`, but nobody reads a stock
+ * as "91.8% of its ten-year high" — they read it as 8.2% off it, so the sign is
+ * flipped for display and the boundary case gets a word instead of "-0.0%".
+ */
+export function formatFromHigh(pctOfHigh: number | null | undefined): string {
+  if (pctOfHigh === null || pctOfHigh === undefined) return '—';
+  const below = 100 - pctOfHigh;
+  if (below < 0.05) return 'at high';
+  return `−${below.toFixed(1)}%`;
+}
+
 /**
  * Human-readable age of a timestamp: "just now", "12 min ago", "3 h ago", "2 d ago".
  * Used to state how old the prices actually are, rather than when they were fetched.
@@ -106,8 +125,15 @@ export function chunk<T>(items: T[], size: number): T[][] {
 }
 
 /**
- * Runs `worker` over `items` with bounded concurrency. Yahoo throttles aggressively
- * above ~8 parallel connections, which is why this isn't just Promise.all.
+ * Runs `worker` over `items` with bounded concurrency, rather than Promise.all
+ * over thousands of requests at once.
+ *
+ * The bound used to be justified by Yahoo throttling "above ~8 parallel
+ * connections". That does not survive measurement — see `TECHNICAL_CONCURRENCY`
+ * in src/hooks/useScreen.ts, where 32 in flight returned no errors at all. The
+ * real reasons to keep it are the ones that do not depend on the upstream: the
+ * browser's own per-origin limit, and not queueing 5,000 sockets to be polite
+ * to someone else's server.
  */
 export async function mapPool<T, R>(
   items: T[],

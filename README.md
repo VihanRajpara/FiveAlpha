@@ -25,8 +25,9 @@ Both sources are free and require no authentication or account.
 |---|---|---|
 | NSE listings | `nsearchives.nseindia.com/content/equities/EQUITY_L.csv` | NSE's own daily publication. Symbol, company, series, ISIN, listing date, face value, paid-up value, market lot. |
 | BSE listings | `api.bseindia.com/BseIndiaAPI/api/ListofScripData/w` | The feed behind BSE's "List of Securities" page. 5,099 active equity scrips; joined to the NSE list on ISIN. |
-| Prices | Yahoo Finance `v8/finance/spark` | Batched, **hard limit of 20 tickers per request**. `SYMBOL.NS` for anything on NSE, `SCRIPID.BO` for BSE-only companies. |
-| History | Yahoo Finance `v8/finance/chart` | One request per symbol. Daily bars up to 1Y, weekly for 5Y. |
+| Prices | Yahoo Finance `v8/finance/spark` | Batched, **hard limit of 20 tickers per request**. `SYMBOL.NS` for anything on NSE, `SCRIPID.BO` for BSE-only companies. Also carries the screens' scan pass at `range=10y&interval=1mo`. |
+| History | Yahoo Finance `v8/finance/chart` | One request per symbol, and the only source of OHLC. Daily bars up to 1Y, weekly for 5Y. |
+| Fundamentals | screener.in company pages | **Screens only.** Market cap and ROCE, scraped from the ratio strip. One request per company. |
 
 Where a company trades on both exchanges the NSE book is quoted — it is the more liquid of the two. The detail drawer names the exact ticker each price came from.
 
@@ -84,6 +85,30 @@ Now nothing stores it. Opening a drawer costs one Yahoo request (~300 ms) throug
 The list and the prices stay in Postgres, because *those* are read in full by every page load — the opposite access pattern.
 
 To apply it to an existing project, run [`supabase/migrations/0004_drop_candles.sql`](supabase/migrations/0004_drop_candles.sql) in the SQL Editor **after** deploying this build. It unschedules the cron job, drops the table and drops the `candles_synced_at` cursor column. Dropping a table releases its files immediately — no `VACUUM` needed — so Database Size falls within a few minutes.
+
+## Screens
+
+Pick a screen under the filter bar and run it over whatever the filters currently select. The one built in is [**Near all-time-high breakout**](https://chartink.com/screener/all-time-high-breakout-9032071), taken clause-for-clause from Chartink:
+
+```
+( {cash} (
+    daily close  >  yearly max( 10 , yearly high ) * 0.75
+and daily close <=  yearly max( 10 , yearly high ) * 1
+and yearly return on capital employed percentage > 10
+and market cap >= 500  and  market cap <= 50000
+and monthly rsi( 14 ) >= 65
+) )
+```
+
+It runs in three passes, each one there to shrink the input to the next. A **scan** reads ten years of monthly closes twenty symbols to a request, which answers the RSI leg exactly and bounds the 10-year high from below — enough to settle **91%** of the market without fetching a single symbol's bars. A **confirm** pass buys the true intra-month highs for the ~9% the bound can't decide. Only what survives both is scraped from screener.in for ROCE and market cap.
+
+The bound is used in one direction only, deliberately: it can prove a price is far from its high, never that it is near one. Verified over all 2,401 NSE symbols against the exhaustive pass — **0 rows rejected that the exact pass would have kept**, with all 115 of its technical matches reaching the confirm pass.
+
+That is what makes a whole-market screen affordable: the price work over all 5,229 companies went from ~15 minutes to under two, and a full run from ~15 min to ~7 — the remainder being screener.in's 1.2s rate limit, not Yahoo. Any universe above 1,000 rows says so up front with an estimate; it never refuses, reports progress throughout, and can be stopped at any point keeping what it has judged. Results cache per tab, so a second run only pays for rows it hasn't seen.
+
+Rows the clause can't judge — too little history for a 10-year high, or no screener.in page — are reported as *unjudged* rather than quietly failed. Non-matches stay visible (dimmed) behind a toggle, so the screen's working is checkable.
+
+Full detail, including where this differs from Chartink: [docs/08-screens.md](docs/08-screens.md).
 
 ## Deploy (Cloudflare Workers)
 
@@ -201,15 +226,20 @@ src/
   App.tsx                    layout, search, exchange/series filters, status bar
   types.ts                   Security / Quote / Candle / DataSource
   hooks/useMarketData.ts     loads the list, then streams quotes in progressively
+  hooks/useScreen.ts         the screen runner: scan, confirm, fundamentals; progress, cancel
   components/
     StockTable.tsx           TanStack Table + virtualizer (only ~35 rows in the DOM)
     StockDetail.tsx          drawer: price, chart, range selector, fundamentals
     PriceChart.tsx           hand-rolled SVG area chart with crosshair
+    ScreenBar.tsx            screen picker, run/stop, verdict counts, the clause
   lib/
     csv.ts                   RFC-4180 parser — NSE quotes names containing commas
     listings.ts              NSE + BSE master lists, merged on ISIN
     format.ts                INR formatting, chunk(), mapPool() concurrency limiter
     yahooCandles.ts          chart history via /api/yahoo — fetched, never stored
+    screens.ts               Chartink clauses as legs + judge()
+    technicals.ts            10Y high, monthly RSI(14) — one request each
+    fundamentals.ts          market cap + ROCE scraped from screener.in
 worker/
   index.ts                   Cloudflare Worker: serves ./dist + proxies /api/*
 supabase/

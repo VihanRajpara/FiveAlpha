@@ -1,10 +1,8 @@
 import type { DataSource, Quote, Security } from '../types';
 import { chunk, mapPool } from './format';
 import { fetchBseScrips, fetchNseSecurities, mergeListings } from './listings';
-import { fetchYahooCandles } from './yahooCandles';
+import { SPARK_BATCH_SIZE, fetchYahooCandles } from './yahooCandles';
 
-/** Yahoo rejects the whole request with a 400 if more than 20 symbols are passed. */
-const SPARK_BATCH_SIZE = 20;
 const SPARK_CONCURRENCY = 6;
 
 /**

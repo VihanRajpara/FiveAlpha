@@ -5,9 +5,9 @@
  * build now fetches chart history live instead of reading it from a Supabase
  * table, and none of Yahoo, NSE or BSE sends CORS headers, so the browser cannot
  * call them itself. This Worker is the production counterpart of the Vite dev
- * proxy in vite.config.ts: same `/api/yahoo/*`, `/api/nse/*` and `/api/bse/*`
- * paths, same header rewriting, so `src/lib/yahooCandles.ts` and
- * `src/lib/listings.ts` work unchanged in both.
+ * proxy in vite.config.ts: same `/api/yahoo/*`, `/api/nse/*`, `/api/bse/*` and
+ * `/api/screener/*` paths, same header rewriting, so `src/lib/yahooCandles.ts`,
+ * `src/lib/listings.ts` and `src/lib/fundamentals.ts` work unchanged in both.
  *
  * Anything that is not an /api/ path falls through to the static assets.
  */
@@ -84,6 +84,25 @@ const UPSTREAMS: Record<string, Upstream> = {
     // The scrip master changes on listings and group reclassifications, i.e.
     // daily at most — and the response is ~1.8 MB, so caching it matters more
     // here than anywhere else in this file.
+    ttl: 21_600,
+  },
+  '/api/screener': {
+    origin: 'https://www.screener.in',
+    // Company pages only, and only the two shapes src/lib/fundamentals.ts asks
+    // for: `/company/TCS/consolidated/` for anything on NSE and
+    // `/company/500325/` (BSE scrip code) for the BSE-only rows. The charset
+    // matches the Yahoo entry's, and for the same reason — `M&M` reaches us as
+    // `M%26M`.
+    allow: /^\/company\/[A-Za-z0-9.\-&%]+\/(consolidated\/)?$/,
+    headers: {
+      'User-Agent': BROWSER_UA,
+      Accept: 'text/html,application/xhtml+xml',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+    // A screen run asks for hundreds of these pages and the user will re-run it;
+    // meanwhile the numbers behind them are a daily market cap over quarterly
+    // financials. Six hours of cache costs accuracy nothing and is the
+    // difference between one polite pass over screener.in and several.
     ttl: 21_600,
   },
 };

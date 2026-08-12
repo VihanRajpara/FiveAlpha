@@ -60,6 +60,23 @@ const YAHOO_HEADERS = {
   'Accept-Encoding': 'gzip, deflate',
 };
 
+/**
+ * Screener.in, the fundamentals source behind the ROCE and market-cap legs of
+ * the screens in src/lib/screens.ts. It serves HTML, not JSON — the numbers are
+ * scraped out of the company page's ratio list.
+ *
+ * `Accept-Encoding` is deliberately absent: Vite streams the upstream body
+ * through untouched, and asking for gzip here would hand the browser bytes it
+ * has been told are `text/html` but cannot decode. The JSON upstreams get away
+ * with it because their responses are small enough that Node negotiates
+ * identity anyway; a 220 KB company page does not.
+ */
+const SCREENER_HEADERS = {
+  'User-Agent': BROWSER_UA,
+  Accept: 'text/html,application/xhtml+xml',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -87,6 +104,14 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/yahoo/, ''),
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq) => replaceHeaders(proxyReq, YAHOO_HEADERS));
+        },
+      },
+      '/api/screener': {
+        target: 'https://www.screener.in',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/screener/, ''),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => replaceHeaders(proxyReq, SCREENER_HEADERS));
         },
       },
     },

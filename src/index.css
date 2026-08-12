@@ -533,6 +533,98 @@ body {
   }
 }
 
+/* ---------- screen bar ---------- */
+
+/* Its own band under the filters rather than more chips inside them: a screen
+   costs hundreds of requests and produces a verdict, which is a different kind
+   of control from "show me EQ series only". Column, not row, because the clause
+   panel and any error unfold underneath the controls. */
+.screenbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px var(--gutter);
+  background: var(--surface);
+  border-bottom: 1px solid var(--outline-faint);
+}
+
+.screenbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.screen-phase {
+  font-size: 12px;
+  color: var(--on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The one count that is the answer; the others are context. */
+.screen-count {
+  background: var(--up-container);
+  color: var(--up);
+}
+
+.screen-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--down);
+}
+
+.screen-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--on-surface-variant);
+}
+
+.screen-clause summary {
+  width: fit-content;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--primary);
+}
+
+.screen-clause[open] summary {
+  margin-bottom: 8px;
+}
+
+.screen-legs {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.screen-legs li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.screen-leg-label {
+  min-width: 220px;
+  color: var(--on-surface);
+}
+
+.screen-legs code {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--on-surface-variant);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  /* Clause fragments are long and unspaced; without this one of them decides
+     the page's minimum width. */
+  overflow-wrap: anywhere;
+}
+
 /* ---------- market summary strip ---------- */
 
 .summary {
@@ -623,10 +715,28 @@ body {
   min-width: 1508px;
 }
 
+/* Screening adds four columns on the right — vs 10Y high · RSI(M) · ROCE ·
+   M.Cap — after the listing ones rather than among them. The table already
+   scrolls sideways at this layout, so the extra 428px costs nothing but scroll. */
+.table-wrap[data-layout='wide'][data-screen='true'] .grid-row {
+  grid-template-columns:
+    64px 148px minmax(200px, 1.6fr) 76px 108px 132px 116px 104px 120px
+    116px 152px 116px 76px 120px 96px 96px 116px;
+  min-width: 1936px;
+}
+
 /* Tablet: the seven columns worth keeping, sized to fit with no side-scroll —
    Symbol · Company · Exch · Type · LTP · Chg · Chg%. */
 .table-wrap[data-layout='medium'] .grid-row {
   grid-template-columns: 118px minmax(96px, 1.5fr) 100px 118px 96px 88px 108px;
+  min-width: 0;
+}
+
+/* Tablet while screening: six columns, still no side-scroll —
+   Symbol · Company · LTP · Chg% · vs 10Y high · RSI(M). See
+   MEDIUM_HIDDEN_SCREENING in StockTable for what gives way and why. */
+.table-wrap[data-layout='medium'][data-screen='true'] .grid-row {
+  grid-template-columns: 112px minmax(90px, 1.4fr) 96px 104px 116px 84px;
   min-width: 0;
 }
 
@@ -692,6 +802,25 @@ body {
   border-bottom: 1px solid var(--outline-faint);
   cursor: pointer;
   transition: background 0.1s ease;
+}
+
+/* Screen verdicts. These only show when the "Showing all" toggle puts the
+   rejected rows back — with the default matches-only cut, every visible row is
+   a pass and carries the accent. Rejected rows are dimmed rather than hidden so
+   the screen's working is checkable, and they come back to full strength on
+   hover for anyone reading one. */
+.tr[data-verdict='pass'] {
+  box-shadow: inset 2px 0 0 var(--up);
+}
+
+.tr[data-verdict='fail'],
+.tr[data-verdict='unknown'] {
+  opacity: 0.45;
+}
+
+.tr[data-verdict='fail']:hover,
+.tr[data-verdict='unknown']:hover {
+  opacity: 1;
 }
 
 .tr:hover {
@@ -1070,6 +1199,17 @@ body {
   font-size: 12px;
   color: var(--on-surface-variant);
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A phone has no columns for the screen's numbers, so they become a third line.
+   The row grows to hold it — see MOBILE_SCREEN_ROW_HEIGHT in StockTable, which
+   the virtualiser positions from. */
+.stack-screen {
+  overflow: hidden;
+  color: var(--on-surface-faint);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1501,6 +1641,28 @@ body {
   .subbar {
     gap: 8px;
     padding: 8px var(--gutter);
+  }
+
+  .screenbar {
+    gap: 6px;
+    padding: 8px var(--gutter);
+  }
+
+  .screenbar-row {
+    gap: 8px;
+  }
+
+  /* The label and clause columns are desktop luxuries: on a phone the leg text
+     and its fragment stack, and the progress bar takes whatever width is left
+     on the row rather than a fixed 140px it may not have. */
+  .screen-leg-label {
+    min-width: 0;
+  }
+
+  .screenbar .progress {
+    flex: 1;
+    width: auto;
+    min-width: 72px;
   }
 
   /* Comfortable tap targets inside the sheet, where there is room for them. */
