@@ -30,15 +30,12 @@ import type { Classification, SecurityWithQuote } from '../types';
  */
 type Layout = 'wide' | 'medium' | 'mobile';
 
-/** Row heights per layout — must track `--row-h`, which is set from these. */
-const ROW_HEIGHT: Record<Layout, number> = { wide: 48, medium: 48, mobile: 68 };
-
 /**
- * A phone row has no columns to put the screen's numbers in, so they go on a
- * third line under the company name — which the row has to grow to hold. The
- * virtualiser positions rows by this number, so it cannot be left to the CSS.
+ * Row heights per layout — must track `--row-h`, which is set from these. The
+ * mobile figure is only a floor: those rows size to their content (see
+ * `virtualise`), and the CSS carries the same number as `min-height`.
  */
-const MOBILE_SCREEN_ROW_HEIGHT = 86;
+const ROW_HEIGHT: Record<Layout, number> = { wide: 48, medium: 48, mobile: 64 };
 
 /**
  * Columns dropped in `medium`, in priority order of what matters least. `series`
@@ -229,16 +226,38 @@ export function StockTable({
   const isMobile = useMediaQuery('(max-width: 700px)');
   const isMedium = useMediaQuery('(max-width: 1239px)');
   const layout: Layout = isMobile ? 'mobile' : isMedium ? 'medium' : 'wide';
-  const rowHeight =
-    layout === 'mobile' && screenResults ? MOBILE_SCREEN_ROW_HEIGHT : ROW_HEIGHT[layout];
+  const rowHeight = ROW_HEIGHT[layout];
+
+  /**
+   * Only the desktop layouts virtualise.
+   *
+   * A phone has no room for a fixed-height shell with a scrolling panel inside
+   * it — the chrome above the table eats the viewport and the panel is left
+   * with a row and a half. So on mobile the page itself scrolls (see the
+   * `max-width: 700px` block in index.css) and the list runs at its natural
+   * length, which rules out a virtualiser measuring a scroll container that no
+   * longer exists. A page is at most 250 stacked rows, which the DOM does not
+   * notice.
+   */
+  const virtualise = layout !== 'mobile';
 
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
 
   // Re-sorting or paging while scrolled halfway down would otherwise leave the
   // user in the middle of the new list, hiding the rows they just asked for.
+  // On mobile the scroller is the page, so the list is scrolled back into view
+  // instead — `scroll-margin-top` keeps it clear of the sticky sort bar. The
+  // first run is skipped: on mobile it would scroll the header off screen
+  // before the user has touched anything.
+  const settled = useRef(false);
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 0 });
-  }, [sorting, pagination.pageIndex]);
+    if (!settled.current) {
+      settled.current = true;
+      return;
+    }
+    if (virtualise) scrollRef.current?.scrollTo({ top: 0 });
+    else scrollRef.current?.scrollIntoView({ block: 'start' });
+  }, [sorting, pagination.pageIndex, virtualise]);
 
   // A new filter usually means a shorter list; staying on page 12 of what is
   // now a three-page result would show an empty table. Keyed on row count
@@ -467,7 +486,9 @@ export function StockTable({
   const lastOnPage = Math.min(total, (pagination.pageIndex + 1) * pagination.pageSize);
 
   const virtualizer = useVirtualizer({
-    count: tableRows.length,
+    // Zero on mobile: the rows are rendered in full there, and a virtualiser
+    // with no scroll container of its own would measure nothing useful.
+    count: virtualise ? tableRows.length : 0,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => rowHeight,
     overscan: 12,
@@ -516,6 +537,95 @@ export function StockTable({
     .getAllLeafColumns()
     .filter((c) => c.id !== 'index' && c.getCanSort());
   const activeSort = sorting[0];
+
+  /**
+   * One row, in whichever shape the layout calls for.
+   *
+   * `pageOffset` is the row's position on the current page; the virtualised and
+   * plain paths number rows the same way from it. `style` carries the
+   * virtualiser's placement and is absent when the rows sit in normal flow.
+   */
+  function renderRow(
+    row: Row<SecurityWithQuote>,
+    pageOffset: number,
+    style?: React.CSSProperties,
+  ) {
+    const result = screenResults?.get(row.original.symbol);
+    // `key` is deliberately *not* in here. It is not a prop — React reads it
+    // off the element before rendering — so spreading it warns and, in a list
+    // this one virtualises, would be the one attribute that must not go
+    // astray. It is passed explicitly at both call sites below.
+    const shared = {
+      'data-selected': row.original.symbol === selectedSymbol,
+      // Only meaningful when the screen's non-matches are on show; the CSS dims
+      // everything that isn't a pass so the matches stay findable in a mixed
+      // list.
+      'data-verdict': result?.verdict,
+      title: result?.decidedBy ? `Fails: ${result.decidedBy.label}` : undefined,
+      style,
+      onClick: () => onSelect(row.original),
+    };
+
+    if (layout === 'mobile') {
+      const q = row.original.quote;
+      return (
+        <div key={row.id} {...shared} className="tr row-stack">
+          <div className="stack-main">
+            <span className="stack-sym">
+              {row.original.symbol}
+              {row.original.cls?.fno && <span className="badge fno">F&amp;O</span>}
+              {/* Only the exception is worth a badge here — a phone row has
+                  space for three chips at most, and most rows are on NSE, so
+                  marking those says nothing. */}
+              {!row.original.exchanges.includes('NSE') && (
+                <span className="badge exch exch-BSE">BSE</span>
+              )}
+              <span className={`badge ${row.original.series}`}>{row.original.series}</span>
+            </span>
+            <span className="stack-name">{row.original.name}</span>
+            {result && (
+              <span className="stack-screen num">
+                {result.approx && '≈'}
+                {formatFromHigh(result.metrics.pctOfHigh)} from 10Y high
+                {result.metrics.monthlyRsi14 !== null &&
+                  result.metrics.monthlyRsi14 !== undefined &&
+                  ` · RSI ${result.metrics.monthlyRsi14.toFixed(0)}`}
+                {result.metrics.rocePct !== null &&
+                  result.metrics.rocePct !== undefined &&
+                  ` · ROCE ${result.metrics.rocePct.toFixed(0)}%`}
+              </span>
+            )}
+          </div>
+          <div className="stack-side">
+            <span className="stack-price num">
+              {q?.price === null || q?.price === undefined ? (
+                <Missing loaded={quotesLoaded} />
+              ) : (
+                formatPrice(q.price)
+              )}
+            </span>
+            <ChangeChip value={q?.changePercent} loaded={quotesLoaded} />
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div key={row.id} {...shared} className="tr grid-row">
+        {row
+          .getVisibleCells()
+          .filter((cell) => isVisible(cell.column.id))
+          .map((cell) => (
+            <div key={cell.id} className={cellClass(cell.column.id)}>
+              {cell.column.id === 'index'
+                ? // Position in the whole result, not within the page.
+                  pagination.pageIndex * pagination.pageSize + pageOffset + 1
+                : flexRender(cell.column.columnDef.cell, cell.getContext())}
+            </div>
+          ))}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -579,86 +689,16 @@ export function StockTable({
           </div>
         )}
 
-        <div className="tbody" style={{ height: virtualizer.getTotalSize() }}>
-          {virtualizer.getVirtualItems().map((virtualRow) => {
-            const row = tableRows[virtualRow.index];
-            const result = screenResults?.get(row.original.symbol);
-            // `key` is deliberately *not* in here. It is not a prop — React
-            // reads it off the element before rendering — so spreading it warns
-            // and, in a list this one virtualises, would be the one attribute
-            // that must not go astray. It is passed explicitly at both call
-            // sites below.
-            const shared = {
-              'data-selected': row.original.symbol === selectedSymbol,
-              // Only meaningful when the screen's non-matches are on show; the
-              // CSS dims everything that isn't a pass so the matches stay
-              // findable in a mixed list.
-              'data-verdict': result?.verdict,
-              title: result?.decidedBy ? `Fails: ${result.decidedBy.label}` : undefined,
-              style: { transform: `translateY(${virtualRow.start}px)` },
-              onClick: () => onSelect(row.original),
-            };
-
-            if (layout === 'mobile') {
-              const q = row.original.quote;
-              return (
-                <div key={row.id} {...shared} className="tr row-stack">
-                  <div className="stack-main">
-                    <span className="stack-sym">
-                      {row.original.symbol}
-                      {row.original.cls?.fno && <span className="badge fno">F&amp;O</span>}
-                      {/* Only the exception is worth a badge here — a phone row
-                          has space for three chips at most, and most rows are on
-                          NSE, so marking those says nothing. */}
-                      {!row.original.exchanges.includes('NSE') && (
-                        <span className="badge exch exch-BSE">BSE</span>
-                      )}
-                      <span className={`badge ${row.original.series}`}>{row.original.series}</span>
-                    </span>
-                    <span className="stack-name">{row.original.name}</span>
-                    {result && (
-                      <span className="stack-screen num">
-                        {result.approx && '≈'}
-                        {formatFromHigh(result.metrics.pctOfHigh)} from 10Y high
-                        {result.metrics.monthlyRsi14 !== null &&
-                          result.metrics.monthlyRsi14 !== undefined &&
-                          ` · RSI ${result.metrics.monthlyRsi14.toFixed(0)}`}
-                        {result.metrics.rocePct !== null &&
-                          result.metrics.rocePct !== undefined &&
-                          ` · ROCE ${result.metrics.rocePct.toFixed(0)}%`}
-                      </span>
-                    )}
-                  </div>
-                  <div className="stack-side">
-                    <span className="stack-price num">
-                      {q?.price === null || q?.price === undefined ? (
-                        <Missing loaded={quotesLoaded} />
-                      ) : (
-                        formatPrice(q.price)
-                      )}
-                    </span>
-                    <ChangeChip value={q?.changePercent} loaded={quotesLoaded} />
-                  </div>
-                </div>
-              );
-            }
-
-            return (
-              <div key={row.id} {...shared} className="tr grid-row">
-                {row
-                  .getVisibleCells()
-                  .filter((cell) => isVisible(cell.column.id))
-                  .map((cell) => (
-                    <div key={cell.id} className={cellClass(cell.column.id)}>
-                      {cell.column.id === 'index'
-                        ? // Position in the whole result, not within the page.
-                          pagination.pageIndex * pagination.pageSize + virtualRow.index + 1
-                        : flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </div>
-                  ))}
-              </div>
-            );
-          })}
+        <div className="tbody" style={virtualise ? { height: virtualizer.getTotalSize() } : undefined}>
+          {virtualise
+            ? virtualizer
+                .getVirtualItems()
+                .map((virtualRow) =>
+                  renderRow(tableRows[virtualRow.index], virtualRow.index, {
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }),
+                )
+            : tableRows.map((row, i) => renderRow(row, i))}
         </div>
       </div>
 

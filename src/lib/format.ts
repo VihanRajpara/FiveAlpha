@@ -153,3 +153,122 @@ export async function mapPool<T, R>(
   await Promise.all(runners);
   return results;
 }
+
+/**
+ * A list that can be consumed while it is still being filled.
+ *
+ * `mapPool` needs its work up front, which forces a pipeline into strict
+ * phases: nothing in stage two may start until stage one has finished, however
+ * long stage one takes and however early it found stage two's first item. The
+ * screen runner is three such stages and the last one is the slow one (see
+ * src/hooks/useScreen.ts), so that ordering was costing most of the price work
+ * in wall-clock time for nothing.
+ *
+ * `close()` is what ends a `drain` — without it consumers wait forever for work
+ * that is never coming, so a producer must close its queue on every path,
+ * including failure and abort.
+ */
+export interface Queue<T> {
+  /**
+   * Adds an item, unless the queue is closed — in which case it returns false
+   * and the caller has to treat the item as dropped. That happens on abort and
+   * wherever a consumer gives up on the rest of its work, and a producer that
+   * ignores it goes on counting rows nobody will ever look at.
+   */
+  push: (item: T) => boolean;
+  close: () => void;
+}
+
+interface QueueInternals<T> extends Queue<T> {
+  take: () => Promise<T | undefined>;
+}
+
+export function createQueue<T>(): Queue<T> {
+  const items: T[] = [];
+  let closed = false;
+  let waiting: (() => void)[] = [];
+
+  // Every waiter is woken rather than one per item: they re-check the queue
+  // themselves, and picking which one to wake is the kind of bookkeeping that
+  // silently loses a consumer.
+  const wake = () => {
+    const woken = waiting;
+    waiting = [];
+    for (const resolve of woken) resolve();
+  };
+
+  const queue: QueueInternals<T> = {
+    push(item) {
+      if (closed) return false;
+      items.push(item);
+      wake();
+      return true;
+    },
+    close() {
+      closed = true;
+      wake();
+    },
+    async take() {
+      for (;;) {
+        if (items.length > 0) return items.shift();
+        if (closed) return undefined;
+        await new Promise<void>((resolve) => waiting.push(resolve));
+      }
+    },
+  };
+
+  return queue;
+}
+
+/**
+ * A concurrency budget shared by callers that have no other relationship.
+ *
+ * `mapPool` and `drain` each bound their own pool, which is enough when one
+ * pool is all there is. Two pools hitting the *same upstream* at the same time
+ * is a different question: the screen runner overlaps its scan and confirm
+ * stages, and two independent bounds of 24 is 48 requests at Yahoo — a number
+ * nobody measured. Passing both stages one gate keeps the ceiling the tested
+ * one and lets them share it out by demand.
+ */
+export function createGate(limit: number): <T>(task: () => Promise<T>) => Promise<T> {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+
+  return async function gated<T>(task: () => Promise<T>): Promise<T> {
+    if (active < limit) active++;
+    // Otherwise wait for a slot to be *handed over* rather than freed: a
+    // release that decremented and then woke someone would leave a gap for a
+    // third caller to take the slot in, putting the pool over its limit.
+    else await new Promise<void>((resolve) => waiting.push(resolve));
+
+    try {
+      return await task();
+    } finally {
+      const next = waiting.shift();
+      if (next) next();
+      else active--;
+    }
+  };
+}
+
+/**
+ * Runs `worker` over a queue with bounded concurrency, finishing when the queue
+ * is both empty and closed.
+ */
+export async function drain<T>(
+  queue: Queue<T>,
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  const take = (queue as QueueInternals<T>).take;
+
+  await Promise.all(
+    Array.from({ length: limit }, async () => {
+      for (;;) {
+        const item = await take();
+        if (item === undefined) return;
+        await worker(item);
+      }
+    }),
+  );
+}

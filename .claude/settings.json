@@ -50,7 +50,19 @@
       "Bash(python probe.py)",
       "Bash(node verify.mjs 800)",
       "Bash(node verify.mjs 2500)",
-      "Bash(curl -s -o /dev/null -w \"app root: %{http_code}\\\\n\" http://localhost:5173/)"
+      "Bash(curl -s -o /dev/null -w \"app root: %{http_code}\\\\n\" http://localhost:5173/)",
+      "PowerShell(npm run typecheck)",
+      "PowerShell(npm run build)",
+      "PowerShell($sp = \"C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Code-Space-NSE\\\\de26a749-1eb7-4dcd-a4f8-14481cb5795c\\\\scratchpad\"; Copy-Item \"$sp\\\\pipeline.test.ts\" \"d:\\\\Code Space\\\\NSE\\\\pipeline.test.ts\"; \\(Get-Content \"d:\\\\Code Space\\\\NSE\\\\pipeline.test.ts\"\\) -replace \"'\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./d:/Code Space/NSE/src/lib/format'\", \"'./src/lib/format'\" | Set-Content \"d:\\\\Code Space\\\\NSE\\\\pipeline.test.ts\" -Encoding utf8; npx esbuild \"d:\\\\Code Space\\\\NSE\\\\pipeline.test.ts\" --bundle --format=esm --platform=node --outfile=\"$sp\\\\pipeline.test.mjs\"; if \\($?\\) { node \"$sp\\\\pipeline.test.mjs\" })",
+      "PowerShell(git -C \"d:\\\\Code Space\\\\NSE\" status --short)",
+      "PowerShell(git -C \"d:\\\\Code Space\\\\NSE\" log --oneline -3)",
+      "PowerShell($sp = \"C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Code-Space-NSE\\\\de26a749-1eb7-4dcd-a4f8-14481cb5795c\\\\scratchpad\"; Copy-Item \"$sp\\\\cache.test.ts\" \"d:\\\\Code Space\\\\NSE\\\\cache.test.ts\"; npx esbuild \"d:\\\\Code Space\\\\NSE\\\\cache.test.ts\" --bundle --format=esm --platform=node --outfile=\"$sp\\\\cache.test.mjs\"; if \\($?\\) { node \"$sp\\\\cache.test.mjs\" }; Remove-Item \"d:\\\\Code Space\\\\NSE\\\\cache.test.ts\" -Force)",
+      "PowerShell(Set-Location \"d:\\\\Code Space\\\\NSE\"; Start-Process -FilePath \"cmd.exe\" -ArgumentList \"/c npm run dev > `\"$env:TEMP\\\\vite.log`\" 2>&1\" -WindowStyle Hidden; Start-Sleep -Seconds 6; Get-Content \"$env:TEMP\\\\vite.log\"; try { $r = Invoke-WebRequest -Uri \"http://localhost:5173/src/main.tsx\" -UseBasicParsing -TimeoutSec 20; \"main.tsx compiled: $\\($r.StatusCode\\)\" } catch { \"FETCH FAILED: $_\" })",
+      "PowerShell(foreach \\($m in @\\('/src/hooks/useScreen.ts','/src/lib/dayCache.ts','/src/lib/format.ts','/src/lib/technicals.ts','/src/lib/fundamentals.ts','/src/components/ScreenBar.tsx'\\)\\) { try { $r = Invoke-WebRequest -Uri \"http://localhost:5176$m\" -UseBasicParsing -TimeoutSec 20; \"$m -> $\\($r.StatusCode\\) \\($\\($r.RawContentLength\\) bytes\\)\" } catch { \"$m -> FAILED: $\\($_.Exception.Message\\)\" } })",
+      "PowerShell($pids = \\(Get-NetTCPConnection -LocalPort 5176 -State Listen -ErrorAction SilentlyContinue\\).OwningProcess | Select-Object -Unique; foreach \\($p in $pids\\) { \"stopping $p\"; Stop-Process -Id $p -Force })",
+      "PowerShell($sp = \"C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Code-Space-NSE\\\\de26a749-1eb7-4dcd-a4f8-14481cb5795c\\\\scratchpad\"; Set-Location \"d:\\\\Code Space\\\\NSE\"; Start-Process -FilePath \"cmd.exe\" -ArgumentList \"/c npm run dev -- --port 5188 --strictPort > `\"$sp\\\\vite2.log`\" 2>&1\" -WindowStyle Hidden; Start-Sleep -Seconds 7; Get-Content \"$sp\\\\vite2.log\" | Select-Object -Last 5; node \"$sp\\\\capprobe.mjs\" 5188)",
+      "PowerShell(node \"C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Code-Space-NSE\\\\de26a749-1eb7-4dcd-a4f8-14481cb5795c\\\\scratchpad\\\\pacing.test.mjs\")",
+      "PowerShell($p = \\(Get-NetTCPConnection -LocalPort 5188 -State Listen -ErrorAction SilentlyContinue\\).OwningProcess | Select-Object -Unique; foreach \\($x in $p\\) { Stop-Process -Id $x -Force }; Set-Location \"d:\\\\Code Space\\\\NSE\"; npm run build)"
     ]
   }
 }

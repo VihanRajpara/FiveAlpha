@@ -8,19 +8,30 @@
  * way to review a translation like `yearly max( 10 , yearly high )`.
  *
  * Legs are split by `phase`, and that split is a cost decision rather than a
- * taxonomy. Technical legs are answered by one Yahoo request per symbol;
- * fundamental legs need a screener.in page scrape each. The runner in
- * src/hooks/useScreen.ts evaluates every technical leg first and only fetches
- * fundamentals for the rows still standing, which on a typical universe is
- * under a tenth of them — the difference between a polite pass over
- * screener.in and a punishing one.
+ * taxonomy — it is the order the runner in src/hooks/useScreen.ts can afford to
+ * ask the questions in, cheapest first:
+ *
+ *   · `batch`       — answerable for hundreds of symbols in one request. Market
+ *                     cap, from Yahoo's quote endpoint. Costs ~10 requests for
+ *                     a whole market, so it runs first and everything it
+ *                     excludes is never priced or scraped at all.
+ *   · `technical`   — ten years of monthly bars: twenty symbols a request for
+ *                     the scan, one a request to confirm what the scan cannot
+ *                     settle.
+ *   · `fundamental` — one screener.in page each, paced 1.2s apart. Only rows
+ *                     still standing after both stages above, which on a
+ *                     typical universe is a few dozen of a few thousand.
+ *
+ * Moving market cap out of the last group and into the first is what turned a
+ * whole-market screen from three minutes into about one: it was previously
+ * being scraped a company at a time from a page whose only other use is ROCE.
  *
  * A leg returns `null` for "cannot tell": a share listed three years ago has no
  * ten-year high, and screener.in does not carry every SME scrip. Those rows are
  * reported as unjudged, never silently failed.
  */
 
-export type Phase = 'technical' | 'fundamental';
+export type Phase = 'batch' | 'technical' | 'fundamental';
 
 export interface ScreenMetrics {
   /** Latest close — the live quote where there is one, else the last monthly bar. */
@@ -144,7 +155,11 @@ export const ALL_TIME_HIGH_BREAKOUT: ScreenDef = {
     },
     {
       id: 'mcap',
-      phase: 'fundamental',
+      // Batch, not fundamental: Yahoo carries this figure for hundreds of
+      // symbols per request and agrees with screener.in on it, so the band is
+      // applied to the whole universe up front. The scrape still supplies it
+      // for anything Yahoo has no answer for.
+      phase: 'batch',
       clause: 'market cap >= 500 and market cap <= 50000',
       label: 'Market cap ₹500–50,000 Cr',
       test: (m) =>

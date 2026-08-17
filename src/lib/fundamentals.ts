@@ -1,3 +1,4 @@
+import { dayCache } from './dayCache';
 import type { Security } from '../types';
 
 /**
@@ -62,6 +63,22 @@ export const FUNDAMENTALS_CONCURRENCY = 4;
  */
 const MIN_INTERVAL_MS = 1200;
 
+/**
+ * Requests that may go out back-to-back before the interval above applies.
+ *
+ * The same measurements say the limit is a bucket rather than a metronome: with
+ * *no* delay at all the 429 came on the **17th** request, i.e. sixteen were
+ * allowed through at once and the refill is what the 1.2s figure describes.
+ * Spending that allowance is free — the screen has its whole shortlist queued
+ * within seconds of the price stages finishing — and it takes ~14s off the
+ * front of every run that has a dozen rows to scrape.
+ *
+ * Twelve rather than sixteen: the bucket was measured once, on one day, from
+ * one address, and the cost of being wrong about it is a 429 that stops the
+ * stage dead.
+ */
+const BURST = 12;
+
 /** Waits out a 429 rather than giving up on the first one. */
 const BACKOFF_MS = [10_000, 30_000, 60_000];
 
@@ -95,8 +112,19 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 async function fetchPaced(url: string, signal?: AbortSignal): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
     const now = Date.now();
+
+    // Virtual scheduling. `nextSlotAt` is where the *metronome* is, which is
+    // allowed to lag real time by up to `BURST` intervals — that lag is the
+    // unspent bucket, and a stage that has been idle spends it at once.
+    //
+    // The advance below is from the metronome, not from the moment the request
+    // actually goes out. Advancing from `slot` would reset the lag on the first
+    // burst request and pace every one after it, which is the bug this shape
+    // exists to avoid.
+    nextSlotAt = Math.max(nextSlotAt, now - MIN_INTERVAL_MS * BURST);
     const slot = Math.max(now, nextSlotAt);
-    nextSlotAt = slot + MIN_INTERVAL_MS;
+    nextSlotAt += MIN_INTERVAL_MS;
+
     await sleep(slot - now, signal);
 
     const res = await fetch(url, { signal });
@@ -173,17 +201,49 @@ export function parseTopRatios(html: string): Map<string, number[]> {
   return out;
 }
 
-const cache = new Map<string, Promise<Fundamentals | null>>();
+/**
+ * How long a scraped page is worth keeping.
+ *
+ * A month, because of what this scrape is now *for*. Market cap comes from
+ * Yahoo in batches of two hundred (see src/lib/marketCap.ts), so what remains
+ * here is ROCE — a figure computed from annual statements, which changes when a
+ * company files and not otherwise. Asking again tomorrow for a number that
+ * moves once a year is what made this the slowest thing in the app.
+ *
+ * The market cap parsed alongside it ages badly over a month, and is kept
+ * anyway: it is only ever read for symbols Yahoo has no figure for at all,
+ * which are dead or near-dead scrips whose band is not in doubt.
+ */
+const KEEP_DAYS = 30;
+
+/** Settled answers, kept across reloads for as long as they are worth keeping. */
+const settled = dayCache<Fundamentals | null>(
+  'fundamentals',
+  {
+    encode: (f) => (f === null ? 0 : [f.marketCapCr, f.rocePct, f.url]),
+    decode: (raw) => {
+      if (raw === 0) return null;
+      if (!Array.isArray(raw) || raw.length !== 3) return undefined;
+      const [marketCapCr, rocePct, url] = raw as [number | null, number | null, string];
+      return { marketCapCr, rocePct, url };
+    },
+  },
+  KEEP_DAYS,
+);
+
+/** Requests in flight, so two rows resolving to one page share a single fetch. */
+const inflight = new Map<string, Promise<Fundamentals | null>>();
+
+/** Writes the store out now — called when a run finishes. */
+export const persistFundamentals = (): void => settled.flush();
 
 /**
  * Null means "no page for this company" (404 — unlisted, renamed, or an SME
  * scrip screener.in doesn't carry), which is a normal outcome for a few hundred
- * of the BSE-only rows and not an error.
+ * of the BSE-only rows and not an error. It is cached like any other answer.
  *
- * Results are cached for the life of the tab, keyed by URL: re-running a screen
- * after widening a filter should only pay for the rows it hasn't seen. The
- * *promise* is cached rather than the value, so two rows resolving to the same
- * page in one pass share a single request.
+ * Keyed by URL rather than by symbol: dual-listed rows and re-runs after a
+ * filter change resolve to the same page, and should only pay for it once.
  */
 export function fetchFundamentals(
   security: Pick<Security, 'symbol' | 'bseCode' | 'exchanges'>,
@@ -192,7 +252,9 @@ export function fetchFundamentals(
   const url = screenerPath(security);
   if (!url) return Promise.resolve(null);
 
-  const hit = cache.get(url);
+  if (settled.has(url)) return Promise.resolve(settled.get(url) ?? null);
+
+  const hit = inflight.get(url);
   if (hit) return hit;
 
   const pending = (async (): Promise<Fundamentals | null> => {
@@ -210,13 +272,18 @@ export function fetchFundamentals(
       rocePct: ratios.get('ROCE')?.[0] ?? null,
       url,
     };
-  })();
+  })()
+    .then((fundamentals) => {
+      settled.set(url, fundamentals);
+      inflight.delete(url);
+      return fundamentals;
+    });
 
   // A failed request must not be remembered as a failure: the next run should
   // retry it. Only a settled *answer* — including the 404 null — is worth
   // keeping.
-  pending.catch(() => cache.delete(url));
+  pending.catch(() => inflight.delete(url));
 
-  cache.set(url, pending);
+  inflight.set(url, pending);
   return pending;
 }

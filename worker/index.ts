@@ -12,6 +12,8 @@
  * Anything that is not an /api/ path falls through to the static assets.
  */
 
+import { fetchYahooQuotes } from './yahooQuote';
+
 export interface Env {
   /** Binding to ./dist, declared in wrangler.toml. */
   ASSETS: { fetch(request: Request): Promise<Response> };
@@ -188,9 +190,18 @@ async function proxy(request: Request, ctx: ExecutionContext): Promise<Response>
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const { pathname } = new URL(request.url);
-    // Everything under /api/ is the proxy's, including paths it doesn't know —
-    // those get a 404. Falling through to ASSETS instead would hand back
+    const url = new URL(request.url);
+    const { pathname } = url;
+
+    // Its own route rather than another entry in UPSTREAMS: this one needs a
+    // cookie and a crumb fetched beforehand, which the table-driven proxy below
+    // has no way to express. See worker/yahooQuote.ts.
+    if (pathname === '/api/yquote') {
+      return fetchYahooQuotes(url.searchParams.get('symbols') ?? '');
+    }
+
+    // Everything else under /api/ is the proxy's, including paths it doesn't
+    // know — those get a 404. Falling through to ASSETS instead would hand back
     // index.html, and a fetch() expecting JSON would fail on `<!doctype html>`
     // rather than on a status code.
     if (pathname.startsWith('/api/')) return proxy(request, ctx);

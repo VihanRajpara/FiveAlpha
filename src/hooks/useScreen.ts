@@ -1,11 +1,18 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { chunk, mapPool } from '../lib/format';
-import { FUNDAMENTALS_CONCURRENCY, RateLimitedError, fetchFundamentals } from '../lib/fundamentals';
+import { chunk, createGate, createQueue, drain, mapPool } from '../lib/format';
+import {
+  FUNDAMENTALS_CONCURRENCY,
+  RateLimitedError,
+  fetchFundamentals,
+  persistFundamentals,
+} from '../lib/fundamentals';
+import { fetchMarketCaps } from '../lib/marketCap';
 import {
   SPARK_BATCH_SIZE,
   fetchCoarseTechnicals,
   fetchTechnicalsCached,
   hasTechnicals,
+  persistTechnicals,
   type CoarseTechnicals,
 } from '../lib/technicals';
 import {
@@ -21,7 +28,7 @@ import type { SecurityWithQuote } from '../types';
 /**
  * Runs a screen over the rows currently on screen.
  *
- * On demand and client-side, in three passes, ordered cheapest-first:
+ * On demand and client-side, in three stages, ordered cheapest-first:
  *
  *   1. **Scan** — twenty symbols per Yahoo request, ten years of monthly
  *      closes. Answers RSI and the length of the history exactly, and bounds
@@ -29,14 +36,23 @@ import type { SecurityWithQuote } from '../types';
  *      twentieth of a request each.
  *   2. **Confirm** — one full chart request per row the bound could not decide,
  *      for the true intra-month highs. Typically a few percent of the universe.
- *   3. **Fundamentals** — one screener.in page per row still standing, paced.
+ *   3. **Fundamentals** — one screener.in page per row still standing, paced at
+ *      1.2s apart because that is what screener.in tolerates.
  *
- * This used to be pass 2 alone, over everything, on the stated grounds that
- * there was no batch endpoint for a decade of bars. There is: `spark` takes the
- * same range/interval and answers twenty symbols at a time, 19× the throughput
- * measured through the same proxy at the same concurrency. The whole ~5,200
- * company list went from about a quarter of an hour to under two minutes of
- * price work, and what remains dominant is the paced fundamentals pass.
+ * The stages **run at the same time**, joined by queues rather than by `await`.
+ * That is the whole shape of the thing, and it is not a micro-optimisation:
+ * stage 3 is rate-limited rather than bandwidth-limited, so its cost is the
+ * number of rows that reach it multiplied by 1.2s no matter what else is
+ * happening. Run strictly after the price work, a 2,410-row NSE screen was
+ * ~45s of Yahoo requests followed by ~2½ minutes of paced scraping. Run
+ * alongside it, the first survivors reach screener.in within a second or two of
+ * the click and the price work disappears inside the wait — the same run is the
+ * length of its slowest stage rather than the sum of all three.
+ *
+ * The other half of the cost is not paying twice. Both price stages and the
+ * fundamentals scrape write through `dayCache`, so a second run — after a
+ * filter change, a reload, or tomorrow morning's first look at the same
+ * universe — asks the network for the rows it has not seen and nothing else.
  *
  * A long run is still announced with an estimate up front, reports progress,
  * and can be stopped at any point with its partial results kept — a limit
@@ -102,65 +118,166 @@ const SCAN_ROWS_PER_SECOND = ROWS_PER_SECOND * 19;
 const CONFIRM_RATE = 0.08;
 
 /**
- * Share of a universe that clears the technical legs and so costs a screener.in
- * request: 115 of the 2,410 NSE symbols on 2026-08-12.
+ * Share of the *scanned* universe that clears the technical legs and so costs a
+ * screener.in request: 115 of the 2,410 NSE symbols on 2026-08-12. Still stated
+ * against the scan's own universe now that the market-cap band prunes the rows
+ * before it — both numerator and denominator lose roughly the same fraction, so
+ * the ratio survives the change better than the absolute count would.
  */
 const SURVIVOR_RATE = 0.05;
 
 /**
+ * Rows per second for the market-cap stage: two hundred symbols a request, four
+ * requests in flight. Measured 2026-08-17 over the whole NSE list through the
+ * dev proxy — 2,565 symbols in 13 requests and 2.4 seconds — and rounded down.
+ * Fast enough that its only real effect on the estimate is through what it
+ * *removes* from the stages after it.
+ */
+const CAP_ROWS_PER_SECOND = 1000;
+
+/**
+ * Share of a universe left standing by the market-cap band. Measured over the
+ * same 2,565 NSE rows: 25.3% came back under ₹500 Cr and 8.1% over ₹50,000 Cr,
+ * both rejected before a single bar of history is fetched, while 9.6% had no
+ * figure at all and are carried through as unjudged rather than dropped.
+ */
+const CAP_PASS_RATE = 0.67;
+
+/**
  * Seconds per surviving row in the fundamentals pass. Not a round trip —
  * screener.in is rate-limited to one request every 1.2s (see `MIN_INTERVAL_MS`),
- * so this is the pacing gate. Now that the price work is batched it is also the
- * bulk of a whole-market run: three quarters of it, and the obvious next thing
- * to attack.
+ * so this is the pacing gate rather than a network cost, and it is why that
+ * stage sets the length of a whole-market run.
  */
 const SECONDS_PER_SURVIVOR = 1.25;
 
 /**
- * Seconds a run over `rows` should take, summed over the three passes.
- * Deliberately rough — it exists to distinguish "a moment" from "go and make
- * tea", not to be accurate.
+ * What is left to do, in seconds, split the way the run actually spends them.
+ *
+ * The two are returned apart rather than added because the stages overlap: the
+ * price work and the paced scraping happen at the same time, so the wall clock
+ * left is the *slower* of them, while the share of the job done — what the bar
+ * wants — is over their sum.
+ *
+ * Work not yet discovered is estimated: rows the scan has not reached will
+ * produce confirms at `CONFIRM_RATE` and survivors at `SURVIVOR_RATE`, so the
+ * totals below grow as the run learns what it is actually dealing with.
+ */
+function remaining(stage: Stages): { price: number; fundamentals: number } {
+  const capLeft = Math.max(0, stage.cap.total - stage.cap.done);
+  const scanLeft = Math.max(0, stage.scan.total - stage.scan.done);
+  const confirmLeft =
+    Math.max(0, stage.confirm.total - stage.confirm.done) + scanLeft * CONFIRM_RATE;
+  const survivorsLeft =
+    Math.max(0, stage.fundamental.total - stage.fundamental.done) + scanLeft * SURVIVOR_RATE;
+
+  return {
+    // The market-cap stage runs before the other two rather than alongside
+    // them, so its time adds rather than overlapping.
+    price: capLeft / CAP_ROWS_PER_SECOND + scanLeft / SCAN_ROWS_PER_SECOND + confirmLeft / ROWS_PER_SECOND,
+    fundamentals: survivorsLeft * SECONDS_PER_SURVIVOR,
+  };
+}
+
+/** Seconds already spent, in the same units, so the bar can be a ratio. */
+const spent = (stage: Stages): number =>
+  stage.cap.done / CAP_ROWS_PER_SECOND +
+  stage.scan.done / SCAN_ROWS_PER_SECOND +
+  stage.confirm.done / ROWS_PER_SECOND +
+  stage.fundamental.done * SECONDS_PER_SURVIVOR;
+
+/**
+ * Seconds a run over `rows` should take. The price stages and the scrape
+ * overlap, so this is the longest of them rather than their sum. Deliberately
+ * rough — it exists to distinguish "a moment" from "go and make tea", not to be
+ * accurate.
  */
 export function estimateSeconds(rows: number): number {
-  return Math.round(
-    rows / SCAN_ROWS_PER_SECOND +
-      (rows * CONFIRM_RATE) / ROWS_PER_SECOND +
-      rows * SURVIVOR_RATE * SECONDS_PER_SURVIVOR,
-  );
+  const { price, fundamentals } = remaining({
+    cap: { done: 0, total: rows },
+    // What the band is expected to leave for everything downstream.
+    scan: { done: 0, total: Math.round(rows * CAP_PASS_RATE) },
+    confirm: { done: 0, total: 0 },
+    fundamental: { done: 0, total: 0 },
+  });
+  return Math.round(Math.max(price, fundamentals));
 }
 
 /** "40s" / "7 min" — an estimate should not pretend to more precision. */
-export function formatEstimate(rows: number): string {
-  const seconds = estimateSeconds(rows);
+export function formatDuration(seconds: number): string {
   if (seconds < 90) return `${Math.max(5, Math.round(seconds / 5) * 5)}s`;
   return `${Math.round(seconds / 60)} min`;
 }
 
+export const formatEstimate = (rows: number): string => formatDuration(estimateSeconds(rows));
+
 /**
- * Publish partway through rather than per row: every settled row would be a new
- * Map and a re-render of the table. Scaled to the pass, because a fixed 12 means
- * 435 full copies of a 5,229-row map on the whole-market scan — roughly 60
- * updates is enough to read as live at any size.
+ * The two numbers the UI shows, from the counters the stages keep.
  *
- * The progress counter is gated on the same interval and for the same reason.
- * It used to be set on *every* settled row: 5,229 React state updates over a
- * whole-market run, each one re-rendering the bar, to move a number nobody can
- * read at that rate.
+ * `fraction` is over the *sum* of the work and `secondsLeft` over the *slower
+ * half* of it, which is not an inconsistency: one answers "how much of this job
+ * is behind me", the other "how long until it stops", and with overlapping
+ * stages those have different denominators.
  */
-const publishEvery = (rows: number) => Math.max(12, Math.round(rows / 60));
+function snapshot(stage: Stages): ScreenProgress {
+  const left = remaining(stage);
+  const done = spent(stage);
+  const total = done + left.price + left.fundamentals;
+
+  return {
+    cap: { ...stage.cap },
+    scan: { ...stage.scan },
+    confirm: { ...stage.confirm },
+    fundamental: { ...stage.fundamental },
+    fraction: total > 0 ? Math.min(1, done / total) : 0,
+    secondsLeft: Math.round(Math.max(left.price, left.fundamentals)),
+  };
+}
+
+/**
+ * How often the table and the progress bar are brought up to date.
+ *
+ * Publishing per settled row would be a fresh copy of a 5,229-entry map and a
+ * re-render for each one. This used to be counted in rows, which cannot work
+ * now that three stages settle rows at wildly different rates at the same time
+ * — a clock is the thing they have in common. Four updates a second reads as
+ * live and costs a few milliseconds of it.
+ */
+const PUBLISH_INTERVAL_MS = 250;
 
 export type ScreenStatus = 'idle' | 'running' | 'done' | 'cancelled' | 'error';
 
-/**
- * `scan` and `technical` are the two halves of the price work — twenty symbols
- * a request, then one a request for the rows the first could not decide. They
- * are reported separately because they run at wildly different speeds, and a
- * single bar covering both would appear to stall the moment it crossed over.
- */
-export interface ScreenProgress {
-  phase: 'scan' | 'technical' | 'fundamental' | null;
+export interface StageProgress {
   done: number;
+  /**
+   * Rows the stage knows about *so far*. Only the scan's total is known at the
+   * start; the other two are fed by the stage above them and grow as it finds
+   * their work.
+   */
   total: number;
+}
+
+/**
+ * The three stages are reported separately because they run at once and at
+ * wildly different speeds — a single "37 of 2,410" covering all of them would
+ * be three different jobs sharing one misleading number.
+ */
+export interface Stages {
+  /** Market cap for the whole universe, two hundred symbols a request. */
+  cap: StageProgress;
+  /** Twenty symbols a request: the bound that decides most rows. */
+  scan: StageProgress;
+  /** One request each for the rows the bound could not decide. */
+  confirm: StageProgress;
+  /** One paced screener.in page per row that cleared the technical legs. */
+  fundamental: StageProgress;
+}
+
+export interface ScreenProgress extends Stages {
+  /** 0–1 over the whole job, weighted by what each stage actually costs. */
+  fraction: number;
+  /** Wall clock left, which is the slowest stage rather than the sum. */
+  secondsLeft: number;
 }
 
 export interface ScreenCounts {
@@ -186,7 +303,14 @@ export interface ScreenRun {
   clear: () => void;
 }
 
-const EMPTY_PROGRESS: ScreenProgress = { phase: null, done: 0, total: 0 };
+const EMPTY_PROGRESS: ScreenProgress = {
+  cap: { done: 0, total: 0 },
+  scan: { done: 0, total: 0 },
+  confirm: { done: 0, total: 0 },
+  fundamental: { done: 0, total: 0 },
+  fraction: 0,
+  secondsLeft: 0,
+};
 
 export function useScreen(): ScreenRun {
   const [screen, setScreen] = useState<ScreenDef | null>(null);
@@ -240,7 +364,16 @@ export function useScreen(): ScreenRun {
       draft.current = new Map();
       setResults(new Map());
       setStatus('running');
-      setProgress({ phase: 'scan', done: 0, total: rows.length });
+
+      const stage: Stages = {
+        cap: { done: 0, total: rows.length },
+        // Set once the market-cap band has said how many rows are left; until
+        // then the scan has no universe of its own.
+        scan: { done: 0, total: 0 },
+        confirm: { done: 0, total: 0 },
+        fundamental: { done: 0, total: 0 },
+      };
+      setProgress(snapshot(stage));
 
       // The price passes judge the technical legs alone; the fundamentals pass
       // re-judges the row against *all* of them, so the final verdict comes from
@@ -263,176 +396,266 @@ export function useScreen(): ScreenRun {
         });
       };
 
-      // One gate for both the table and the progress bar — see `publishEvery`.
-      // `interval` is set per pass, since a 300-row confirm and a 5,000-row scan
-      // want very different strides, and the last row of a pass always reports
-      // so a bar never stops short of its end.
-      let published = 0;
-      let interval = 1;
-      const publish = () => setResults(new Map(draft.current));
-      const tick = (phase: ScreenProgress['phase'], done: number, total: number) => {
-        if (done - published < interval && done !== total) return;
-        published = done;
-        publish();
-        setProgress({ phase, done, total });
+      // One gate for both the table and the progress bar — see
+      // `PUBLISH_INTERVAL_MS`. Every stage calls `tick`; whichever one happens
+      // to cross the interval publishes all of them.
+      let publishedAt = 0;
+      const publish = () => {
+        publishedAt = Date.now();
+        setResults(new Map(draft.current));
+        setProgress(snapshot(stage));
       };
-      const startPass = (phase: ScreenProgress['phase'], total: number) => {
-        published = 0;
-        interval = publishEvery(total);
-        setProgress({ phase, done: 0, total });
+      const tick = () => {
+        if (Date.now() - publishedAt >= PUBLISH_INTERVAL_MS) publish();
       };
+
+      // The two queues that join the stages. A row moves scan → confirm →
+      // fundamentals, and each stage starts on an item the moment the one above
+      // it produces one rather than when the whole stage above finishes.
+      const confirmQueue = createQueue<SecurityWithQuote>();
+      const fundamentalQueue = createQueue<SecurityWithQuote>();
+
+      // Both price stages talk to Yahoo, and now they do it at the same time —
+      // so the ceiling belongs to the pair of them, not to each.
+      const yahoo = createGate(TECHNICAL_CONCURRENCY);
+
+      // Abort has to reach the queues: a consumer parked on an empty one is
+      // waiting for a producer that is never coming back.
+      signal.addEventListener(
+        'abort',
+        () => {
+          confirmQueue.close();
+          fundamentalQueue.close();
+        },
+        { once: true },
+      );
 
       void (async () => {
+        // Rows Yahoo would not answer for. Counted rather than only logged
+        // because at whole-market volume this stops being the odd dead ticker
+        // and becomes the thing the user needs told — see the warning below.
+        let unreachable = 0;
+        // A rate limit ends the fundamentals stage, not the run: the price work
+        // is unaffected by it and is most of what the table shows.
+        let rateLimit: string | null = null;
+
         try {
-          // Rows Yahoo would not answer for. Counted rather than only logged
-          // because at whole-market volume this stops being the odd dead ticker
-          // and becomes the thing the user needs told — see the warning below.
-          let unreachable = 0;
+          // ---- Stage 0: market cap, the whole universe in ~10 requests -----
+          // The cheapest question the clause asks, and until this stage existed
+          // it was the most expensive: a scraped company page each. Answering it
+          // first means the band's rejects are never priced and never scraped.
+          //
+          // A row Yahoo has no figure for is *not* rejected here — an unknown
+          // is not a fail — so it goes through the run and the scrape answers
+          // for it as before. That is also what happens to every row if the
+          // endpoint stops working.
+          const capLegs = legsFor(def, 'batch');
+          const seeds = new Map<string, Partial<ScreenMetrics>>();
+          let universe = rows;
 
-          // ---- Pass 1: the scan, twenty symbols per request ---------------
-          // Rows whose exact figures are already cached from an earlier run are
-          // not scanned at all: a bound on a number we have is pure cost.
-          const known = rows.filter((row) => hasTechnicals(row.ticker));
-          const fresh = rows.filter((row) => !hasTechnicals(row.ticker));
-
-          // Everything the scan could not settle, confirmed one request each.
-          const confirm: SecurityWithQuote[] = [...known];
-
-          startPass('scan', rows.length);
-          // Cached rows are already past this pass; on a re-run of the same
-          // universe that is all of them and the bar goes straight to full.
-          let done = known.length;
-          tick('scan', done, rows.length);
-
-          await mapPool(
-            chunk(fresh, SPARK_BATCH_SIZE),
-            TECHNICAL_CONCURRENCY,
-            async (batch) => {
-              if (signal.aborted) return;
-
-              let coarse: Map<string, CoarseTechnicals | null>;
-              try {
-                coarse = await fetchCoarseTechnicals(
-                  batch.map((row) => row.ticker),
-                  signal,
-                );
-              } catch (err) {
-                if (signal.aborted) return;
-                // A batch that failed outright is twenty rows Yahoo could not be
-                // asked about, not twenty unjudged rows: fall back to the exact
-                // pass, where a failure costs one row instead of twenty. In the
-                // worst case — Yahoo refusing everything — this degrades to the
-                // per-symbol behaviour this pass replaced, which is the right
-                // floor to fail to.
-                confirm.push(...batch);
-                done += batch.length;
-                console.warn(`Scan batch failed (${batch.length} rows)`, err);
-                return;
-              }
-
-              for (const row of batch) {
-                const scanned = coarse.get(row.ticker) ?? null;
-
-                if (!scanned) {
-                  unreachable++;
-                  store(row.symbol, {}, judge(def.legs, {}));
-                  continue;
-                }
-
-                // The rule itself lives in `judgeScan`, next to the legs it
-                // reasons about — what a close-only series may and may not
-                // conclude is a statement about the clause, not about this loop.
-                const outcome = judgeScan(def, scanned, row.quote?.price);
-                if (outcome.kind === 'confirm') {
-                  confirm.push(row);
-                  continue;
-                }
-
-                store(row.symbol, outcome.metrics, outcome, outcome.approx);
-              }
-
-              done += batch.length;
-              tick('scan', done, rows.length);
-            },
-          );
-
-          if (signal.aborted) return;
-          publish();
-
-          // ---- Pass 2: confirm, one request per undecided row -------------
-          startPass('technical', confirm.length);
-          done = 0;
-
-          const survivors: SecurityWithQuote[] = [];
-
-          await mapPool(confirm, TECHNICAL_CONCURRENCY, async (row) => {
+          if (capLegs.length > 0) {
+            const caps = await fetchMarketCaps(
+              rows.map((row) => row.ticker),
+              signal,
+            );
             if (signal.aborted) return;
 
-            const metrics: Partial<ScreenMetrics> = {};
-            try {
-              const technicals = await fetchTechnicalsCached(row.ticker, signal);
-              if (technicals) {
-                metrics.bars = technicals.bars;
-                metrics.monthlyRsi14 = technicals.monthlyRsi14;
-                metrics.close = row.quote?.price ?? technicals.close;
-                // Left *absent* rather than zeroed when the history is too short
-                // for a ten-year high: the price legs read a missing high as
-                // "cannot tell", and a 0 would read as a definite failure.
-                if (technicals.high10y !== null && technicals.high10y > 0) {
-                  metrics.high10y = technicals.high10y;
-                  metrics.pctOfHigh = (metrics.close / technicals.high10y) * 100;
-                }
+            universe = [];
+            for (const row of rows) {
+              const cap = caps.get(row.ticker);
+              const metrics: Partial<ScreenMetrics> = cap === undefined ? {} : { marketCapCr: cap };
+
+              if (judge(capLegs, metrics).verdict === 'fail') {
+                store(row.symbol, metrics, judge(def.legs, metrics));
+                continue;
               }
-            } catch (err) {
-              // One unreachable symbol is an unjudged row, not a failed run.
-              if (signal.aborted) return;
-              unreachable++;
-              console.warn(`No bars for ${row.symbol}`, err);
+
+              // Carried into every later stage so the figure is on the row
+              // whatever decides it, and so the scrape does not have to re-ask.
+              if (cap !== undefined) seeds.set(row.symbol, metrics);
+              universe.push(row);
             }
-
-            // Two judgements, and the difference between them matters. The
-            // *technical* one decides whether this row is worth a screener.in
-            // request. The one that gets *stored* is over the whole clause, so
-            // a row that has cleared price and momentum but has not been asked
-            // about market cap or ROCE yet is `unknown` — the fundamental legs
-            // return null on absent metrics — rather than `pass`.
-            //
-            // Storing the technical verdict here was reporting rows as matches
-            // on three legs out of five. It only showed up when the fundamentals
-            // pass did not finish: screener.in rate-limits after ~25 requests,
-            // the run aborted, and every row it never reached stayed a "match".
-            // That is how a screen reported 109 against Chartink's 64 on the
-            // same universe. A row is a match once the whole clause says so.
-            if (judge(technicalLegs, metrics).verdict === 'pass') survivors.push(row);
-
-            store(row.symbol, metrics, judge(def.legs, metrics));
-
-            tick('technical', ++done, confirm.length);
-          });
-
-          if (signal.aborted) return;
-          publish();
-
-          // Yahoo simply has no history for a lot of thinly traded BSE scrips.
-          // Either way the rows come back unjudged, and a screen that quietly
-          // reports "3,100 unjudged" without saying why is not reporting at all.
-          if (unreachable > 0) {
-            setWarning(
-              `${unreachable.toLocaleString('en-IN')} of ${rows.length.toLocaleString('en-IN')} rows had no usable price history. ` +
-                'Yahoo carries nothing for many BSE-only scrips — every one sampled is a dead ticker rather than a request worth repeating. ' +
-                'Judged rows are cached, so running it again is near-instant.',
-            );
           }
 
-          // ---- Pass 3: fundamentals, survivors only -----------------------
+          stage.cap.done = rows.length;
+          stage.scan.total = universe.length;
+          publish();
+
+          // ---- Stage 1: the scan, twenty symbols per request --------------
+          // Rows whose exact figures are already cached from an earlier run are
+          // not scanned at all: a bound on a number we have is pure cost. After
+          // a re-run of the same universe that is every row, and this stage is
+          // over before it starts.
+          const known = universe.filter((row) => hasTechnicals(row.ticker));
+          const fresh = universe.filter((row) => !hasTechnicals(row.ticker));
+
+          // A stage's total only counts rows it will actually reach, so every
+          // producer below counts what the queue *accepted* — after an abort or
+          // a rate limit it accepts nothing, and a total that kept growing
+          // would leave a bar that can never fill.
+          const toConfirm = (row: SecurityWithQuote) => {
+            if (confirmQueue.push(row)) stage.confirm.total++;
+          };
+
+          for (const row of known) toConfirm(row);
+          stage.scan.done = known.length;
+          publish();
+
+          const scan = (async () => {
+            try {
+              await mapPool(chunk(fresh, SPARK_BATCH_SIZE), TECHNICAL_CONCURRENCY, async (batch) => {
+                if (signal.aborted) return;
+
+                let coarse: Map<string, CoarseTechnicals | null>;
+                try {
+                  coarse = await yahoo(() =>
+                    fetchCoarseTechnicals(
+                      batch.map((row) => row.ticker),
+                      signal,
+                    ),
+                  );
+                } catch (err) {
+                  if (signal.aborted) return;
+                  // A batch that failed outright is twenty rows Yahoo could not
+                  // be asked about, not twenty unjudged rows: fall back to the
+                  // exact stage, where a failure costs one row instead of
+                  // twenty. In the worst case — Yahoo refusing everything —
+                  // this degrades to the per-symbol behaviour the scan
+                  // replaced, which is the right floor to fail to.
+                  for (const row of batch) toConfirm(row);
+                  stage.scan.done += batch.length;
+                  console.warn(`Scan batch failed (${batch.length} rows)`, err);
+                  return;
+                }
+
+                for (const row of batch) {
+                  const scanned = coarse.get(row.ticker) ?? null;
+
+                  if (!scanned) {
+                    unreachable++;
+                    store(row.symbol, {}, judge(def.legs, {}));
+                    continue;
+                  }
+
+                  // The rule itself lives in `judgeScan`, next to the legs it
+                  // reasons about — what a close-only series may and may not
+                  // conclude is a statement about the clause, not this loop.
+                  const outcome = judgeScan(def, scanned, row.quote?.price);
+                  if (outcome.kind === 'confirm') {
+                    toConfirm(row);
+                    continue;
+                  }
+
+                  // The verdict stays the scan's, and only the metrics gain the
+                  // market cap. Merging it cannot change the answer — every row
+                  // here is either a definite technical fail or short of the
+                  // history to judge, and one more in-band number makes neither
+                  // of those a pass — but `judgeScan` reasons about a bound on
+                  // the ten-year high that `judge` is not allowed to see, so
+                  // re-judging with the merged metrics would quietly discard
+                  // that reasoning.
+                  const seed = seeds.get(row.symbol);
+                  store(
+                    row.symbol,
+                    seed ? { ...seed, ...outcome.metrics } : outcome.metrics,
+                    outcome,
+                    outcome.approx,
+                  );
+                }
+
+                stage.scan.done += batch.length;
+                tick();
+              });
+            } finally {
+              // On every path, including a throw: the stage below ends when
+              // this closes and nothing else will do it.
+              confirmQueue.close();
+            }
+          })();
+
+          // ---- Stage 2: confirm, one request per undecided row ------------
+          const confirm = (async () => {
+            try {
+              await drain(confirmQueue, TECHNICAL_CONCURRENCY, async (row) => {
+                if (signal.aborted) return;
+
+                // Seeded with the market cap the batch stage already answered,
+                // so `judge` below sees the whole clause rather than losing a
+                // leg that has in fact been decided.
+                const metrics: Partial<ScreenMetrics> = { ...seeds.get(row.symbol) };
+                try {
+                  const technicals = await yahoo(() =>
+                    fetchTechnicalsCached(row.ticker, signal),
+                  );
+                  if (technicals) {
+                    metrics.bars = technicals.bars;
+                    metrics.monthlyRsi14 = technicals.monthlyRsi14;
+                    metrics.close = row.quote?.price ?? technicals.close;
+                    // Left *absent* rather than zeroed when the history is too
+                    // short for a ten-year high: the price legs read a missing
+                    // high as "cannot tell", and a 0 would read as a definite
+                    // failure.
+                    if (technicals.high10y !== null && technicals.high10y > 0) {
+                      metrics.high10y = technicals.high10y;
+                      metrics.pctOfHigh = (metrics.close / technicals.high10y) * 100;
+                    }
+                  }
+                } catch (err) {
+                  // One unreachable symbol is an unjudged row, not a failed run.
+                  if (signal.aborted) return;
+                  unreachable++;
+                  console.warn(`No bars for ${row.symbol}`, err);
+                }
+
+                // Two judgements, and the difference between them matters. The
+                // *technical* one decides whether this row is worth a
+                // screener.in request. The one that gets *stored* is over the
+                // whole clause, so a row that has cleared price and momentum
+                // but has not been asked about market cap or ROCE yet is
+                // `unknown` — the fundamental legs return null on absent
+                // metrics — rather than `pass`.
+                //
+                // Storing the technical verdict here was reporting rows as
+                // matches on three legs out of five. It only showed up when the
+                // fundamentals stage did not finish: screener.in rate-limits
+                // after ~25 requests, the run aborted, and every row it never
+                // reached stayed a "match". That is how a screen reported 109
+                // against Chartink's 64 on the same universe. A row is a match
+                // once the whole clause says so.
+                store(row.symbol, metrics, judge(def.legs, metrics));
+
+                // Stored before it is queued: the stage below reads the row's
+                // existing metrics back out of the draft.
+                if (
+                  judge(technicalLegs, metrics).verdict === 'pass' &&
+                  fundamentalQueue.push(row)
+                ) {
+                  stage.fundamental.total++;
+                }
+
+                stage.confirm.done++;
+                tick();
+              });
+            } finally {
+              fundamentalQueue.close();
+            }
+          })();
+
+          // ---- Stage 3: fundamentals, survivors only ----------------------
           // Rows already failed on price or momentum are never asked about, and
           // neither are the unjudged ones — an unknown cannot become a pass, so
           // a scrape for it would buy nothing.
-          startPass('fundamental', survivors.length);
-          done = 0;
-
-          await mapPool(survivors, FUNDAMENTALS_CONCURRENCY, async (row) => {
+          const fundamental = drain(fundamentalQueue, FUNDAMENTALS_CONCURRENCY, async (row) => {
             if (signal.aborted) return;
+
+            // Closing the queue stops new rows arriving but does not empty it,
+            // and every row still in there would spend a minute and a half in
+            // `fetchPaced`'s backoffs before failing the same way. Give them
+            // back instead, so the counts describe what was actually done.
+            if (rateLimit !== null) {
+              stage.fundamental.total--;
+              return;
+            }
 
             const existing = draft.current.get(row.symbol)!;
             const metrics = { ...existing.metrics };
@@ -441,18 +664,21 @@ export function useScreen(): ScreenRun {
             try {
               const fundamentals = await fetchFundamentals(row, signal);
               if (fundamentals) {
-                metrics.marketCapCr = fundamentals.marketCapCr;
+                // The batch figure wins where there is one — it is the fresher
+                // of the two, and screener.in's ratio strip occasionally has no
+                // market cap at all, which must not erase a number we have.
+                metrics.marketCapCr = metrics.marketCapCr ?? fundamentals.marketCapCr;
                 metrics.rocePct = fundamentals.rocePct;
                 fundamentalsUrl = fundamentals.url;
               }
             } catch (err) {
               if (signal.aborted) return;
-              // A rate limit is about the whole run, not this row: keep going
-              // and every remaining row would be refused too.
+              // A rate limit is about the stage, not this row: every queued row
+              // would be refused too, so stop asking. The price stages carry on
+              // — they are a different upstream and most of the table.
               if (err instanceof RateLimitedError) {
-                controller.abort();
-                setStatus('error');
-                setError(err.message);
+                rateLimit = err.message;
+                fundamentalQueue.close();
                 return;
               }
               console.warn(`No fundamentals for ${row.symbol}`, err);
@@ -467,12 +693,29 @@ export function useScreen(): ScreenRun {
               fundamentalsUrl,
             });
 
-            tick('fundamental', ++done, survivors.length);
+            stage.fundamental.done++;
+            tick();
           });
+
+          await Promise.all([scan, confirm, fundamental]);
 
           publish();
           if (signal.aborted) return;
 
+          // Yahoo simply has no history for a lot of thinly traded BSE scrips.
+          // Either way the rows come back unjudged, and a screen that quietly
+          // reports "3,100 unjudged" without saying why is not reporting at all.
+          if (unreachable > 0) {
+            setWarning(
+              // Against the rows that were actually priced, not the whole
+              // universe: the market-cap band's rejects were never asked.
+              `${unreachable.toLocaleString('en-IN')} of the ${universe.length.toLocaleString('en-IN')} rows priced had no usable price history. ` +
+                'Yahoo carries nothing for many BSE-only scrips — every one sampled is a dead ticker rather than a request worth repeating. ' +
+                'Judged rows are cached for the rest of the day, so running it again is near-instant.',
+            );
+          }
+
+          if (rateLimit) setError(rateLimit);
           setStatus('done');
           setRanAt(new Date());
         } catch (err) {
@@ -481,6 +724,12 @@ export function useScreen(): ScreenRun {
           setStatus('error');
           setError(err instanceof Error ? err.message : String(err));
         } finally {
+          // Whatever happened, nothing below is waiting on a queue any more.
+          confirmQueue.close();
+          fundamentalQueue.close();
+          // Hold on to what the run learned: a reload should not re-buy it.
+          persistTechnicals();
+          persistFundamentals();
           if (abort.current === controller) abort.current = null;
         }
       })();
