@@ -1,3 +1,4 @@
+import { dayCache } from './dayCache';
 import type { Security } from '../types';
 
 /**
@@ -173,17 +174,38 @@ export function parseTopRatios(html: string): Map<string, number[]> {
   return out;
 }
 
-const cache = new Map<string, Promise<Fundamentals | null>>();
+/**
+ * Settled answers, kept for the trading day and across reloads.
+ *
+ * This is the pass that costs the most wall-clock time in a run — one paced
+ * request per surviving row, 1.2s apart — so it is also the one with the most
+ * to gain from being asked once a day rather than once a tab. Market cap moves
+ * with the price, but the leg reading it is a band from ₹500 Cr to ₹50,000 Cr;
+ * ROCE is an annual figure.
+ */
+const settled = dayCache<Fundamentals | null>('fundamentals', {
+  encode: (f) => (f === null ? 0 : [f.marketCapCr, f.rocePct, f.url]),
+  decode: (raw) => {
+    if (raw === 0) return null;
+    if (!Array.isArray(raw) || raw.length !== 3) return undefined;
+    const [marketCapCr, rocePct, url] = raw as [number | null, number | null, string];
+    return { marketCapCr, rocePct, url };
+  },
+});
+
+/** Requests in flight, so two rows resolving to one page share a single fetch. */
+const inflight = new Map<string, Promise<Fundamentals | null>>();
+
+/** Writes the store out now — called when a run finishes. */
+export const persistFundamentals = (): void => settled.flush();
 
 /**
  * Null means "no page for this company" (404 — unlisted, renamed, or an SME
  * scrip screener.in doesn't carry), which is a normal outcome for a few hundred
- * of the BSE-only rows and not an error.
+ * of the BSE-only rows and not an error. It is cached like any other answer.
  *
- * Results are cached for the life of the tab, keyed by URL: re-running a screen
- * after widening a filter should only pay for the rows it hasn't seen. The
- * *promise* is cached rather than the value, so two rows resolving to the same
- * page in one pass share a single request.
+ * Keyed by URL rather than by symbol: dual-listed rows and re-runs after a
+ * filter change resolve to the same page, and should only pay for it once.
  */
 export function fetchFundamentals(
   security: Pick<Security, 'symbol' | 'bseCode' | 'exchanges'>,
@@ -192,7 +214,9 @@ export function fetchFundamentals(
   const url = screenerPath(security);
   if (!url) return Promise.resolve(null);
 
-  const hit = cache.get(url);
+  if (settled.has(url)) return Promise.resolve(settled.get(url) ?? null);
+
+  const hit = inflight.get(url);
   if (hit) return hit;
 
   const pending = (async (): Promise<Fundamentals | null> => {
@@ -210,13 +234,18 @@ export function fetchFundamentals(
       rocePct: ratios.get('ROCE')?.[0] ?? null,
       url,
     };
-  })();
+  })()
+    .then((fundamentals) => {
+      settled.set(url, fundamentals);
+      inflight.delete(url);
+      return fundamentals;
+    });
 
   // A failed request must not be remembered as a failure: the next run should
   // retry it. Only a settled *answer* — including the 404 null — is worth
   // keeping.
-  pending.catch(() => cache.delete(url));
+  pending.catch(() => inflight.delete(url));
 
-  cache.set(url, pending);
+  inflight.set(url, pending);
   return pending;
 }

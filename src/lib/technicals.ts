@@ -1,4 +1,5 @@
 import type { Candle } from '../types';
+import { dayCache } from './dayCache';
 import { SPARK_BATCH_SIZE, fetchYahooBars, fetchYahooSparkBars } from './yahooCandles';
 
 /**
@@ -233,17 +234,41 @@ export async function fetchTechnicals(
   return computeTechnicals(await fetchYahooBars(ticker, RANGE, INTERVAL, signal));
 }
 
-const cache = new Map<string, Promise<Technicals | null>>();
-
 /**
- * Same fetch, remembered for the life of the tab.
+ * Settled answers, kept for the trading day and across reloads.
  *
  * Re-running a screen after widening a filter should only pay for the symbols
  * it has not already priced, and monthly bars are the right thing to hold: over
- * a session the ten-year high and a 14-period *monthly* RSI do not meaningfully
+ * a day the ten-year high and a 14-period *monthly* RSI do not meaningfully
  * move. The one figure that does — the latest close — is taken from the live
  * quote by the caller wherever there is one, so nothing stale reaches the
  * price legs.
+ *
+ * A null is a settled answer too: it means Yahoo has no usable history for the
+ * ticker, which the next run would spend a request rediscovering.
+ */
+const exactStore = dayCache<Technicals | null>('technicals', {
+  encode: (t) =>
+    t === null ? 0 : [t.high10y, t.close, t.monthlyRsi14, t.bars, t.since],
+  decode: (raw) => {
+    if (raw === 0) return null;
+    if (!Array.isArray(raw) || raw.length !== 5) return undefined;
+    const [high10y, close, monthlyRsi14, bars, since] = raw as [
+      number | null,
+      number,
+      number | null,
+      number,
+      string,
+    ];
+    return { high10y, close, monthlyRsi14, bars, since };
+  },
+});
+
+/** Requests in flight, so two callers for one ticker share a single fetch. */
+const inflight = new Map<string, Promise<Technicals | null>>();
+
+/**
+ * Same fetch, asked for at most once a day.
  *
  * Failures are dropped rather than cached, so a flaky request is retried on the
  * next run instead of being remembered as a verdict.
@@ -252,12 +277,18 @@ export function fetchTechnicalsCached(
   ticker: string,
   signal?: AbortSignal,
 ): Promise<Technicals | null> {
-  const hit = cache.get(ticker);
+  if (exactStore.has(ticker)) return Promise.resolve(exactStore.get(ticker) ?? null);
+
+  const hit = inflight.get(ticker);
   if (hit) return hit;
 
-  const pending = fetchTechnicals(ticker, signal);
-  pending.catch(() => cache.delete(ticker));
-  cache.set(ticker, pending);
+  const pending = fetchTechnicals(ticker, signal).then((technicals) => {
+    exactStore.set(ticker, technicals);
+    inflight.delete(ticker);
+    return technicals;
+  });
+  pending.catch(() => inflight.delete(ticker));
+  inflight.set(ticker, pending);
   return pending;
 }
 
@@ -267,7 +298,14 @@ export function fetchTechnicalsCached(
  * The runner asks before scanning: a bound on a number we already know exactly
  * is pure cost, so a re-run skips straight to the confirmed value.
  */
-export const hasTechnicals = (ticker: string): boolean => cache.has(ticker);
+export const hasTechnicals = (ticker: string): boolean =>
+  exactStore.has(ticker) || inflight.has(ticker);
+
+/** Writes both stores out now — called when a run finishes. */
+export function persistTechnicals(): void {
+  exactStore.flush();
+  coarseStore.flush();
+}
 
 // ---------------------------------------------------------------------------
 // The scan pass
@@ -396,10 +434,39 @@ export function computeCoarseTechnicals(rawBars: Candle[]): CoarseTechnicals | n
  */
 export { SPARK_BATCH_SIZE };
 
-const coarseCache = new Map<string, CoarseTechnicals>();
+/**
+ * The bulk of what a whole-market run learns: one entry per symbol, ~5,200 of
+ * them, so it is stored as a positional tuple rather than as an object. The
+ * field names cost more than the numbers do.
+ */
+const coarseStore = dayCache<CoarseTechnicals>('coarse', {
+  encode: (c) => [
+    c.closeHigh,
+    c.close,
+    c.monthlyRsi14,
+    c.bars,
+    c.since,
+    c.decade ? 1 : 0,
+    // Three decimals is far finer than the `>= 1` test that reads it.
+    Number(c.density.toFixed(3)),
+  ],
+  decode: (raw) => {
+    if (!Array.isArray(raw) || raw.length !== 7) return undefined;
+    const [closeHigh, close, monthlyRsi14, bars, since, decade, density] = raw as [
+      number,
+      number,
+      number | null,
+      number,
+      string,
+      number,
+      number,
+    ];
+    return { closeHigh, close, monthlyRsi14, bars, since, decade: decade === 1, density };
+  },
+});
 
 /**
- * One request per `SPARK_BATCH_SIZE` tickers, remembered for the life of the tab.
+ * One request per `SPARK_BATCH_SIZE` tickers, remembered for the trading day.
  *
  * A null value means Yahoo returned nothing for that ticker. Unlike the settled
  * answers, those are **not** cached: the sampled ones are dead symbols that a
@@ -415,7 +482,7 @@ export async function fetchCoarseTechnicals(
 
   const wanted: string[] = [];
   for (const ticker of tickers) {
-    const hit = coarseCache.get(ticker);
+    const hit = coarseStore.get(ticker);
     if (hit) out.set(ticker, hit);
     else wanted.push(ticker);
   }
@@ -426,7 +493,7 @@ export async function fetchCoarseTechnicals(
   for (const ticker of wanted) {
     const bars = series.get(ticker);
     const coarse = bars ? computeCoarseTechnicals(bars) : null;
-    if (coarse) coarseCache.set(ticker, coarse);
+    if (coarse) coarseStore.set(ticker, coarse);
     out.set(ticker, coarse);
   }
 

@@ -1,5 +1,11 @@
 import { SelectMenu } from './SelectMenu';
-import { LARGE_RUN, formatEstimate, type ScreenRun } from '../hooks/useScreen';
+import {
+  LARGE_RUN,
+  formatDuration,
+  formatEstimate,
+  type ScreenProgress,
+  type ScreenRun,
+} from '../hooks/useScreen';
 import type { ScreenDef } from '../lib/screens';
 
 /**
@@ -19,15 +25,37 @@ import type { ScreenDef } from '../lib/screens';
 const NONE = 'none';
 
 /**
- * Named after what the pass is *doing to the rows*, not after the endpoint it
- * calls: the scan reads twenty symbols a request and settles most of them, then
- * the confirm pass buys the true intra-month highs for the few it could not.
+ * Named after what each stage is *doing to the rows*, not after the endpoint it
+ * calls: the scan reads twenty symbols a request and settles most of them, the
+ * confirm stage buys the true intra-month highs for the few it could not, and
+ * the last one scrapes the survivors.
+ *
+ * All three run at once, so all three are shown at once — with a stage's count
+ * appearing only once it has work, which is what stops "0 of 0" standing in for
+ * "not started" on a bar that has no sequence to it any more.
  */
-const PHASE_LABEL: Record<'scan' | 'technical' | 'fundamental', string> = {
-  scan: 'Scanning 10 years of monthly closes',
-  technical: 'Confirming 10-year highs',
-  fundamental: 'Reading fundamentals',
-};
+const STAGE_LABEL = {
+  scan: 'Scanning',
+  confirm: 'Confirming highs',
+  fundamental: 'Fundamentals',
+} as const;
+
+const STAGE_HINT =
+  'Ten years of monthly closes, twenty symbols a request · then the true 10-year high for ' +
+  'the rows that bound could not decide · then a screener.in page per survivor, paced.';
+
+/** "Scanning 1,204/2,410 · Fundamentals 3/8" — only the stages with work. */
+function stageLine(progress: ScreenProgress): string {
+  return (['scan', 'confirm', 'fundamental'] as const)
+    .filter((key) => progress[key].total > 0)
+    .map(
+      (key) =>
+        `${STAGE_LABEL[key]} ${progress[key].done.toLocaleString('en-IN')}/${progress[
+          key
+        ].total.toLocaleString('en-IN')}`,
+    )
+    .join(' · ');
+}
 
 interface Props {
   screens: ScreenDef[];
@@ -56,8 +84,7 @@ export function ScreenBar({
   const hasResults = run.results.size > 0;
   const long = universeCount > LARGE_RUN;
 
-  const pct =
-    run.progress.total === 0 ? 0 : Math.round((run.progress.done / run.progress.total) * 100);
+  const pct = Math.round(run.progress.fraction * 100);
 
   return (
     <div className="screenbar">
@@ -94,16 +121,13 @@ export function ScreenBar({
             <span className="progress" aria-hidden>
               <i style={{ width: `${pct}%` }} />
             </span>
-            <span className="screen-phase">
-              {run.progress.phase ? PHASE_LABEL[run.progress.phase] : ''} · {run.progress.done} of{' '}
-              {run.progress.total}
-              {/* Only on the long tail of the scan, where the number is both
-                  reliable and worth knowing — it is an estimate for the whole
-                  remaining run, and the scan is the only pass whose count is
-                  the universe rather than a subset of it. */}
-              {run.progress.phase === 'scan' &&
-                run.progress.total - run.progress.done > LARGE_RUN &&
-                ` · ~${formatEstimate(run.progress.total - run.progress.done)} left`}
+            <span className="screen-phase" title={STAGE_HINT}>
+              {stageLine(run.progress)}
+              {/* Withheld under half a minute: at that point the estimate is
+                  mostly the granularity of its own rounding, and a countdown
+                  that reads "10s left" for half a minute is worse than none. */}
+              {run.progress.secondsLeft > 30 &&
+                ` · ~${formatDuration(run.progress.secondsLeft)} left`}
             </span>
           </>
         )}
@@ -148,10 +172,12 @@ export function ScreenBar({
       {selected && !running && !hasResults && long && (
         <p className="screen-note">
           {universeCount.toLocaleString('en-IN')} rows takes about {formatEstimate(universeCount)} —
-          prices are read twenty symbols at a time, and most of that estimate is the polite pace of
-          the fundamentals pass over whatever survives. It shows progress and can be stopped at any
-          point, keeping whatever it has already judged. Filtering by exchange, cap band or F&amp;O
-          first gets you to a shortlist faster.
+          prices are read twenty symbols at a time, and nearly all of that estimate is the polite
+          pace of the fundamentals scrape over whatever survives, which runs alongside the price
+          work rather than after it. Matches appear as they are found, and it can be stopped at any
+          point, keeping whatever it has already judged. Answers are kept for the rest of the day,
+          so running it again only pays for rows it has not seen — and filtering by exchange, cap
+          band or F&amp;O first gets you to a shortlist faster.
         </p>
       )}
 
