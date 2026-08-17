@@ -1204,8 +1204,8 @@ body {
 }
 
 /* A phone has no columns for the screen's numbers, so they become a third line.
-   The row grows to hold it — see MOBILE_SCREEN_ROW_HEIGHT in StockTable, which
-   the virtualiser positions from. */
+   The row grows to hold it: phone rows are laid out in normal flow, not by the
+   virtualiser, so their height is the content's business. */
 .stack-screen {
   overflow: hidden;
   color: var(--on-surface-faint);
@@ -1687,12 +1687,82 @@ body {
     border-radius: 10px;
   }
 
-  .content {
-    padding: 10px var(--gutter) 12px;
+  /* A phone cannot afford the fixed-height shell.
+
+     On desktop the app is a full-height column and the table is the one thing
+     that scrolls inside it. On a phone the bars above it — app bar, search,
+     filters, screen, breadth tiles — plus the sort bar, pager and status bar
+     leave the table around a row and a half of viewport, which is what this
+     block undoes: the document scrolls, the list runs at its natural length,
+     and the sort bar and pager stick to the top and bottom edges so sorting
+     and paging stay reachable from anywhere in the list. StockTable stops
+     virtualising at this breakpoint for the same reason — see `virtualise`. */
+  html,
+  body,
+  #root {
+    height: auto;
   }
 
+  /* dvh, so the browser chrome collapsing on scroll doesn't leave a gap. */
+  .app {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  .content {
+    /* `flex: 1` here means `flex-basis: 0`, which in a column that is no longer
+       a fixed height collapses the table to nothing. */
+    flex: 0 0 auto;
+    min-height: auto;
+    padding: 10px 0 0;
+  }
+
+  /* Full-bleed rather than an inset card: the rows need the width, and a card
+     with rounded corners cannot clip a list that scrolls with the page.
+     `flex: 1` stays — `.content` is a row, so that is the card's *width*, and
+     anything else leaves it as narrow as its longest row. */
   .card {
-    border-radius: 12px;
+    min-height: auto;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    /* Was clipping the corners; it would also trap the sticky sort bar and
+       pager, which have nothing to stick to inside a clipped box. */
+    overflow: visible;
+  }
+
+  .table-wrap[data-layout='mobile'] {
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow: visible;
+    /* `contain: strict` includes size containment, which would render the list
+       as if it were empty once it is the page that scrolls. */
+    contain: none;
+    /* Clears the sticky sort bar when a sort or page change scrolls here. */
+    scroll-margin-top: 56px;
+  }
+
+  /* Rows are in normal flow rather than placed by the virtualiser, and are free
+     to grow — the screen line no longer has to fit a height picked in JS. */
+  .table-wrap[data-layout='mobile'] .tr {
+    position: static;
+    height: auto;
+    min-height: 64px;
+    padding: 10px var(--gutter);
+  }
+
+  .sortbar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+
+  .pagebar {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0));
   }
 
   .statusbar {

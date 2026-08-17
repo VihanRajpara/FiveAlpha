@@ -50,7 +50,9 @@
       "Bash(python probe.py)",
       "Bash(node verify.mjs 800)",
       "Bash(node verify.mjs 2500)",
-      "Bash(curl -s -o /dev/null -w \"app root: %{http_code}\\\\n\" http://localhost:5173/)"
+      "Bash(curl -s -o /dev/null -w \"app root: %{http_code}\\\\n\" http://localhost:5173/)",
+      "PowerShell(npm run typecheck)",
+      "PowerShell(npm run build)"
     ]
   }
 }

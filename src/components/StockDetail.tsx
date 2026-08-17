@@ -31,7 +31,17 @@ export function StockDetail({ security, quote, cls, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+
+    // The page behind this scrolls on a phone, where the drawer is a bottom
+    // sheet — without the lock the list moves under the finger while the sheet
+    // is open, and closing it lands somewhere else entirely.
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previous;
+    };
   }, [onClose]);
 
   useEffect(() => {
