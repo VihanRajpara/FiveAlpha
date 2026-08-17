@@ -1,6 +1,7 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import type { ClientRequest } from 'node:http';
+import { fetchYahooQuotes } from './worker/yahooQuote';
 
 /**
  * Dev-only proxy to NSE, BSE and Yahoo. None of them sends CORS headers, so the
@@ -77,8 +78,40 @@ const SCREENER_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
 };
 
+/**
+ * `/api/yquote`, the one upstream the table below cannot express.
+ *
+ * Every other proxy entry is a header rewrite over a single request. Yahoo's
+ * batch quote endpoint needs a cookie and a crumb fetched first, so it is
+ * handled here instead — by the same module the deployed Worker uses, so dev
+ * and production cannot drift apart on the part that is fiddly.
+ */
+function yahooQuoteProxy(): Plugin {
+  return {
+    name: 'yahoo-quote-proxy',
+    configureServer(server) {
+      server.middlewares.use('/api/yquote', (req, res, next) => {
+        if (req.method !== 'GET') return next();
+
+        const symbols = new URL(req.url ?? '', 'http://localhost').searchParams.get('symbols') ?? '';
+
+        void fetchYahooQuotes(symbols)
+          .then(async (upstream) => {
+            res.statusCode = upstream.status;
+            res.setHeader('Content-Type', upstream.headers.get('Content-Type') ?? 'text/plain');
+            res.end(await upstream.text());
+          })
+          .catch((err: unknown) => {
+            res.statusCode = 502;
+            res.end(String(err));
+          });
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), yahooQuoteProxy()],
   server: {
     port: 5173,
     proxy: {

@@ -47,6 +47,9 @@
 
   --row-h: 48px;
   --gutter: 20px;
+  /* The least the table may be squeezed to before the page scrolls instead —
+     about eight rows plus the header, which is enough to still read as a table. */
+  --table-min: 420px;
 
   --font-display: 'Google Sans', 'Manrope', 'Product Sans', Roboto, Arial, sans-serif;
   --font-sans: 'Google Sans Text', Roboto, -apple-system, 'Segoe UI', Arial, sans-serif;
@@ -69,9 +72,15 @@
 html,
 body,
 #root {
-  height: 100%;
+  /* Not `height: 100%`. A fixed-height shell has nowhere to put a page that
+     outgrows the viewport, and this one does that routinely — open the screen's
+     clause panel on a laptop and the bars above the table are most of the
+     screen. The document scrolls instead; see `.content`, which is what stops
+     the table being the thing that gives way. */
+  min-height: 100%;
   margin: 0;
 }
+
 
 body {
   background: var(--canvas);
@@ -125,7 +134,10 @@ body {
 .app {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* Fills the viewport, then grows past it rather than compressing. dvh so the
+     mobile browser chrome collapsing on scroll doesn't leave a gap. */
+  min-height: 100vh;
+  min-height: 100dvh;
   background: var(--canvas);
 }
 
@@ -673,9 +685,29 @@ body {
 
 /* ---------- table card ---------- */
 
+/**
+ * The table takes the room that is left — but never less than `--table-min`.
+ *
+ * `flex: 1` alone was the bug behind two separate reports of "the table is a
+ * sliver": in a fixed-height column, any bar above it that grows (the filter
+ * chips wrapping to two lines, the screen's clause panel opening, the breadth
+ * tiles on a phone) comes straight out of the table's share, all the way down
+ * to nothing. A floor plus a scrollable document reverses which one gives way.
+ *
+ * `flex-basis: auto` with the floor as the minimum works because `.table-wrap`
+ * carries `contain: strict` and so contributes no intrinsic height: free space
+ * still stretches this to fill the viewport when there is any, and when there
+ * is not, the page grows and scrolls.
+ */
 .content {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 auto;
+  min-height: var(--table-min);
+  /* On a short window the floor itself would be most of the viewport and push
+     nearly everything below the fold, so it gives way there — never below the
+     point where the table stops being readable, and never above 60% of the
+     screen. The plain declaration above is the fallback where `min()` and
+     `dvh` are not understood. */
+  min-height: min(var(--table-min), 60dvh);
   display: flex;
   padding: 12px var(--gutter) 16px;
 }
@@ -1687,32 +1719,14 @@ body {
     border-radius: 10px;
   }
 
-  /* A phone cannot afford the fixed-height shell.
-
-     On desktop the app is a full-height column and the table is the one thing
-     that scrolls inside it. On a phone the bars above it — app bar, search,
-     filters, screen, breadth tiles — plus the sort bar, pager and status bar
-     leave the table around a row and a half of viewport, which is what this
-     block undoes: the document scrolls, the list runs at its natural length,
-     and the sort bar and pager stick to the top and bottom edges so sorting
-     and paging stay reachable from anywhere in the list. StockTable stops
-     virtualising at this breakpoint for the same reason — see `virtualise`. */
-  html,
-  body,
-  #root {
-    height: auto;
-  }
-
-  /* dvh, so the browser chrome collapsing on scroll doesn't leave a gap. */
-  .app {
-    height: auto;
-    min-height: 100vh;
-    min-height: 100dvh;
-  }
-
+  /* A phone goes further than the shared shell above: rather than an
+     internally-scrolling panel with a floor under it, the list runs at its
+     natural length inside the page's own scroll, and the sort bar and pager
+     stick to the top and bottom edges so sorting and paging stay reachable
+     from anywhere in it. StockTable stops virtualising at this breakpoint for
+     the same reason — see `virtualise`. */
   .content {
-    /* `flex: 1` here means `flex-basis: 0`, which in a column that is no longer
-       a fixed height collapses the table to nothing. */
+    /* No floor and no growing: the list itself is the height now. */
     flex: 0 0 auto;
     min-height: auto;
     padding: 10px 0 0;

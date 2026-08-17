@@ -35,18 +35,20 @@ const NONE = 'none';
  * "not started" on a bar that has no sequence to it any more.
  */
 const STAGE_LABEL = {
+  cap: 'Market cap',
   scan: 'Scanning',
   confirm: 'Confirming highs',
-  fundamental: 'Fundamentals',
+  fundamental: 'ROCE',
 } as const;
 
 const STAGE_HINT =
-  'Ten years of monthly closes, twenty symbols a request · then the true 10-year high for ' +
-  'the rows that bound could not decide · then a screener.in page per survivor, paced.';
+  'Market cap for every row, two hundred symbols a request, so the band’s rejects cost nothing ' +
+  'further · then ten years of monthly closes, twenty symbols a request · then the true 10-year ' +
+  'high for the rows that bound could not decide · then a screener.in page per survivor, paced.';
 
-/** "Scanning 1,204/2,410 · Fundamentals 3/8" — only the stages with work. */
+/** "Scanning 1,204/1,450 · ROCE 3/8" — only the stages with work. */
 function stageLine(progress: ScreenProgress): string {
-  return (['scan', 'confirm', 'fundamental'] as const)
+  return (['cap', 'scan', 'confirm', 'fundamental'] as const)
     .filter((key) => progress[key].total > 0)
     .map(
       (key) =>
@@ -209,8 +211,10 @@ export function ScreenBar({
             <a href={selected.source} target="_blank" rel="noreferrer noopener">
               the Chartink screen
             </a>
-            . Prices and the 10-year high come from Yahoo Finance monthly bars; ROCE and market cap
-            are scraped from screener.in company pages, consolidated where they exist.
+            . Prices, the 10-year high and market cap come from Yahoo Finance — bars for the first
+            two, a batch quote for the third, which is why the cap band is applied before anything
+            else. ROCE is scraped from screener.in company pages, consolidated where they exist, and
+            is the only figure a row has to be asked for one at a time.
           </p>
         </details>
       )}
