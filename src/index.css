@@ -243,17 +243,29 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
   padding: 10px var(--gutter);
   background: var(--surface);
-  border-bottom: 1px solid var(--outline-faint);
 }
 
+/* Scrolls rather than collapsing. The sheet is now reserved for touch widths
+   (see COMPACT_QUERY): between ~900px and the point where all four groups fit,
+   a nudged-sideways chip row beats hiding every filter behind a button. */
 .filters-inline {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 18px;
+  flex: 1;
   min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* The tracks have a border to clip against; without the padding the first
+     and last one lose a hairline at the scroll extremes. */
+  padding: 2px;
+  margin: -2px;
+}
+
+.filters-inline::-webkit-scrollbar {
+  display: none;
 }
 
 /* Compact trigger that stands in for the chips below 1460px. */
@@ -367,7 +379,10 @@ body {
 }
 
 .sheet-group .segmented {
+  display: flex;
   flex-wrap: wrap;
+  width: 100%;
+  border-radius: 16px;
 }
 
 .sheet-foot {
@@ -419,10 +434,17 @@ body {
   white-space: nowrap;
 }
 
+/* One track per group, not five free chips: at four groups the loose-chip
+   layout was seventeen identical pills in a row with nothing but a small-caps
+   label to say where one filter ended and the next began. */
 .segmented {
   display: inline-flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 2px;
+  flex: none;
+  padding: 3px;
+  border: 1px solid var(--outline-faint);
+  border-radius: 999px;
+  background: var(--surface-2);
 }
 
 .segmented button:disabled {
@@ -435,11 +457,14 @@ body {
   color: var(--on-surface-variant);
 }
 
-/* Material 3 filter chips — outlined when off, tonal when on. */
+.segmented:has(button:disabled) {
+  opacity: 0.6;
+}
+
 .segmented button {
-  height: 32px;
-  padding: 0 16px;
-  border: 1px solid var(--outline);
+  height: 28px;
+  padding: 0 13px;
+  border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--on-surface-variant);
@@ -447,18 +472,20 @@ body {
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.01em;
+  white-space: nowrap;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.segmented button:hover {
-  background: var(--surface-2);
+.segmented button:hover:not(:disabled) {
+  background: var(--surface-hover);
   color: var(--on-surface);
 }
 
+/* Tonal rather than a raised white pill: in dark mode --surface sits *below*
+   --surface-2, so a surface-coloured thumb reads as the unselected one. */
 .segmented button[data-active='true'] {
   background: var(--primary-container);
-  border-color: transparent;
   color: var(--primary);
   font-weight: 600;
 }
@@ -555,7 +582,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px var(--gutter);
+  padding: 0 var(--gutter) 10px;
   background: var(--surface);
   border-bottom: 1px solid var(--outline-faint);
 }
@@ -563,8 +590,63 @@ body {
 .screenbar-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
+  /* The filter row above is the same band, separated by a hairline rather than
+     by a second background — the two are one control strip, read top to bottom. */
+  padding-top: 10px;
+  border-top: 1px solid var(--outline-faint);
+}
+
+/* Everything on this row lands on the same 36px baseline. */
+.screenbar-row .btn {
+  height: 36px;
+  padding: 0 18px;
+}
+
+/* The figure is the data, the word is its label — same line, different
+   weights, so the row scans as three numbers rather than three phrases. */
+.screen-results b {
+  font-weight: 700;
+  color: var(--on-surface);
+}
+
+.screen-results .screen-count b {
+  color: inherit;
+}
+
+/* Verdict counts belong together — three loose grey pills read as three
+   unrelated facts. One track, hairline-divided, match segment tinted. */
+.screen-results {
+  display: inline-flex;
+  align-items: stretch;
+  height: 32px;
+  border: 1px solid var(--outline-faint);
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.screen-results > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 13px;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+
+.screen-results > span + span {
+  border-left: 1px solid var(--outline-faint);
+}
+
+/* Sits hard right so the destructive-ish control is never mistaken for part of
+   the reading. */
+.screenbar-row .btn.ghost {
+  margin-left: auto;
 }
 
 .screen-phase {
@@ -588,8 +670,9 @@ body {
 
 .screen-note {
   margin: 0;
+  max-width: 88ch;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--on-surface-variant);
 }
 
@@ -848,15 +931,11 @@ body {
   transition: background 0.1s ease;
 }
 
-/* Screen verdicts. These only show when the "Showing all" toggle puts the
-   rejected rows back — with the default matches-only cut, every visible row is
-   a pass and carries the accent. Rejected rows are dimmed rather than hidden so
+/* Screen verdicts. Only the rejects are marked: with the default matches-only
+   cut every visible row is a pass, so an accent on each of them was a line down
+   the whole table saying nothing. Rejected rows are dimmed rather than hidden so
    the screen's working is checkable, and they come back to full strength on
    hover for anyone reading one. */
-.tr[data-verdict='pass'] {
-  box-shadow: inset 2px 0 0 var(--up);
-}
-
 .tr[data-verdict='fail'],
 .tr[data-verdict='unknown'] {
   opacity: 0.45;
@@ -1689,11 +1768,57 @@ body {
 
   .screenbar {
     gap: 6px;
-    padding: 8px var(--gutter);
+    padding: 0 var(--gutter) 8px;
   }
 
+  /* Deliberate rows rather than whatever the wrap happens to produce. Left to
+     itself the bar broke as "picker + Run + counts" / "toggle + Clear", which
+     truncated the screen's name to "Near all-ti…" and left two ragged lines.
+     Each element that wants the width now takes the whole width. */
   .screenbar-row {
     gap: 8px;
+    padding-top: 8px;
+  }
+
+  /* The picker already names the screen; a small-caps "SCREEN" beside it is
+     one more thing competing for a line that has none to spare. */
+  .screenbar-row .filter-label {
+    display: none;
+  }
+
+  /* Only the picker takes a whole line — it carries a long name and is the one
+     thing that must not truncate. Everything else keeps its natural width and
+     shares: Run + counts, then the toggle + Clear. Four stacked full-width
+     slabs read as a form, not a toolbar. */
+  .screenbar-row .menu-btn {
+    flex: 1 1 100%;
+    height: 34px;
+  }
+
+  .screenbar-row .btn {
+    height: 30px;
+    padding: 0 14px;
+    font-size: 12px;
+  }
+
+  .screen-results {
+    height: 30px;
+  }
+
+  .screen-results > span {
+    padding: 0 10px;
+    font-size: 11px;
+  }
+
+  .screenbar-row .segmented {
+    flex: 0 0 auto;
+    padding: 2px;
+  }
+
+  .screenbar-row .segmented button {
+    height: 26px;
+    padding: 0 12px;
+    font-size: 12px;
   }
 
   /* The label and clause columns are desktop luxuries: on a phone the leg text
