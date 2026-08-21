@@ -4,7 +4,7 @@ import { CAP_LABEL } from '../lib/classification';
 import { formatDate, formatPercent, formatPrice, formatVolume } from '../lib/format';
 import type { Candle, ChartRange, Classification, Quote, Security } from '../types';
 import { useSignal } from '../hooks/useSignal';
-import { UT_BOT, signalGapPct } from '../lib/signals';
+import { UT_BOT, formatGap, signalGapPct } from '../lib/signals';
 import { CompanyFundamentals } from './CompanyFundamentals';
 import { ExchangeBadges } from './ExchangeBadges';
 import { PriceChart } from './PriceChart';
@@ -77,7 +77,7 @@ function SignalPanel({ ticker, price }: { ticker: string; price: number | null |
             <div className="fact">
               <dt>Since signal</dt>
               <dd className={`num ${gap === null ? '' : gap >= 0 ? 'up' : 'down'}`}>
-                {gap === null ? '—' : `${gap >= 0 ? '+' : '−'}${Math.abs(gap).toFixed(1)} %`}
+                {gap === null ? '—' : formatGap(gap)}
               </dd>
             </div>
             <div className="fact">
@@ -174,133 +174,145 @@ export function StockDetail({ security, quote, cls, onClose }: Props) {
           </button>
         </header>
 
-        <div className="drawer-price">
-          <span className="ltp num">{formatPrice(quote?.price)}</span>
-          {change === null ? (
-            <span style={{ color: 'var(--on-surface-faint)' }}>No quote yet</span>
+        {/* Everything below the header scrolls, in normal block flow.
+            The drawer itself used to be the scroller *and* a flex column, which
+            made every section a shrinkable flex item — and the ones that carry
+            their own `overflow` (the chart, the financial tables) have an
+            automatic minimum size of zero, so a long company was silently
+            crushed: sections painted over one another, taps landed on whichever
+            crushed box happened to lie under the finger, and the last table had
+            no height at all. */}
+        <div className="drawer-body">
+          <div className="drawer-price">
+            <span className="ltp num">{formatPrice(quote?.price)}</span>
+            {change === null ? (
+              <span style={{ color: 'var(--on-surface-faint)' }}>No quote yet</span>
+            ) : (
+              <span className={`chg-chip num ${trendClass}`}>
+                <span className="arrow" aria-hidden>
+                  {positive ? '▲' : '▼'}
+                </span>
+                {`${change >= 0 ? '+' : ''}${change.toFixed(2)} (${formatPercent(
+                  quote?.changePercent,
+                )})`}
+              </span>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="center-msg" style={{ padding: '56px 12px' }}>
+              <div className="spinner" />
+              Loading {RANGE_LABEL[range]} history…
+            </div>
+          ) : error ? (
+            <div className="center-msg" style={{ padding: '48px 12px' }}>
+              Couldn’t load history — {error}
+            </div>
           ) : (
-            <span className={`chg-chip num ${trendClass}`}>
-              <span className="arrow" aria-hidden>
-                {positive ? '▲' : '▼'}
-              </span>
-              {`${change >= 0 ? '+' : ''}${change.toFixed(2)} (${formatPercent(
-                quote?.changePercent,
-              )})`}
-            </span>
+            <PriceChart candles={candles} positive={windowReturn === null || windowReturn >= 0} />
           )}
-        </div>
 
-        {loading ? (
-          <div className="center-msg" style={{ padding: '56px 12px' }}>
-            <div className="spinner" />
-            Loading {RANGE_LABEL[range]} history…
-          </div>
-        ) : error ? (
-          <div className="center-msg" style={{ padding: '48px 12px' }}>
-            Couldn’t load history — {error}
-          </div>
-        ) : (
-          <PriceChart candles={candles} positive={windowReturn === null || windowReturn >= 0} />
-        )}
-
-        <div className="range-row">
-          <div className="segmented">
-            {RANGES.map((r) => (
-              <button key={r} data-active={r === range} onClick={() => setRange(r)}>
-                {RANGE_LABEL[r]}
-              </button>
-            ))}
-          </div>
-          {windowReturn !== null && (
-            <span className={`num ${windowReturn >= 0 ? 'up' : 'down'}`} style={{ fontWeight: 600 }}>
-              {formatPercent(windowReturn)}
-              <span style={{ color: 'var(--on-surface-variant)', fontWeight: 400 }}>
-                {' '}
-                over {RANGE_LABEL[range]}
+          <div className="range-row">
+            <div className="segmented">
+              {RANGES.map((r) => (
+                <button key={r} data-active={r === range} onClick={() => setRange(r)}>
+                  {RANGE_LABEL[r]}
+                </button>
+              ))}
+            </div>
+            {windowReturn !== null && (
+              <span
+                className={`num ${windowReturn >= 0 ? 'up' : 'down'}`}
+                style={{ fontWeight: 600 }}
+              >
+                {formatPercent(windowReturn)}
+                <span
+                  style={{
+                    color: 'var(--on-surface-variant)',
+                    fontWeight: 400,
+                  }}
+                >
+                  {' '}
+                  over {RANGE_LABEL[range]}
+                </span>
               </span>
-            </span>
-          )}
-        </div>
+            )}
+          </div>
 
-        <dl className="facts">
-          <div className="fact">
-            <dt>Previous close</dt>
-            <dd className="num">{formatPrice(quote?.previousClose)}</dd>
-          </div>
-          <div className="fact">
-            <dt>Day range</dt>
-            <dd className="num">
-              {last?.low && last?.high ? `${formatPrice(last.low)} – ${formatPrice(last.high)}` : '—'}
-            </dd>
-          </div>
-          <div className="fact">
-            <dt>Volume</dt>
-            <dd className="num">{formatVolume(last?.volume)}</dd>
-          </div>
-          <div className="fact">
-            <dt>Segment</dt>
-            <dd>
-              {cls ? (
-                cls.fno ? (
-                  <span className="up">F&amp;O + Cash</span>
-                ) : (
-                  'Cash only'
-                )
-              ) : (
-                '—'
-              )}
-            </dd>
-          </div>
-          <div className="fact">
-            <dt>Cap band</dt>
-            <dd>{cls ? CAP_LABEL[cls.capBand] : '—'}</dd>
-          </div>
-          <div className="fact">
-            <dt>Exchanges</dt>
-            <dd>{security.exchanges.join(' + ')}</dd>
-          </div>
-          {/* Which book the price above came from. For a dual-listed name the two
+          <dl className="facts">
+            <div className="fact">
+              <dt>Previous close</dt>
+              <dd className="num">{formatPrice(quote?.previousClose)}</dd>
+            </div>
+            <div className="fact">
+              <dt>Day range</dt>
+              <dd className="num">
+                {last?.low && last?.high
+                  ? `${formatPrice(last.low)} – ${formatPrice(last.high)}`
+                  : '—'}
+              </dd>
+            </div>
+            <div className="fact">
+              <dt>Volume</dt>
+              <dd className="num">{formatVolume(last?.volume)}</dd>
+            </div>
+            <div className="fact">
+              <dt>Segment</dt>
+              <dd>
+                {cls ? cls.fno ? <span className="up">F&amp;O + Cash</span> : 'Cash only' : '—'}
+              </dd>
+            </div>
+            <div className="fact">
+              <dt>Cap band</dt>
+              <dd>{cls ? CAP_LABEL[cls.capBand] : '—'}</dd>
+            </div>
+            <div className="fact">
+              <dt>Exchanges</dt>
+              <dd>{security.exchanges.join(' + ')}</dd>
+            </div>
+            {/* Which book the price above came from. For a dual-listed name the two
               exchanges quote within a few paise of each other, but saying so
               beats leaving the reader to guess. */}
-          <div className="fact">
-            <dt>Price feed</dt>
-            <dd className="num">{security.ticker}</dd>
-          </div>
-          {security.bseCode && (
             <div className="fact">
-              <dt>BSE scrip code</dt>
-              <dd className="num">{security.bseCode}</dd>
+              <dt>Price feed</dt>
+              <dd className="num">{security.ticker}</dd>
             </div>
-          )}
-          <div className="fact">
-            <dt>ISIN</dt>
-            <dd className="num">{security.isin || '—'}</dd>
-          </div>
-          <div className="fact">
-            <dt>Listed on</dt>
-            <dd>{formatDate(security.listingDate)}</dd>
-          </div>
-          <div className="fact">
-            <dt>Face value</dt>
-            <dd className="num">{formatPrice(security.faceValue)}</dd>
-          </div>
-          <div className="fact">
-            <dt>Paid up value</dt>
-            <dd className="num">{formatPrice(security.paidUpValue)}</dd>
-          </div>
-          <div className="fact">
-            <dt>Market lot</dt>
-            <dd className="num">{security.marketLot ?? '—'}</dd>
-          </div>
-        </dl>
+            {security.bseCode && (
+              <div className="fact">
+                <dt>BSE scrip code</dt>
+                <dd className="num">{security.bseCode}</dd>
+              </div>
+            )}
+            <div className="fact">
+              <dt>ISIN</dt>
+              <dd className="num">{security.isin || '—'}</dd>
+            </div>
+            <div className="fact">
+              <dt>Listed on</dt>
+              <dd>{formatDate(security.listingDate)}</dd>
+            </div>
+            <div className="fact">
+              <dt>Face value</dt>
+              <dd className="num">{formatPrice(security.faceValue)}</dd>
+            </div>
+            <div className="fact">
+              <dt>Paid up value</dt>
+              <dd className="num">{formatPrice(security.paidUpValue)}</dd>
+            </div>
+            <div className="fact">
+              <dt>Market lot</dt>
+              <dd className="num">{security.marketLot ?? '—'}</dd>
+            </div>
+          </dl>
 
-        {/* Sits between the listing facts and screener.in's: it is derived from
+          {/* Sits between the listing facts and screener.in's: it is derived from
             the same price history as the chart above, not fetched from either. */}
-        <SignalPanel ticker={security.ticker} price={quote?.price} />
+          <SignalPanel ticker={security.ticker} price={quote?.price} />
 
-        {/* Everything above is the exchange lists and Yahoo; everything below is
+          {/* Everything above is the exchange lists and Yahoo; everything below is
             screener.in, fetched when the drawer opens. */}
-        <CompanyFundamentals security={security} />
+          <CompanyFundamentals security={security} />
+        </div>
       </aside>
     </>
   );
