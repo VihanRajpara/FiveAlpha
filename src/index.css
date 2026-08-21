@@ -1421,18 +1421,47 @@ body {
   color: var(--on-surface);
 }
 
+/**
+ * The phone row: three bands down the card, not two columns across it.
+ *
+ * The old two-column shape gave the price, the day's change and the entire
+ * signal a right-hand gutter about a third of the row wide — which is what
+ * crammed a badge, a price and a percentage onto one 120px line. Each band now
+ * has the full width, and the pairs that belong together (symbol/price,
+ * name/change) sit on a line of their own.
+ */
 .tr.row-stack {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 var(--gutter);
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px var(--gutter);
 }
 
-.stack-main {
+/**
+ * The bottom band: the screen's numbers in fixed columns at the left, the
+ * signal at the right — the same two rails as the lines above, identity down
+ * one edge and today's numbers down the other.
+ *
+ * The hairline is what turns three stacked lines into a card with a head and a
+ * body. Fainter than the rule between rows, or the list stops reading as rows.
+ */
+.stack-foot {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 6px 14px;
+  min-width: 0;
+  margin-top: 2px;
+  padding-top: 9px;
+  border-top: 1px solid var(--outline-faint);
+}
+
+/* Identity on the left, its number on the right. */
+.stack-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -1440,6 +1469,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   font-family: var(--font-display);
   font-size: 15px;
   font-weight: 700;
@@ -1447,6 +1477,8 @@ body {
 }
 
 .stack-name {
+  flex: 1;
+  min-width: 0;
   font-size: 12px;
   color: var(--on-surface-variant);
   overflow: hidden;
@@ -1454,66 +1486,124 @@ body {
   white-space: nowrap;
 }
 
-/* A phone has no columns for the screen's numbers, so they become a third line.
-   The row grows to hold it: phone rows are laid out in normal flow, not by the
-   virtualiser, so their height is the content's business. */
+/**
+ * Fixed columns, not a wrapping row.
+ *
+ * Laid out inline, each metric started wherever the one before it ended, so
+ * `10Y HIGH` sat at a different x on every row and the list had nothing to scan
+ * down. Fixed widths give a card list the thing that actually reads as
+ * professional: a column edge.
+ */
 .stack-screen {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 12px;
-  margin-top: 2px;
-  min-width: 0;
+  display: grid;
+  grid-template-columns: 54px 32px 40px;
+  gap: 0 10px;
+  flex: none;
 }
 
 .metric {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
   color: var(--on-surface-faint);
-  font-size: 10px;
-  letter-spacing: 0.02em;
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
-/* The figure is the thing being compared down the list; the label is a caption. */
+/**
+ * Lighter ink, same weight.
+ *
+ * These are secondary numbers — the price above is the primary one, and full
+ * black at 600 had them competing with it. Weight is what makes a column of
+ * figures scannable, so it stays; the step down happens in colour instead, and
+ * the caption drops another step below that. Hierarchy through value rather
+ * than through weight is the quieter of the two, and it survives dark mode,
+ * where thinning the stroke would have made these disappear.
+ */
 .metric b {
-  color: var(--on-surface);
+  color: var(--on-surface-variant);
   font-size: 12.5px;
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
 }
 
-.stack-side {
+.stack-price {
+  flex: none;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/**
+ * The signal, as a band across the card rather than three things wedged into a
+ * gutter: side, the price it fired at, the move since, and when. Tinted by
+ * side, so a list of rows can be skimmed for the greens.
+ */
+/**
+ * No tint behind it any more.
+ *
+ * A tinted signal block put a second full-width colour field on every row,
+ * directly beside the day-change chip and often disagreeing with it — a green
+ * chip next to a red pill next to a green gap says three things at once and so
+ * says nothing. Colour marks the exception here: the side badge and the move
+ * since the flip carry it, everything else is ink.
+ */
+.sig-strip {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
-  flex: none;
+  gap: 1px;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.35;
+  text-align: right;
 }
 
-.stack-side .sig {
-  align-items: flex-end;
-  gap: 0;
-}
-
-.stack-side .sig-head {
-  flex-direction: row-reverse;
-  gap: 5px;
-}
-
-/* The flip date, back on the phone row — a signal without a "when" is half a
-   signal. One line, under the side and price. */
-.stack-side .sig-when {
-  font-size: 10px;
-}
-
-.stack-price {
-  font-family: var(--font-display);
-  font-size: 15px;
+.sig-strip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 7px;
+  min-width: 0;
   font-weight: 600;
+}
+
+.sig-strip.up .sig-badge {
+  background: var(--up-container);
+  color: var(--up);
+}
+
+.sig-strip.down .sig-badge {
+  background: var(--down-container);
+  color: var(--down);
+}
+
+/* The move since the flip is the one number that can disagree with the side —
+   a BUY can be underwater — so it is the one that keeps its own colour. */
+.sig-strip-gap {
+  font-weight: 700;
+}
+
+/* The second line of the signal, matching the metric labels beside it in size
+   and weight so the band reads as one object. */
+.sig-strip-when {
+  font-size: 10.5px;
+  color: var(--on-surface-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sig-strip.muted {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--on-surface-faint);
 }
 
 .skeleton {
@@ -2259,6 +2349,15 @@ body {
     overflow: visible;
   }
 
+  /**
+   * A phone row is four lines tall with a rule through the middle of it, and a
+   * dividing line between rows cannot compete with that: two neighbouring
+   * halves of different stocks looked exactly like the two halves of one.
+   *
+   * So a row stops being a row and becomes a card — its own surface, its own
+   * border, with the canvas showing through the gaps. Where one stock ends is
+   * then not a matter of line weight.
+   */
   .table-wrap[data-layout='mobile'] {
     flex: 0 0 auto;
     min-height: auto;
@@ -2268,6 +2367,14 @@ body {
     contain: none;
     /* Clears the sticky sort bar when a sort or page change scrolls here. */
     scroll-margin-top: 56px;
+    background: var(--canvas);
+    padding: 10px;
+  }
+
+  .table-wrap[data-layout='mobile'] .tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
   /* Rows are in normal flow rather than placed by the virtualiser, and are free
@@ -2276,7 +2383,17 @@ body {
     position: static;
     height: auto;
     min-height: 64px;
-    padding: 10px var(--gutter);
+    padding: 13px 14px;
+    background: var(--surface);
+    border: 1px solid var(--outline-faint);
+    border-radius: 14px;
+  }
+
+  /* The border does the marking here; the inset left bar it uses on the grid
+     would be clipped by the radius and read as a smudge. */
+  .table-wrap[data-layout='mobile'] .tr[data-selected='true'] {
+    border-color: var(--primary);
+    box-shadow: none;
   }
 
   .sortbar {

@@ -16,7 +16,7 @@ import { useSignal } from '../hooks/useSignal';
 import { CAP_SHORT, classRank } from '../lib/classification';
 import { SelectMenu } from './SelectMenu';
 import { formatCrore, formatDate, formatFromHigh, formatPercent, formatPrice } from '../lib/format';
-import { UT_BOT, signalGapPct } from '../lib/signals';
+import { UT_BOT, formatGap, signalGapPct } from '../lib/signals';
 import type { ScreenResult } from '../lib/screens';
 import type { Classification, SecurityWithQuote } from '../types';
 
@@ -161,14 +161,14 @@ function TypeCell({ cls }: { cls: Classification | undefined }) {
  * stays out of the way. Reading down a list of rows means comparing the
  * numbers, and a sentence of grey text made them all look the same.
  *
- * A metric the screen never measured is dropped rather than dashed — three
- * em dashes on a row say less than nothing.
+ * An unmeasured metric shows an em dash rather than disappearing. These sit in
+ * fixed columns now, and a missing one that rendered nothing would shift the
+ * two beside it — which is the alignment the columns exist for.
  */
 function Metric({ label, value }: { label: string; value: string | undefined }) {
-  if (value === undefined) return null;
   return (
     <span className="metric">
-      <b className="num">{value}</b>
+      <b className={value === undefined ? 'num muted-dash' : 'num'}>{value ?? '—'}</b>
       {label}
     </span>
   );
@@ -235,33 +235,35 @@ function ScreenCell({
  * see `useSignal`. Daily bars, so "when" is a date; the study's intraday
  * opening-range leg is not part of this (see src/lib/signals.ts).
  */
-function SignalCell({ ticker, price }: { ticker: string; price: number | null | undefined }) {
+function SignalStrip({ ticker, price }: { ticker: string; price: number | null | undefined }) {
   const { signal, loaded } = useSignal(ticker);
 
-  if (!loaded) return <span className="skeleton" />;
-  if (!signal) return <span className="num muted-dash">—</span>;
+  if (!loaded) {
+    return (
+      <div className="sig-strip">
+        <span className="skeleton" />
+      </div>
+    );
+  }
 
-  const tone = signal.side === 'BUY' ? 'up' : 'down';
-  // How far the price has run since the flip, and how long ago that was — the
-  // two things the signal filters cut on, so the row has to show them or the
-  // filter looks arbitrary.
+  // Stated rather than left blank. A row that simply stopped after the company
+  // name read as a row still loading, which is a different thing entirely.
+  if (!signal) return <div className="sig-strip muted">No signal in the last year</div>;
+
   const gap = signalGapPct(signal, price);
   return (
-    <span
-      className={`sig ${tone}`}
-      title={`UT Bot (ATR ${UT_BOT.atrPeriod} × ${UT_BOT.keyValue}) on HMA ${UT_BOT.hmaLength}, daily bars — ${signal.side} at ${formatPrice(signal.price)} on ${formatDate(signal.date)}, ${signal.age === 0 ? 'today' : `${signal.age} bars ago`}`}
-    >
-      <span className="sig-head">
+    <div className={`sig-strip ${signal.side === 'BUY' ? 'up' : 'down'}`}>
+      <span className="sig-strip-head">
         <span className="sig-badge">{signal.side}</span>
         <span className="num">{formatPrice(signal.price)}</span>
         {gap !== null && (
-          <span className={`sig-gap num ${gap >= 0 ? 'up' : 'down'}`}>{formatPercent(gap)}</span>
+          <span className={`num sig-strip-gap ${gap >= 0 ? 'up' : 'down'}`}>{formatGap(gap)}</span>
         )}
       </span>
-      <span className="sig-when">
+      <span className="sig-strip-when">
         {formatDate(signal.date)} · {signal.age === 0 ? 'today' : `${signal.age}d`}
       </span>
-    </span>
+    </div>
   );
 }
 
@@ -304,15 +306,7 @@ function SignalGap({ ticker, price }: { ticker: string; price: number | null | u
   if (!loaded) return <span className="skeleton" />;
   const gap = signal ? signalGapPct(signal, price) : null;
   if (gap === null) return <span className="num muted-dash">—</span>;
-  // One decimal, not two. A day's change is ±3% and wants the precision; a gap
-  // since the signal is routinely ±80%, where the second decimal is noise in a
-  // column of numbers meant to be skimmed.
-  return (
-    <span className={`num ${gap >= 0 ? 'up' : 'down'}`}>
-      {gap >= 0 ? '+' : '−'}
-      {Math.abs(gap).toFixed(1)}%
-    </span>
-  );
+  return <span className={`num ${gap >= 0 ? 'up' : 'down'}`}>{formatGap(gap)}</span>;
 }
 
 interface Props {
@@ -702,13 +696,40 @@ export function StockTable({
     if (layout === 'mobile') {
       const q = row.original.quote;
       return (
+        /**
+         * Three bands down the card rather than two columns across it.
+         *
+         * The two-column shape put the price, the day's change and the whole
+         * signal into a right-hand gutter about a third of the row wide, which
+         * is what was cramming `+83.13% 774.25 BUY` onto one line. Stacked, each
+         * band gets the full width: identity over price, name over change, then
+         * the signal as its own strip, then the screen's numbers.
+         */
         <div key={row.id} {...shared} className="tr row-stack">
-          <div className="stack-main">
+          <div className="stack-line">
             <span className="stack-sym">
               <SymbolCell row={row.original} />
               {row.original.cls?.fno && <span className="badge fno">F&amp;O</span>}
             </span>
+            <span className="stack-price num">
+              {q?.price === null || q?.price === undefined ? (
+                <Missing loaded={quotesLoaded} />
+              ) : (
+                formatPrice(q.price)
+              )}
+            </span>
+          </div>
+
+          <div className="stack-line">
             <span className="stack-name">{row.original.name}</span>
+            <ChangeChip value={q?.changePercent} loaded={quotesLoaded} />
+          </div>
+
+          {/* The bottom band, on the same two rails as the lines above it: what
+              the company *is* down the left, what it is doing today down the
+              right. The screen's metrics join the symbol and name on the left;
+              the signal joins the price and the day's change on the right. */}
+          <div className="stack-foot">
             {result && (
               <span className="stack-screen">
                 <Metric
@@ -726,17 +747,8 @@ export function StockTable({
                 />
               </span>
             )}
-          </div>
-          <div className="stack-side">
-            <span className="stack-price num">
-              {q?.price === null || q?.price === undefined ? (
-                <Missing loaded={quotesLoaded} />
-              ) : (
-                formatPrice(q.price)
-              )}
-            </span>
-            <ChangeChip value={q?.changePercent} loaded={quotesLoaded} />
-            <SignalCell ticker={row.original.ticker} price={q?.price} />
+
+            <SignalStrip ticker={row.original.ticker} price={q?.price} />
           </div>
         </div>
       );

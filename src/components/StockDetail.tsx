@@ -4,7 +4,7 @@ import { CAP_LABEL } from '../lib/classification';
 import { formatDate, formatPercent, formatPrice, formatVolume } from '../lib/format';
 import type { Candle, ChartRange, Classification, Quote, Security } from '../types';
 import { useSignal } from '../hooks/useSignal';
-import { UT_BOT, signalGapPct } from '../lib/signals';
+import { UT_BOT, formatGap, signalGapPct } from '../lib/signals';
 import { CompanyFundamentals } from './CompanyFundamentals';
 import { ExchangeBadges } from './ExchangeBadges';
 import { PriceChart } from './PriceChart';
@@ -77,7 +77,7 @@ function SignalPanel({ ticker, price }: { ticker: string; price: number | null |
             <div className="fact">
               <dt>Since signal</dt>
               <dd className={`num ${gap === null ? '' : gap >= 0 ? 'up' : 'down'}`}>
-                {gap === null ? '—' : `${gap >= 0 ? '+' : '−'}${Math.abs(gap).toFixed(1)} %`}
+                {gap === null ? '—' : formatGap(gap)}
               </dd>
             </div>
             <div className="fact">

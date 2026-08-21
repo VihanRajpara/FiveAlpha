@@ -62,6 +62,15 @@ export function signalGapPct(
   return ((price - signal.price) / signal.price) * 100;
 }
 
+/**
+ * A gap, as it is printed everywhere it appears.
+ *
+ * One decimal, not two: a day's change is ±3% and wants the precision, while a
+ * gap since the signal routinely runs past ±80%, where the second decimal is
+ * noise in a column meant to be skimmed.
+ */
+export const formatGap = (pct: number) => `${pct >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(1)}%`;
+
 /** Filter presets: bars since the flip, at most. */
 export const SIGNAL_AGE_MAX: Record<string, number> = { '5': 5, '10': 10, '20': 20, '60': 60 };
 
