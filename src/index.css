@@ -2402,3 +2402,74 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ---------- drawer: signal ---------- */
+
+/* Which study produced the verdict, stated next to the heading rather than as
+   a footnote nobody reaches. */
+.sig-study {
+  font-size: 11px;
+  color: var(--on-surface-faint);
+  text-align: right;
+}
+
+/* The verdict itself, given the weight it has in the table's row but with room
+   to breathe. Tinted by side, so the answer is legible before it is read. */
+.sig-banner {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  /* `.facts` below carries its own top rule, so the banner only needs to clear
+     itself of the heading and of that rule. */
+  margin: 0 24px 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--outline-faint);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.sig-banner.up {
+  border-color: color-mix(in srgb, var(--up) 30%, transparent);
+  background: var(--up-container);
+}
+
+.sig-banner.down {
+  border-color: color-mix(in srgb, var(--down) 30%, transparent);
+  background: var(--down-container);
+}
+
+/* The badge's tint normally comes from an ancestor `.sig`; here the banner is
+   the ancestor, and it is already tinted — so the badge inverts onto the
+   surface colour to stay legible against it. */
+.sig-banner .sig-badge {
+  background: var(--surface);
+}
+
+.sig-banner.up .sig-badge {
+  color: var(--up);
+}
+
+.sig-banner.down .sig-badge {
+  color: var(--down);
+}
+
+.sig-banner-price {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.sig-banner-when {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.sig-none {
+  margin: 0;
+  padding: 4px 24px 20px;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+}
