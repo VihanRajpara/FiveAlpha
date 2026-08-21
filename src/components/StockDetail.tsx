@@ -3,6 +3,7 @@ import { activeSource } from '../lib/dataSource';
 import { CAP_LABEL } from '../lib/classification';
 import { formatDate, formatPercent, formatPrice, formatVolume } from '../lib/format';
 import type { Candle, ChartRange, Classification, Quote, Security } from '../types';
+import { CompanyFundamentals } from './CompanyFundamentals';
 import { ExchangeBadges } from './ExchangeBadges';
 import { PriceChart } from './PriceChart';
 
@@ -212,6 +213,10 @@ export function StockDetail({ security, quote, cls, onClose }: Props) {
             <dd className="num">{security.marketLot ?? '—'}</dd>
           </div>
         </dl>
+
+        {/* Everything above is the exchange lists and Yahoo; everything below is
+            screener.in, fetched when the drawer opens. */}
+        <CompanyFundamentals security={security} />
       </aside>
     </>
   );

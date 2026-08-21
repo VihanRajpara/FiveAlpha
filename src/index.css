@@ -1637,6 +1637,12 @@ body {
   padding: 14px 24px;
 }
 
+/* An odd number of facts left a dead half-cell at the end of the grid, which
+   read as a missing value rather than as the end of the list. */
+.facts > .fact:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
 .fact dt {
   font-size: 11px;
   font-weight: 500;
@@ -1652,6 +1658,185 @@ body {
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+/* ---------- screener.in panel ---------- */
+
+.company {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--outline-faint);
+}
+
+.company-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 24px 10px;
+}
+
+.company-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.company-head a {
+  font-size: 12px;
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.company-head a:hover {
+  text-decoration: underline;
+}
+
+.company-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 24px 28px;
+}
+
+/* Screener's own green/red framing, in this app's colours. */
+.proscons {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--outline-faint);
+  border-radius: 12px;
+}
+
+.proscons .cons {
+  padding-top: 12px;
+  border-top: 1px solid var(--outline-faint);
+}
+
+.proscons h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.proscons .pros h4 {
+  color: var(--up);
+}
+
+.proscons .cons h4 {
+  color: var(--down);
+}
+
+.proscons ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--on-surface-variant);
+}
+
+/* Six financial tables would be a scroll bar, not a summary — one open, the
+   rest a click away. */
+.fin {
+  border: 1px solid var(--outline-faint);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.fin summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 11px 14px;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.fin[open] summary {
+  border-bottom: 1px solid var(--outline-faint);
+}
+
+.fin-note {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--on-surface-faint);
+}
+
+.fin-scroll {
+  overflow-x: auto;
+  /* Tables are long as well as wide; the header stays put while a P&L scrolls. */
+  max-height: 420px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.fin-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fin-table th,
+.fin-table td {
+  padding: 8px 12px;
+  text-align: right;
+  font-weight: 500;
+  color: var(--on-surface);
+}
+
+.fin-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  color: var(--on-surface-faint);
+  font-size: 11px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--outline-faint);
+}
+
+/* Banding rather than a rule under every row: thirteen columns of figures are
+   read across, and a line under each one fights that. */
+.fin-table tbody tr:nth-child(even) td,
+.fin-table tbody tr:nth-child(even) th:first-child {
+  background: var(--surface-2);
+}
+
+/* A row of figures with its name scrolled off is unreadable, and there are up
+   to thirteen periods — so the label column stays. */
+.fin-table th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 128px;
+  text-align: left;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-weight: 600;
+  /* The hairline the sticky cell would otherwise slide over its neighbours. */
+  box-shadow: inset -1px 0 0 var(--outline-faint);
+}
+
+/* The corner cell has to outrank both sticky axes it sits in. */
+.fin-table thead th:first-child {
+  z-index: 2;
+}
+
+.fin-table tbody tr:hover td,
+.fin-table tbody tr:hover th:first-child {
+  background: var(--surface-hover);
 }
 
 /* ---------- messages ---------- */
