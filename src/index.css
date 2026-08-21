@@ -268,8 +268,10 @@ body {
   display: none;
 }
 
-/* Compact trigger that stands in for the chips below 1460px. */
+/* Opens the sheet: every filter on a narrow window, the advanced ones on a
+   wide one. Never shrinks — it is the only way to reach what it holds. */
 .filter-trigger {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 8px;

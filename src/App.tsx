@@ -9,7 +9,13 @@ import { useMarketData } from './hooks/useMarketData';
 import { useScreen } from './hooks/useScreen';
 import { useSignals } from './hooks/useSignals';
 import { SCREENS } from './lib/screens';
-import { matchesSignalFilter, peekSignal } from './lib/signals';
+import {
+  matchesSignalFilter,
+  peekSignal,
+  signalFilterIsEmpty,
+  type SignalFilter,
+} from './lib/signals';
+import { ANY, NUMERIC_FILTERS, matchesBands } from './lib/filters';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
 import { UNCLASSIFIED } from './lib/classification';
 import { compareSeries, describeSeries } from './lib/listings';
@@ -75,10 +81,16 @@ const CAP_FILTER_HINT: Record<CapFilter, string> = {
 };
 
 /**
- * Signal filters. The values are the keys of `SIGNAL_AGE_MAX` and
- * `SIGNAL_GAP_BANDS` — the thresholds live next to the matcher rather than
- * here, so the labels and the arithmetic cannot drift apart.
+ * The three signal filters. Their values are the keys `matchesSignalFilter`
+ * reads — `SIGNAL_AGE_MAX` and `SIGNAL_GAP_BANDS` — so the thresholds live next
+ * to the arithmetic and only the labels live here.
  */
+const SIGNAL_SIDE_OPTIONS = [
+  { value: 'ALL', label: 'Any', hint: 'Both sides of the trailing stop' },
+  { value: 'BUY', label: 'Buy', hint: 'Last flip was a buy' },
+  { value: 'SELL', label: 'Sell', hint: 'Last flip was a sell' },
+];
+
 const SIGNAL_AGE_OPTIONS = [
   { value: 'ALL', label: 'Any', hint: 'However long ago the signal fired' },
   { value: '5', label: '≤5d', hint: 'Flipped within the last 5 trading sessions' },
@@ -152,8 +164,11 @@ export default function App() {
   const [breadthFilter, setBreadthFilter] = useState<BreadthKey | null>(null);
   // Signal filters, applied after the screen rather than with the other
   // filters: they cost a request per row, so they run over the shortlist.
-  const [signalAge, setSignalAge] = useState('ALL');
-  const [signalGap, setSignalGap] = useState('ALL');
+  const [signal, setSignal] = useState<SignalFilter>({ side: 'ALL', age: 'ALL', gap: 'ALL' });
+  // The numeric band filters, keyed by `NUMERIC_FILTERS[].key`. One bag rather
+  // than a `useState` each: they are all the same shape, and adding the next
+  // one should be a row of data, not another hook.
+  const [bands, setBands] = useState<Record<string, string>>({});
 
   const screenRun = useScreen();
   // Pre-selected rather than 'none': there is one screen, and the shortlist is
@@ -263,7 +278,8 @@ export default function App() {
     [rows, matchesOnly, screening, screenRun.matches],
   );
 
-  const signalFilterOn = signalAge !== 'ALL' || signalGap !== 'ALL';
+  const bandFilterOn = Object.values(bands).some((v) => v !== ANY);
+  const signalFilterOn = !signalFilterIsEmpty(signal);
   const signalFilterAffordable = screened.length <= SIGNAL_FILTER_MAX;
 
   // A filter left on while the list widens past the cap would keep filtering on
@@ -271,8 +287,7 @@ export default function App() {
   // quietly lost rows.
   useEffect(() => {
     if (!signalFilterAffordable && signalFilterOn) {
-      setSignalAge('ALL');
-      setSignalGap('ALL');
+      setSignal({ side: 'ALL', age: 'ALL', gap: 'ALL' });
     }
   }, [signalFilterAffordable, signalFilterOn]);
 
@@ -359,37 +374,55 @@ export default function App() {
         })),
         onChange: (v) => setCap(v as CapFilter),
       },
-      // Last, because they read the signal column rather than the listing data
-      // and only make sense once the list is short enough to fetch — see
-      // SIGNAL_FILTER_MAX.
+    ],
+    [exchange, series, seriesOptions, segment, cap, classificationReady],
+  );
+
+  /**
+   * The second question, behind the "More" button: what the numbers say, once
+   * the four groups above have settled what you are looking at.
+   *
+   * Three of them read the signal column, which costs a request per row — hence
+   * the affordability guard. The last four read the screen's own metrics and
+   * stay disabled until one has run, because a filter on a number nothing has
+   * measured would empty the table and look broken.
+   */
+  const advancedGroups = useMemo<FilterGroupSpec[]>(
+    () => [
+      {
+        key: 'signalSide',
+        label: 'Signal',
+        value: signal.side,
+        disabled: !signalFilterAffordable,
+        options: SIGNAL_SIDE_OPTIONS,
+        onChange: (v) => setSignal((s) => ({ ...s, side: v })),
+      },
       {
         key: 'signalAge',
         label: 'Signal age',
-        value: signalAge,
+        value: signal.age,
         disabled: !signalFilterAffordable,
         options: SIGNAL_AGE_OPTIONS,
-        onChange: setSignalAge,
+        onChange: (v) => setSignal((s) => ({ ...s, age: v })),
       },
       {
         key: 'signalGap',
         label: 'From signal',
-        value: signalGap,
+        value: signal.gap,
         disabled: !signalFilterAffordable,
         options: SIGNAL_GAP_OPTIONS,
-        onChange: setSignalGap,
+        onChange: (v) => setSignal((s) => ({ ...s, gap: v })),
       },
+      ...NUMERIC_FILTERS.map((f) => ({
+        key: f.key,
+        label: f.label,
+        value: bands[f.key] ?? ANY,
+        disabled: f.needsScreen && !screening,
+        options: f.bands.map((b) => ({ value: b.value, label: b.label, hint: b.hint })),
+        onChange: (v: string) => setBands((prev) => ({ ...prev, [f.key]: v })),
+      })),
     ],
-    [
-      exchange,
-      series,
-      seriesOptions,
-      segment,
-      cap,
-      classificationReady,
-      signalAge,
-      signalGap,
-      signalFilterAffordable,
-    ],
+    [signal, signalFilterAffordable, bands, screening],
   );
 
   const breadth = useMemo(() => {
@@ -412,17 +445,30 @@ export default function App() {
       ? screened.filter((row) => BREADTH_MATCH[breadthFilter](row.quote?.change))
       : screened;
 
+    if (bandFilterOn) {
+      out = out.filter((row) => matchesBands(row, screenRun.results.get(row.symbol), bands));
+    }
+
     if (signalFilterOn) {
       // Read back through `peekSignal` rather than through a second copy of the
       // answers — `useSignals` fills the same cache the cells read from, and
       // `signals.version` is what brings us back here as it fills.
       out = out.filter((row) =>
-        matchesSignalFilter(peekSignal(row.ticker), row.quote?.price, signalAge, signalGap),
+        matchesSignalFilter(peekSignal(row.ticker), row.quote?.price, signal),
       );
     }
 
     return out;
-  }, [screened, breadthFilter, signalFilterOn, signalAge, signalGap, signals.version]);
+  }, [
+    screened,
+    breadthFilter,
+    bandFilterOn,
+    bands,
+    screenRun.results,
+    signalFilterOn,
+    signal,
+    signals.version,
+  ]);
 
   // Honest about which lists actually loaded: if BSE's API was unreachable the
   // merge falls back to NSE alone, and the header should say so rather than
@@ -516,7 +562,7 @@ export default function App() {
       </header>
 
       <div className="subbar">
-        <Filters groups={filterGroups} resultCount={rows.length} />
+        <Filters groups={filterGroups} advanced={advancedGroups} resultCount={visible.length} />
         {/* Without this the table looks like it is losing rows: a signal filter
             excludes rows whose signal has not arrived, and they arrive over a
             few seconds. */}

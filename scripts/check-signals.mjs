@@ -63,27 +63,86 @@ assert.equal(signalGapPct(buy, null), null, 'an unpriced row has no gap');
 assert.equal(signalGapPct({ ...buy, side: 'SELL' }, 110), 10);
 
 // No filter admits everything, including rows with no signal at all.
-assert.ok(matchesSignalFilter(null, 110, 'ALL', 'ALL'));
+assert.ok(matchesSignalFilter(null, 110, { side: 'ALL', age: 'ALL', gap: 'ALL' }));
 // Any filter rejects a row with nothing to say.
-assert.ok(!matchesSignalFilter(null, 110, '5', 'ALL'));
-assert.ok(!matchesSignalFilter(undefined, 110, 'ALL', '0_5'));
+assert.ok(!matchesSignalFilter(null, 110, { side: 'ALL', age: '5', gap: 'ALL' }));
+assert.ok(!matchesSignalFilter(undefined, 110, { side: 'ALL', age: 'ALL', gap: '0_5' }));
 
 // Age is a ceiling in bars.
-assert.ok(matchesSignalFilter(buy, 110, '10', 'ALL'), '7 bars is within 10');
-assert.ok(!matchesSignalFilter(buy, 110, '5', 'ALL'), '7 bars is not within 5');
-assert.ok(matchesSignalFilter({ ...buy, age: 5 }, 110, '5', 'ALL'), 'the bound is inclusive');
+assert.ok(matchesSignalFilter(buy, 110, { side: 'ALL', age: '10', gap: 'ALL' }), '7 bars is within 10');
+assert.ok(!matchesSignalFilter(buy, 110, { side: 'ALL', age: '5', gap: 'ALL' }), '7 bars is not within 5');
+assert.ok(matchesSignalFilter({ ...buy, age: 5 }, 110, { side: 'ALL', age: '5', gap: 'ALL' }), 'the bound is inclusive');
 
 // Gap bands are [min, max) — no row may fall in two, and none between them.
-assert.ok(matchesSignalFilter(buy, 103, 'ALL', '0_5'));
-assert.ok(!matchesSignalFilter(buy, 105, 'ALL', '0_5'), '5% belongs to the band above');
-assert.ok(matchesSignalFilter(buy, 105, 'ALL', '5_15'));
-assert.ok(matchesSignalFilter(buy, 100, 'ALL', '0_5'), 'exactly at the signal is 0%');
-assert.ok(matchesSignalFilter(buy, 99, 'ALL', 'BELOW'));
-assert.ok(!matchesSignalFilter(buy, 100, 'ALL', 'BELOW'), 'BELOW is strictly under');
-assert.ok(matchesSignalFilter(buy, 200, 'ALL', '15'));
+assert.ok(matchesSignalFilter(buy, 103, { side: 'ALL', age: 'ALL', gap: '0_5' }));
+assert.ok(!matchesSignalFilter(buy, 105, { side: 'ALL', age: 'ALL', gap: '0_5' }), '5% belongs to the band above');
+assert.ok(matchesSignalFilter(buy, 105, { side: 'ALL', age: 'ALL', gap: '5_15' }));
+assert.ok(matchesSignalFilter(buy, 100, { side: 'ALL', age: 'ALL', gap: '0_5' }), 'exactly at the signal is 0%');
+assert.ok(matchesSignalFilter(buy, 99, { side: 'ALL', age: 'ALL', gap: 'BELOW' }));
+assert.ok(!matchesSignalFilter(buy, 100, { side: 'ALL', age: 'ALL', gap: 'BELOW' }), 'BELOW is strictly under');
+assert.ok(matchesSignalFilter(buy, 200, { side: 'ALL', age: 'ALL', gap: '15' }));
 
 // Both at once is an AND.
-assert.ok(matchesSignalFilter(buy, 103, '10', '0_5'));
-assert.ok(!matchesSignalFilter(buy, 103, '5', '0_5'), 'passing the gap does not excuse the age');
+assert.ok(matchesSignalFilter(buy, 103, { side: 'ALL', age: '10', gap: '0_5' }));
+assert.ok(!matchesSignalFilter(buy, 103, { side: 'ALL', age: '5', gap: '0_5' }), 'passing the gap does not excuse the age');
 
-console.log('signals.ts ok —', JSON.stringify(signal));
+// Side is an AND with the rest, and 'ALL' on every slot admits everything.
+assert.ok(matchesSignalFilter(buy, 110, { side: 'BUY', age: '10', gap: 'ALL' }));
+assert.ok(!matchesSignalFilter(buy, 110, { side: 'SELL', age: 'ALL', gap: 'ALL' }));
+assert.ok(matchesSignalFilter(null, 110, { side: 'ALL', age: 'ALL', gap: 'ALL' }));
+assert.ok(!matchesSignalFilter(null, 110, { side: 'BUY', age: 'ALL', gap: 'ALL' }));
+
+// --- the numeric band filters ---------------------------------------------
+const { inBand, NUMERIC_FILTERS, matchesBands, ANY } = await import(
+  'data:text/javascript;base64,' +
+    Buffer.from(
+      (
+        await build({
+          entryPoints: ['src/lib/filters.ts'],
+          bundle: true,
+          format: 'esm',
+          platform: 'node',
+          write: false,
+        })
+      ).outputFiles[0].text,
+    ).toString('base64')
+);
+
+// [min, max): the upper edge belongs to the next band up, and no value can
+// fall into two adjacent bands or between them.
+assert.ok(inBand(100, { min: 100, max: 500 }), 'the lower bound is inclusive');
+assert.ok(!inBand(500, { min: 100, max: 500 }), 'the upper bound is not');
+assert.ok(inBand(500, { min: 500, max: 2000 }), 'it belongs to the band above');
+assert.ok(inBand(50, { max: 100 }), 'an open lower end');
+assert.ok(inBand(5000, { min: 2000 }), 'an open upper end');
+// A number that was never measured is not a match, at any bound.
+for (const v of [null, undefined, NaN]) {
+  assert.ok(!inBand(v, { min: 0 }), `${v} must not match`);
+}
+
+// Every band set partitions its axis: walking the edges must hit exactly one
+// band per value, and every set must start with the shared "Any" option.
+for (const f of NUMERIC_FILTERS) {
+  assert.equal(f.bands[0].value, ANY, `${f.key} must open with Any`);
+  // Threshold sets ("15%+", "20%+") contain one another on purpose.
+  if (f.nested) continue;
+  const real = f.bands.slice(1);
+  const edges = real.flatMap((b) => [b.min, b.max].filter((n) => n !== undefined));
+  for (const edge of edges) {
+    const hits = real.filter((b) => inBand(edge, b)).length;
+    assert.ok(hits <= 1, `${f.key}: ${edge} falls in ${hits} bands at once`);
+  }
+}
+
+// matchesBands ANDs across filters and ignores unset ones.
+const row = { quote: { price: 250, changePercent: 6 } };
+assert.ok(matchesBands(row, undefined, {}), 'no selection admits everything');
+assert.ok(matchesBands(row, undefined, { price: '100_500' }));
+assert.ok(!matchesBands(row, undefined, { price: 'u100' }));
+assert.ok(matchesBands(row, undefined, { price: '100_500', dayMove: 'up5' }));
+assert.ok(!matchesBands(row, undefined, { price: 'u100', dayMove: 'up5' }), 'one failure is enough');
+// A screen-derived filter rejects a row the screen never reached.
+assert.ok(!matchesBands(row, undefined, { roce: 'o20' }));
+assert.ok(matchesBands(row, { metrics: { rocePct: 22 } }, { roce: 'o20' }));
+
+console.log('signals.ts + filters.ts ok —', JSON.stringify(signal));

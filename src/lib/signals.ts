@@ -73,8 +73,22 @@ export const SIGNAL_GAP_BANDS: Record<string, [number, number]> = {
   '15': [15, Infinity],
 };
 
+/** The three signal filters. `'ALL'` in any slot means "don't filter on this". */
+export interface SignalFilter {
+  /** `'BUY'`, `'SELL'` or `'ALL'`. */
+  side: string;
+  /** A key of `SIGNAL_AGE_MAX`, or `'ALL'`. */
+  age: string;
+  /** A key of `SIGNAL_GAP_BANDS`, or `'ALL'`. */
+  gap: string;
+}
+
+/** True when nothing in the filter would reject anything. */
+export const signalFilterIsEmpty = (f: SignalFilter) =>
+  f.side === 'ALL' && f.age === 'ALL' && f.gap === 'ALL';
+
 /**
- * Does one row's signal pass the age and gap filters?
+ * Does one row's signal pass the side, age and gap filters?
  *
  * A row with no signal — never fetched, or a history too short for one — fails
  * any active filter rather than passing it. Filtering on the signal is asking
@@ -84,16 +98,17 @@ export const SIGNAL_GAP_BANDS: Record<string, [number, number]> = {
 export function matchesSignalFilter(
   signal: Signal | null | undefined,
   price: number | null | undefined,
-  age: string,
-  gap: string,
+  filter: SignalFilter,
 ): boolean {
-  if (age === 'ALL' && gap === 'ALL') return true;
+  if (signalFilterIsEmpty(filter)) return true;
   if (!signal) return false;
 
-  const maxAge = SIGNAL_AGE_MAX[age];
+  if (filter.side !== 'ALL' && signal.side !== filter.side) return false;
+
+  const maxAge = SIGNAL_AGE_MAX[filter.age];
   if (maxAge !== undefined && signal.age > maxAge) return false;
 
-  const band = SIGNAL_GAP_BANDS[gap];
+  const band = SIGNAL_GAP_BANDS[filter.gap];
   if (band) {
     const pct = signalGapPct(signal, price);
     if (pct === null || pct < band[0] || pct >= band[1]) return false;
