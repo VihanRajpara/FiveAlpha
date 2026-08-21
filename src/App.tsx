@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SortingState } from '@tanstack/react-table';
 import { StockTable } from './components/StockTable';
 import { StockDetail } from './components/StockDetail';
@@ -72,6 +72,15 @@ const CAP_FILTER_HINT: Record<CapFilter, string> = {
   micro: 'Outside the NIFTY 500',
 };
 
+type BreadthKey = 'up' | 'down' | 'flat' | 'priced';
+
+const BREADTH_MATCH: Record<BreadthKey, (change: number | null | undefined) => boolean> = {
+  up: (c) => c != null && c > 0,
+  down: (c) => c != null && c < 0,
+  flat: (c) => c === 0,
+  priced: (c) => c != null,
+};
+
 export default function App() {
   const {
     securities,
@@ -106,9 +115,15 @@ export default function App() {
   const [cap, setCap] = useState<CapFilter>('ALL');
   const [sorting, setSorting] = useState<SortingState>([{ id: 'symbol', desc: false }]);
   const [selected, setSelected] = useState<SecurityWithQuote | null>(null);
+  // Clicking a breadth tile cuts the table to that bucket; clicking it again
+  // clears. The counts themselves stay computed from the unfiltered set, or
+  // picking one would zero the other three.
+  const [breadthFilter, setBreadthFilter] = useState<BreadthKey | null>(null);
 
   const screenRun = useScreen();
-  const [screenId, setScreenId] = useState<string>('none');
+  // Pre-selected rather than 'none': there is one screen, and the shortlist is
+  // the point of the page — see the auto-run below.
+  const [screenId, setScreenId] = useState<string>(SCREENS[0]?.id ?? 'none');
   // The point of running a screen is the shortlist, so the table cuts to it by
   // default; the toggle in the bar puts the rejected rows back, dimmed, for
   // anyone checking the screen's work rather than trusting it.
@@ -220,6 +235,16 @@ export default function App() {
     }
   }, [selectedScreen, screenRun, rows]);
 
+  // Runs the default screen on landing, once the universe is priced. Guarded by
+  // a ref because `rows` changes with every filter keystroke, and re-running on
+  // each change would be a fetch storm.
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRan.current || loading || !quotesLoaded || rows.length === 0) return;
+    autoRan.current = true;
+    runScreen();
+  }, [loading, quotesLoaded, rows.length, runScreen]);
+
   const selectScreen = useCallback(
     (id: string) => {
       setScreenId(id);
@@ -302,6 +327,15 @@ export default function App() {
     return { up, down, flat, priced: up + down + flat };
   }, [screened]);
 
+  /** What the table shows: the breadth tile selection applied on top. */
+  const visible = useMemo(
+    () =>
+      breadthFilter
+        ? screened.filter((row) => BREADTH_MATCH[breadthFilter](row.quote?.change))
+        : screened,
+    [screened, breadthFilter],
+  );
+
   // Honest about which lists actually loaded: if BSE's API was unreachable the
   // merge falls back to NSE alone, and the header should say so rather than
   // claim coverage the table doesn't have.
@@ -346,7 +380,7 @@ export default function App() {
             <span className="count num">
               {loading
                 ? 'Loading…'
-                : `${listedOn} · ${screened.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} companies`}
+                : `${listedOn} · ${visible.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} companies`}
             </span>
           </div>
         </div>
@@ -411,26 +445,33 @@ export default function App() {
       {/* Breadth across whatever the current filter selects — the closest thing
           this dataset has to a market summary. */}
       <section className="summary" aria-label="Market breadth">
-        <div className="stat">
-          <div className="stat-label">Advancing</div>
-          <div className="stat-value num up">{breadth.up.toLocaleString('en-IN')}</div>
-          <div className="stat-sub">{pct(breadth.up)}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">Declining</div>
-          <div className="stat-value num down">{breadth.down.toLocaleString('en-IN')}</div>
-          <div className="stat-sub">{pct(breadth.down)}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">Unchanged</div>
-          <div className="stat-value num">{breadth.flat.toLocaleString('en-IN')}</div>
-          <div className="stat-sub">{pct(breadth.flat)}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">Priced</div>
-          <div className="stat-value num">{breadth.priced.toLocaleString('en-IN')}</div>
-          <div className="stat-sub">of {screened.length.toLocaleString('en-IN')} shown</div>
-        </div>
+        {(
+          [
+            ['up', 'Advancing', breadth.up, 'up', pct(breadth.up)],
+            ['down', 'Declining', breadth.down, 'down', pct(breadth.down)],
+            ['flat', 'Unchanged', breadth.flat, '', pct(breadth.flat)],
+            [
+              'priced',
+              'Priced',
+              breadth.priced,
+              '',
+              `of ${screened.length.toLocaleString('en-IN')} shown`,
+            ],
+          ] as [BreadthKey, string, number, string, string][]
+        ).map(([key, label, value, tone, sub]) => (
+          <button
+            key={key}
+            type="button"
+            className={`stat${breadthFilter === key ? ' active' : ''}`}
+            aria-pressed={breadthFilter === key}
+            title={`Show only ${label.toLowerCase()} shares`}
+            onClick={() => setBreadthFilter((f) => (f === key ? null : key))}
+          >
+            <div className="stat-label">{label}</div>
+            <div className={`stat-value num ${tone}`}>{value.toLocaleString('en-IN')}</div>
+            <div className="stat-sub">{sub}</div>
+          </button>
+        ))}
       </section>
 
       <main className="content">
@@ -474,7 +515,7 @@ export default function App() {
             </div>
           ) : (
             <StockTable
-              rows={screened}
+              rows={visible}
               quotesLoaded={quotesLoaded}
               // Present from the start of a run, empty, so the screen columns
               // appear shimmering rather than popping in mid-pass.

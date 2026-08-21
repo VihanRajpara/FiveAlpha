@@ -109,7 +109,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  * the origin, so one request backing off while the rest keep firing would only
  * hold the block open.
  */
-async function fetchPaced(url: string, signal?: AbortSignal): Promise<Response> {
+export async function fetchPaced(url: string, signal?: AbortSignal): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
     const now = Date.now();
 

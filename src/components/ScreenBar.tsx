@@ -136,31 +136,43 @@ export function ScreenBar({
 
         {!running && hasResults && (
           <>
-            <span className="pill screen-count" title="Rows that pass every leg of the clause">
-              <span className="dot" />
-              {run.counts.pass.toLocaleString('en-IN')} match
-            </span>
-            <span className="pill" title="Rows that failed at least one leg">
-              {run.counts.fail.toLocaleString('en-IN')} no
-            </span>
-            {run.counts.unknown > 0 && (
-              <span
-                className="pill"
-                title="Not enough data to judge — too little price history, or no screener.in page for the company"
-              >
-                {run.counts.unknown.toLocaleString('en-IN')} unjudged
+            {/* One verdict, read left to right, rather than three pills that
+                happen to be adjacent. */}
+            <div className="screen-results">
+              <span className="screen-count" title="Rows that pass every leg of the clause">
+                <span className="dot" />
+                <b>{run.counts.pass.toLocaleString('en-IN')}</b> match
               </span>
-            )}
+              <span title="Rows that failed at least one leg">
+                <b>{run.counts.fail.toLocaleString('en-IN')}</b> no
+              </span>
+              {run.counts.unknown > 0 && (
+                <span title="Not enough data to judge — too little price history, or no screener.in page for the company">
+                  <b>{run.counts.unknown.toLocaleString('en-IN')}</b> unjudged
+                </span>
+              )}
+            </div>
 
-            <button
-              type="button"
-              className="filter-trigger"
-              data-active={matchesOnly}
-              onClick={() => onMatchesOnlyChange(!matchesOnly)}
-              aria-pressed={matchesOnly}
-            >
-              {matchesOnly ? 'Matches only' : 'Showing all'}
-            </button>
+            {/* A two-state control rather than a button whose label flips: what
+                the other state *is* should be visible without pressing it. */}
+            <div className="segmented" role="group" aria-label="Rows shown">
+              <button
+                type="button"
+                data-active={matchesOnly}
+                onClick={() => onMatchesOnlyChange(true)}
+                title="Show only the rows that pass"
+              >
+                Matches
+              </button>
+              <button
+                type="button"
+                data-active={!matchesOnly}
+                onClick={() => onMatchesOnlyChange(false)}
+                title="Show every filtered row, with its verdict"
+              >
+                All
+              </button>
+            </div>
 
             <button type="button" className="btn ghost" onClick={run.clear}>
               Clear

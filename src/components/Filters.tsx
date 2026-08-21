@@ -29,19 +29,15 @@ export interface FilterGroupSpec {
 const MAX_CHIPS = 6;
 
 /**
- * Below this width the four chip groups cannot share a line, and wrapping them
- * reads as a broken bar rather than a designed one. They move into a sheet
- * instead.
+ * The sheet is for touch widths now, not for "the groups don't all fit".
  *
- * Sized for the *widest* configuration, not the usual one: Series renders as
- * chips only when the exchange selection narrows it to EQ/BE/BZ, and that is the
- * case that needs the most room. Series + Segment + Cap come to ~1,019px
- * including labels and gaps, Exchange adds ~372px, and the subbar contributes
- * 2 × 20px of gutter — hence ~1,460px. When Series collapses to a dropdown
- * (any selection that admits BSE groups) the bar is ~150px narrower and simply
- * has room to spare.
+ * It used to trip at 1,459px — the width the widest configuration needs — which
+ * meant a 1,280px laptop, with room for three of the four groups, showed none
+ * of them and a button instead. The inline row scrolls sideways instead, so the
+ * only thing the breakpoint still decides is chips-vs-sheet, and 900px is where
+ * a pointer stops being the likely input.
  */
-const COMPACT_QUERY = '(max-width: 1459px)';
+const COMPACT_QUERY = '(max-width: 899px)';
 
 function ChipGroup({ group }: { group: FilterGroupSpec }) {
   return (
