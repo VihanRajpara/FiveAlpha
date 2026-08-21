@@ -831,32 +831,41 @@ body {
   align-items: center;
 }
 
-/* Full screener: thirteen columns, scrolled horizontally when the viewport
-   can't hold them. Order matches the column definitions in StockTable:
-   # · Symbol · Company · Series · Exch · Type · LTP · Chg · Chg% · Prev ·
-   ISIN · Listed · FV */
+/* Desktop: # · Symbol · Company · Type · LTP · Chg% · Listed · Side · At · Gap.
+   The last three sit under one "Signal" heading. No min-width anywhere below —
+   the point of these templates is that nothing side-scrolls; Company takes
+   whatever is left over. */
 .table-wrap[data-layout='wide'] .grid-row {
+  /* Every track flexes, with a floor. One `1fr` column and the rest fixed is
+     what left a hand's width of nothing between Company and LTP on a wide
+     monitor: all the slack went to one place. Weighted shares spread it, so the
+     table scales as a whole instead of one column ballooning. */
   grid-template-columns:
-    64px 148px minmax(200px, 1.6fr) 76px 108px 132px 116px 104px 120px
-    116px 152px 116px 76px 152px;
-  min-width: 1660px;
+    48px minmax(124px, 0.9fr) minmax(170px, 2.4fr) minmax(104px, 0.8fr)
+    minmax(100px, 0.8fr) minmax(100px, 0.8fr) minmax(104px, 0.8fr)
+    minmax(124px, 1fr) minmax(96px, 0.8fr) minmax(88px, 0.7fr);
+  min-width: 0;
 }
 
-/* Screening adds four columns on the right — vs 10Y high · RSI(M) · ROCE ·
-   M.Cap — after the listing ones rather than among them. The table already
-   scrolls sideways at this layout, so the extra 428px costs nothing but scroll. */
+/* Screening swaps Type and Listed out for the four screen columns —
+   # · Symbol · Company · LTP · Chg% · Side · At · Gap · vs 10Y high · RSI(M) ·
+   ROCE · M.Cap. See WIDE_HIDDEN_SCREENING in StockTable.
+
+   Twelve tracks, tuned to still fit at 1240px — the narrow end of this layout.
+   Side keeps a small `fr` share of its own so the signal block breathes as the
+   window widens, instead of every spare pixel landing in Company. */
 .table-wrap[data-layout='wide'][data-screen='true'] .grid-row {
   grid-template-columns:
-    64px 148px minmax(200px, 1.6fr) 76px 108px 132px 116px 104px 120px
-    116px 152px 116px 76px 152px 120px 96px 96px 116px;
-  min-width: 2088px;
+    44px minmax(118px, 0.85fr) minmax(150px, 2.2fr) minmax(96px, 0.75fr)
+    minmax(98px, 0.75fr) minmax(118px, 0.95fr) minmax(88px, 0.7fr)
+    minmax(84px, 0.7fr) minmax(92px, 0.75fr) minmax(70px, 0.6fr)
+    minmax(76px, 0.65fr) minmax(96px, 0.75fr);
+  min-width: 0;
 }
 
-/* Tablet: the six columns worth keeping, sized to fit with no side-scroll —
-   Symbol · Company · Exch · LTP · Chg% · Signal. Type and the rupee change gave
-   way to the signal; see MEDIUM_HIDDEN in StockTable. */
+/* Tablet: Symbol · Company · LTP · Chg% · Side · Gap — see MEDIUM_HIDDEN. */
 .table-wrap[data-layout='medium'] .grid-row {
-  grid-template-columns: 118px minmax(96px, 1.5fr) 100px 96px 108px 140px;
+  grid-template-columns: 112px minmax(90px, 1.4fr) 100px 108px 96px 88px;
   min-width: 0;
 }
 
@@ -864,7 +873,9 @@ body {
    Symbol · Company · LTP · Chg% · Signal · vs 10Y high · RSI(M). See
    MEDIUM_HIDDEN_SCREENING in StockTable for what gives way and why. */
 .table-wrap[data-layout='medium'][data-screen='true'] .grid-row {
-  grid-template-columns: 104px minmax(84px, 1.4fr) 92px 96px 130px 104px 76px;
+  /* Tracks sized so the total still fits at 701px — the narrow end of this
+     layout — with the gutters. Any wider and the Company column takes it. */
+  grid-template-columns: 100px minmax(72px, 1.3fr) 88px 96px 92px 96px 72px;
   min-width: 0;
 }
 
@@ -877,9 +888,10 @@ body {
 }
 
 .th {
-  padding: 14px 12px;
-  font-size: 12px;
+  padding: 9px 12px 11px;
+  font-size: 11.5px;
   font-weight: 500;
+  letter-spacing: 0.015em;
   color: var(--on-surface-variant);
   cursor: pointer;
   user-select: none;
@@ -890,12 +902,57 @@ body {
   transition: color 0.12s ease;
 }
 
-.th:first-child {
+/* A column with no group heading takes both header rows. Bottom-aligned, so
+   every label in the header — grouped or not — sits on one baseline. */
+.th-span {
+  align-self: end;
+}
+
+/* Not `:first-child`/`:last-child`: the header cells are placed explicitly on
+   the grid, so DOM order is by header row, not by column. The edges are marked
+   from the column index instead. */
+.th.edge-start {
   padding-left: var(--gutter);
 }
 
-.th:last-child {
+.th.edge-end {
   padding-right: var(--gutter);
+}
+
+/* The heading over a set of columns — quieter and smaller than the column
+   names under it, so the eye reads the leaves first and the grouping second. */
+.th-group {
+  padding: 8px 12px 5px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--on-surface-faint);
+  cursor: default;
+}
+
+/* The label sits over its own columns, not off at their left edge. */
+.th-group,
+.th-group.right {
+  justify-content: center;
+}
+
+/* The signal block is bracketed rather than merely captioned: a hairline down
+   each side, running from the heading through every row. A label floating
+   above a gap was leaving the reader to infer the grouping from proximity. */
+.th.group-start,
+.td.group-start {
+  border-left: 1px solid var(--outline-faint);
+}
+
+.th.group-end,
+.td.group-end {
+  border-right: 1px solid var(--outline-faint);
+}
+
+/* The heading's own cell closes the top of the bracket. */
+.th-group {
+  border-bottom: 1px solid var(--outline-faint);
 }
 
 .th:hover {
@@ -982,7 +1039,13 @@ body {
   color: var(--on-surface-faint);
 }
 
+/* Flex because the cell now carries the exception badges (BSE, non-EQ series)
+   that used to be columns of their own. */
 .td.sym {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   font-family: var(--font-display);
   font-size: 14px;
   font-weight: 700;
@@ -1075,10 +1138,6 @@ body {
   gap: 4px;
 }
 
-.td.exch {
-  white-space: nowrap;
-}
-
 .tr[data-selected='true'] .badge.cap {
   border-color: var(--primary);
 }
@@ -1127,6 +1186,9 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  /* The badge is a chip, not a block — without this it stretches to the whole
+     track in the column layout. */
+  align-items: flex-start;
   gap: 1px;
   min-width: 0;
   line-height: 1.2;
@@ -1386,11 +1448,32 @@ body {
    The row grows to hold it: phone rows are laid out in normal flow, not by the
    virtualiser, so their height is the content's business. */
 .stack-screen {
-  overflow: hidden;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-top: 2px;
+  min-width: 0;
+}
+
+.metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
   color: var(--on-surface-faint);
-  font-size: 11px;
-  text-overflow: ellipsis;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   white-space: nowrap;
+}
+
+/* The figure is the thing being compared down the list; the label is a caption. */
+.metric b {
+  color: var(--on-surface);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .stack-side {
@@ -1409,6 +1492,12 @@ body {
 .stack-side .sig-head {
   flex-direction: row-reverse;
   gap: 5px;
+}
+
+/* The flip date, back on the phone row — a signal without a "when" is half a
+   signal. One line, under the side and price. */
+.stack-side .sig-when {
+  font-size: 10px;
 }
 
 .stack-price {
@@ -2283,4 +2372,33 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Why the table is short of rows while a signal filter is on. */
+.subbar-note {
+  flex: none;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+
+/* Current price against the price the signal fired at. Sits with the signal
+   price rather than under it — the pair is one fact, not two. */
+.sig-gap {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* The grid's Side cell: badge and date on one line. The stacked phone row keeps
+   the two-line `.sig` — it has the vertical room and not the horizontal. */
+.sig-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.sig-inline .sig-when {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

@@ -11,7 +11,7 @@ const out = await build({
   platform: 'node',
   write: false,
 });
-const { hma, atr, latestSignal } = await import(
+const { hma, atr, latestSignal, signalGapPct, matchesSignalFilter } = await import(
   'data:text/javascript;base64,' + Buffer.from(out.outputFiles[0].text).toString('base64')
 );
 
@@ -52,5 +52,38 @@ const peak = [
   ...Array.from({ length: 120 }, (_, i) => bar(120 + i, 1000 - i * 4)),
 ];
 assert.equal(latestSignal(peak).side, 'SELL');
+
+// --- the signal filters ---------------------------------------------------
+const buy = { side: 'BUY', price: 100, date: '2026-08-01', age: 7 };
+
+assert.equal(signalGapPct(buy, 110), 10, 'price above the signal is a positive gap');
+assert.equal(signalGapPct(buy, 90), -10, 'and below it a negative one');
+assert.equal(signalGapPct(buy, null), null, 'an unpriced row has no gap');
+// Both sides are signed the same way: a SELL that kept running is still positive.
+assert.equal(signalGapPct({ ...buy, side: 'SELL' }, 110), 10);
+
+// No filter admits everything, including rows with no signal at all.
+assert.ok(matchesSignalFilter(null, 110, 'ALL', 'ALL'));
+// Any filter rejects a row with nothing to say.
+assert.ok(!matchesSignalFilter(null, 110, '5', 'ALL'));
+assert.ok(!matchesSignalFilter(undefined, 110, 'ALL', '0_5'));
+
+// Age is a ceiling in bars.
+assert.ok(matchesSignalFilter(buy, 110, '10', 'ALL'), '7 bars is within 10');
+assert.ok(!matchesSignalFilter(buy, 110, '5', 'ALL'), '7 bars is not within 5');
+assert.ok(matchesSignalFilter({ ...buy, age: 5 }, 110, '5', 'ALL'), 'the bound is inclusive');
+
+// Gap bands are [min, max) — no row may fall in two, and none between them.
+assert.ok(matchesSignalFilter(buy, 103, 'ALL', '0_5'));
+assert.ok(!matchesSignalFilter(buy, 105, 'ALL', '0_5'), '5% belongs to the band above');
+assert.ok(matchesSignalFilter(buy, 105, 'ALL', '5_15'));
+assert.ok(matchesSignalFilter(buy, 100, 'ALL', '0_5'), 'exactly at the signal is 0%');
+assert.ok(matchesSignalFilter(buy, 99, 'ALL', 'BELOW'));
+assert.ok(!matchesSignalFilter(buy, 100, 'ALL', 'BELOW'), 'BELOW is strictly under');
+assert.ok(matchesSignalFilter(buy, 200, 'ALL', '15'));
+
+// Both at once is an AND.
+assert.ok(matchesSignalFilter(buy, 103, '10', '0_5'));
+assert.ok(!matchesSignalFilter(buy, 103, '5', '0_5'), 'passing the gap does not excuse the age');
 
 console.log('signals.ts ok —', JSON.stringify(signal));

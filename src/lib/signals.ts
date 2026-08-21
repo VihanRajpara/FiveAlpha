@@ -45,6 +45,63 @@ export interface Signal {
   age: number;
 }
 
+/**
+ * How far the current price has travelled since the flip, in percent.
+ *
+ * Signed the same way for both sides: positive means the price is above where
+ * the signal fired. On a BUY that is the move you missed; on a SELL it is the
+ * move that went against it. Not folded into the side, because "which way did
+ * it go" is the question being asked and the badge next to it already says
+ * which side it is.
+ */
+export function signalGapPct(
+  signal: Signal,
+  price: number | null | undefined,
+): number | null {
+  if (price === null || price === undefined || !signal.price) return null;
+  return ((price - signal.price) / signal.price) * 100;
+}
+
+/** Filter presets: bars since the flip, at most. */
+export const SIGNAL_AGE_MAX: Record<string, number> = { '5': 5, '10': 10, '20': 20, '60': 60 };
+
+/** Filter presets: where the price now sits relative to the signal, `[min, max)`. */
+export const SIGNAL_GAP_BANDS: Record<string, [number, number]> = {
+  BELOW: [-Infinity, 0],
+  '0_5': [0, 5],
+  '5_15': [5, 15],
+  '15': [15, Infinity],
+};
+
+/**
+ * Does one row's signal pass the age and gap filters?
+ *
+ * A row with no signal — never fetched, or a history too short for one — fails
+ * any active filter rather than passing it. Filtering on the signal is asking
+ * for rows whose signal says something, and a row that has nothing to say is
+ * not an answer.
+ */
+export function matchesSignalFilter(
+  signal: Signal | null | undefined,
+  price: number | null | undefined,
+  age: string,
+  gap: string,
+): boolean {
+  if (age === 'ALL' && gap === 'ALL') return true;
+  if (!signal) return false;
+
+  const maxAge = SIGNAL_AGE_MAX[age];
+  if (maxAge !== undefined && signal.age > maxAge) return false;
+
+  const band = SIGNAL_GAP_BANDS[gap];
+  if (band) {
+    const pct = signalGapPct(signal, price);
+    if (pct === null || pct < band[0] || pct >= band[1]) return false;
+  }
+
+  return true;
+}
+
 /** Weighted moving average, null until `len` consecutive numbers are in hand. */
 function wma(values: (number | null)[], len: number): (number | null)[] {
   const out: (number | null)[] = new Array(values.length).fill(null);

@@ -7,7 +7,9 @@ import { Filters, type FilterGroupSpec } from './components/Filters';
 import { ScreenBar } from './components/ScreenBar';
 import { useMarketData } from './hooks/useMarketData';
 import { useScreen } from './hooks/useScreen';
+import { useSignals } from './hooks/useSignals';
 import { SCREENS } from './lib/screens';
+import { matchesSignalFilter, peekSignal } from './lib/signals';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
 import { UNCLASSIFIED } from './lib/classification';
 import { compareSeries, describeSeries } from './lib/listings';
@@ -72,6 +74,35 @@ const CAP_FILTER_HINT: Record<CapFilter, string> = {
   micro: 'Outside the NIFTY 500',
 };
 
+/**
+ * Signal filters. The values are the keys of `SIGNAL_AGE_MAX` and
+ * `SIGNAL_GAP_BANDS` — the thresholds live next to the matcher rather than
+ * here, so the labels and the arithmetic cannot drift apart.
+ */
+const SIGNAL_AGE_OPTIONS = [
+  { value: 'ALL', label: 'Any', hint: 'However long ago the signal fired' },
+  { value: '5', label: '≤5d', hint: 'Flipped within the last 5 trading sessions' },
+  { value: '10', label: '≤10d', hint: 'Flipped within the last 10 trading sessions' },
+  { value: '20', label: '≤20d', hint: 'Flipped within the last 20 trading sessions' },
+  { value: '60', label: '≤60d', hint: 'Flipped within the last 60 trading sessions' },
+];
+
+const SIGNAL_GAP_OPTIONS = [
+  { value: 'ALL', label: 'Any', hint: 'Wherever the price sits now' },
+  { value: 'BELOW', label: 'Below', hint: 'Price is under the signal price' },
+  { value: '0_5', label: '0–5%', hint: 'Up to 5% above the signal price — the entry is still close' },
+  { value: '5_15', label: '5–15%', hint: '5–15% above the signal price' },
+  { value: '15', label: '>15%', hint: 'More than 15% above — most of the move has happened' },
+];
+
+/**
+ * Signals are one chart request per symbol, so filtering on them fetches the
+ * whole list — see `useSignals`. Past this many rows that is a fetch storm, and
+ * the controls disable themselves rather than start one: narrow the list with a
+ * screen or the other filters first.
+ */
+const SIGNAL_FILTER_MAX = 400;
+
 type BreadthKey = 'up' | 'down' | 'flat' | 'priced';
 
 const BREADTH_MATCH: Record<BreadthKey, (change: number | null | undefined) => boolean> = {
@@ -119,6 +150,10 @@ export default function App() {
   // clears. The counts themselves stay computed from the unfiltered set, or
   // picking one would zero the other three.
   const [breadthFilter, setBreadthFilter] = useState<BreadthKey | null>(null);
+  // Signal filters, applied after the screen rather than with the other
+  // filters: they cost a request per row, so they run over the shortlist.
+  const [signalAge, setSignalAge] = useState('ALL');
+  const [signalGap, setSignalGap] = useState('ALL');
 
   const screenRun = useScreen();
   // Pre-selected rather than 'none': there is one screen, and the shortlist is
@@ -228,6 +263,21 @@ export default function App() {
     [rows, matchesOnly, screening, screenRun.matches],
   );
 
+  const signalFilterOn = signalAge !== 'ALL' || signalGap !== 'ALL';
+  const signalFilterAffordable = screened.length <= SIGNAL_FILTER_MAX;
+
+  // A filter left on while the list widens past the cap would keep filtering on
+  // signals nothing is fetching any more, which reads as a table that has
+  // quietly lost rows.
+  useEffect(() => {
+    if (!signalFilterAffordable && signalFilterOn) {
+      setSignalAge('ALL');
+      setSignalGap('ALL');
+    }
+  }, [signalFilterAffordable, signalFilterOn]);
+
+  const signals = useSignals(screened, signalFilterOn && signalFilterAffordable);
+
   const runScreen = useCallback(() => {
     if (selectedScreen) {
       setMatchesOnly(true);
@@ -309,8 +359,37 @@ export default function App() {
         })),
         onChange: (v) => setCap(v as CapFilter),
       },
+      // Last, because they read the signal column rather than the listing data
+      // and only make sense once the list is short enough to fetch — see
+      // SIGNAL_FILTER_MAX.
+      {
+        key: 'signalAge',
+        label: 'Signal age',
+        value: signalAge,
+        disabled: !signalFilterAffordable,
+        options: SIGNAL_AGE_OPTIONS,
+        onChange: setSignalAge,
+      },
+      {
+        key: 'signalGap',
+        label: 'From signal',
+        value: signalGap,
+        disabled: !signalFilterAffordable,
+        options: SIGNAL_GAP_OPTIONS,
+        onChange: setSignalGap,
+      },
     ],
-    [exchange, series, seriesOptions, segment, cap, classificationReady],
+    [
+      exchange,
+      series,
+      seriesOptions,
+      segment,
+      cap,
+      classificationReady,
+      signalAge,
+      signalGap,
+      signalFilterAffordable,
+    ],
   );
 
   const breadth = useMemo(() => {
@@ -327,14 +406,23 @@ export default function App() {
     return { up, down, flat, priced: up + down + flat };
   }, [screened]);
 
-  /** What the table shows: the breadth tile selection applied on top. */
-  const visible = useMemo(
-    () =>
-      breadthFilter
-        ? screened.filter((row) => BREADTH_MATCH[breadthFilter](row.quote?.change))
-        : screened,
-    [screened, breadthFilter],
-  );
+  /** What the table shows: breadth tile and signal filters applied on top. */
+  const visible = useMemo(() => {
+    let out = breadthFilter
+      ? screened.filter((row) => BREADTH_MATCH[breadthFilter](row.quote?.change))
+      : screened;
+
+    if (signalFilterOn) {
+      // Read back through `peekSignal` rather than through a second copy of the
+      // answers — `useSignals` fills the same cache the cells read from, and
+      // `signals.version` is what brings us back here as it fills.
+      out = out.filter((row) =>
+        matchesSignalFilter(peekSignal(row.ticker), row.quote?.price, signalAge, signalGap),
+      );
+    }
+
+    return out;
+  }, [screened, breadthFilter, signalFilterOn, signalAge, signalGap, signals.version]);
 
   // Honest about which lists actually loaded: if BSE's API was unreachable the
   // merge falls back to NSE alone, and the header should say so rather than
@@ -429,6 +517,14 @@ export default function App() {
 
       <div className="subbar">
         <Filters groups={filterGroups} resultCount={rows.length} />
+        {/* Without this the table looks like it is losing rows: a signal filter
+            excludes rows whose signal has not arrived, and they arrive over a
+            few seconds. */}
+        {signals.pending > 0 && (
+          <span className="subbar-note num">
+            Reading signals · {signals.pending.toLocaleString('en-IN')} left
+          </span>
+        )}
       </div>
 
       <ScreenBar
