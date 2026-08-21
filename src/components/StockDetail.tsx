@@ -3,6 +3,8 @@ import { activeSource } from '../lib/dataSource';
 import { CAP_LABEL } from '../lib/classification';
 import { formatDate, formatPercent, formatPrice, formatVolume } from '../lib/format';
 import type { Candle, ChartRange, Classification, Quote, Security } from '../types';
+import { useSignal } from '../hooks/useSignal';
+import { UT_BOT, signalGapPct } from '../lib/signals';
 import { CompanyFundamentals } from './CompanyFundamentals';
 import { ExchangeBadges } from './ExchangeBadges';
 import { PriceChart } from './PriceChart';
@@ -14,6 +16,84 @@ const RANGE_LABEL: Record<ChartRange, string> = {
   '1y': '1Y',
   '5y': '5Y',
 };
+
+/**
+ * The row's signal, opened up.
+ *
+ * The table has room for a side, a price and a percentage; here there is room
+ * for what the study actually is and how stale its verdict has got. Same hook
+ * as the table cells, so opening a row that was already on screen costs
+ * nothing — the answer is in the day-cache.
+ */
+function SignalPanel({ ticker, price }: { ticker: string; price: number | null | undefined }) {
+  const { signal, loaded } = useSignal(ticker);
+
+  const study = `UT Bot · ATR ${UT_BOT.atrPeriod} × ${UT_BOT.keyValue} on HMA ${UT_BOT.hmaLength}, daily bars`;
+
+  if (!loaded) {
+    return (
+      <section className="company">
+        <div className="company-head">
+          <h3>Signal</h3>
+          <span className="sig-study">{study}</span>
+        </div>
+        <div className="center-msg" style={{ padding: '24px 12px' }}>
+          <div className="spinner" />
+          Reading bars…
+        </div>
+      </section>
+    );
+  }
+
+  const gap = signal ? signalGapPct(signal, price) : null;
+
+  return (
+    <section className="company">
+      <div className="company-head">
+        <h3>Signal</h3>
+        <span className="sig-study">{study}</span>
+      </div>
+
+      {!signal ? (
+        <p className="sig-none">
+          No flip in the last year of daily bars — the history is too short, or the trailing stop
+          has not been crossed.
+        </p>
+      ) : (
+        <>
+          <div className={`sig-banner ${signal.side === 'BUY' ? 'up' : 'down'}`}>
+            <span className="sig-badge">{signal.side}</span>
+            <span className="sig-banner-price num">{formatPrice(signal.price)}</span>
+            <span className="sig-banner-when">
+              {formatDate(signal.date)} · {signal.age === 0 ? 'today' : `${signal.age} bars ago`}
+            </span>
+          </div>
+
+          <dl className="facts">
+            <div className="fact">
+              <dt>Signal price</dt>
+              <dd className="num">{formatPrice(signal.price)}</dd>
+            </div>
+            <div className="fact">
+              <dt>Since signal</dt>
+              <dd className={`num ${gap === null ? '' : gap >= 0 ? 'up' : 'down'}`}>
+                {gap === null ? '—' : `${gap >= 0 ? '+' : '−'}${Math.abs(gap).toFixed(1)} %`}
+              </dd>
+            </div>
+            <div className="fact">
+              <dt>Fired on</dt>
+              <dd>{formatDate(signal.date)}</dd>
+            </div>
+            <div className="fact">
+              <dt>Bars since</dt>
+              <dd className="num">{signal.age}</dd>
+            </div>
+          </dl>
+        </>
+      )}
+    </section>
+  );
+}
 
 interface Props {
   security: Security;
@@ -213,6 +293,10 @@ export function StockDetail({ security, quote, cls, onClose }: Props) {
             <dd className="num">{security.marketLot ?? '—'}</dd>
           </div>
         </dl>
+
+        {/* Sits between the listing facts and screener.in's: it is derived from
+            the same price history as the chart above, not fetched from either. */}
+        <SignalPanel ticker={security.ticker} price={quote?.price} />
 
         {/* Everything above is the exchange lists and Yahoo; everything below is
             screener.in, fetched when the drawer opens. */}

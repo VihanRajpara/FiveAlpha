@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
+    "check:signals": "node scripts/check-signals.mjs",
     "deploy": "npm run build && wrangler deploy",
     "seed": "node scripts/seed.mjs all",
     "seed:securities": "node scripts/seed.mjs securities",

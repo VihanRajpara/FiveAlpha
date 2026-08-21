@@ -12,21 +12,25 @@ import {
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useSignal } from '../hooks/useSignal';
 import { CAP_SHORT, classRank } from '../lib/classification';
-import { ExchangeBadges } from './ExchangeBadges';
 import { SelectMenu } from './SelectMenu';
 import { formatCrore, formatDate, formatFromHigh, formatPercent, formatPrice } from '../lib/format';
+import { UT_BOT, signalGapPct } from '../lib/signals';
 import type { ScreenResult } from '../lib/screens';
 import type { Classification, SecurityWithQuote } from '../types';
 
 /**
- * Three layouts, because a 1,200px-wide screener is unusable on a phone:
+ * Three layouts, none of which scrolls sideways — a wall of thirteen columns
+ * was the thing people couldn't read:
  *
- *  - `wide`   — every column, horizontally scrollable.
- *  - `medium` — the seven columns worth having when the viewport can't hold
- *               thirteen; no horizontal scroll.
+ *  - `wide`   — # · Symbol · Company · Type · LTP · Chg% · Listed · Signal.
+ *  - `medium` — Symbol · Company · LTP · Chg% · Signal.
  *  - `mobile` — abandons the grid entirely for stacked rows, with a sort
  *               control standing in for the clickable column headers.
+ *
+ * Everything cut (series, exchanges, ISIN, face value, prev close, rupee
+ * change) is in the detail drawer, one click away on the row.
  */
 type Layout = 'wide' | 'medium' | 'mobile';
 
@@ -37,35 +41,26 @@ type Layout = 'wide' | 'medium' | 'mobile';
  */
 const ROW_HEIGHT: Record<Layout, number> = { wide: 48, medium: 48, mobile: 64 };
 
-/**
- * Columns dropped in `medium`, in priority order of what matters least. `series`
- * goes too: at this width there is room for two classification columns, and
- * segment/cap plus exchange say more about a stock than EQ-vs-BE does. `exchange`
- * survives because it is the one column that distinguishes the ~2,800 BSE-only
- * rows from everything else.
- */
-const MEDIUM_HIDDEN = new Set([
-  'index',
-  'series',
-  'previousClose',
-  'isin',
-  'listingDate',
-  'faceValue',
-]);
+const NONE: Set<string> = new Set();
 
 /**
- * With a screen running there are four more columns and the same width to put
- * them in, so `medium` gives up more of the identity columns: what a row is
- * matters less than why it passed. What survives is Symbol · Company · LTP ·
- * Chg% · vs 10Y high · RSI(M) — the two screen columns that decide most rows.
- * ROCE and market cap fall away here and stay in the drawer; they are the legs
- * least likely to be the interesting one on a row that already passed.
+ * Wide while screening: the four screen columns arrive and the two weakest
+ * identity columns leave, so the table still fits without side-scrolling. On a
+ * row that already passed a screen, why it passed beats what it is.
+ */
+const WIDE_HIDDEN_SCREENING = new Set(['segment', 'listingDate']);
+
+/** `medium` keeps Symbol · Company · LTP · Chg% · Side · Gap. */
+const MEDIUM_HIDDEN = new Set(['index', 'segment', 'listingDate', 'sigAt']);
+
+/**
+ * …and while screening adds the two screen legs that decide most rows,
+ * dropping ROCE, market cap and the signal's gap to pay for them. The side and
+ * its date stay: a screen shortlist with no verdict on it is half an answer.
  */
 const MEDIUM_HIDDEN_SCREENING = new Set([
   ...MEDIUM_HIDDEN,
-  'exchange',
-  'segment',
-  'change',
+  'sigGap',
   'rocePct',
   'marketCapCr',
 ]);
@@ -130,6 +125,24 @@ const NEXT = 'm9 18 6-6-6-6';
 const LAST = 'm6 18 6-6-6-6M13 18l6-6-6-6';
 
 /**
+ * Symbol plus the two facts that used to own a column each.
+ *
+ * Both are marked only when they are the exception — most rows are NSE and
+ * most are EQ, so badging those says nothing and costs a column of noise. The
+ * full picture (series, both exchanges, ISIN, listing date, face value, prev
+ * close) is a click away in the detail drawer.
+ */
+function SymbolCell({ row }: { row: SecurityWithQuote }) {
+  return (
+    <>
+      {row.symbol}
+      {!row.exchanges.includes('NSE') && <span className="badge exch exch-BSE">BSE</span>}
+      {row.series !== 'EQ' && <span className={`badge ${row.series}`}>{row.series}</span>}
+    </>
+  );
+}
+
+/**
  * Segment + cap band. The F&O mark is the one that earns colour — it is the
  * distinction people scan for, and only ~200 of 2,400 rows carry it.
  */
@@ -139,6 +152,24 @@ function TypeCell({ cls }: { cls: Classification | undefined }) {
     <span className="type-cell">
       {cls.fno && <span className="badge fno">F&amp;O</span>}
       <span className={`badge cap cap-${cls.capBand}`}>{CAP_SHORT[cls.capBand]}</span>
+    </span>
+  );
+}
+
+/**
+ * One screen number on a phone row: the figure carries the weight, the label
+ * stays out of the way. Reading down a list of rows means comparing the
+ * numbers, and a sentence of grey text made them all look the same.
+ *
+ * A metric the screen never measured is dropped rather than dashed — three
+ * em dashes on a row say less than nothing.
+ */
+function Metric({ label, value }: { label: string; value: string | undefined }) {
+  if (value === undefined) return null;
+  return (
+    <span className="metric">
+      <b className="num">{value}</b>
+      {label}
     </span>
   );
 }
@@ -192,6 +223,94 @@ function ScreenCell({
     >
       {approx && '≈'}
       {format(value)}
+    </span>
+  );
+}
+
+/**
+ * The UT-Bot-on-HMA verdict for one row: which way it flipped, the close that
+ * flipped it, and when.
+ *
+ * A component rather than a value on the row because it fetches its own bars —
+ * see `useSignal`. Daily bars, so "when" is a date; the study's intraday
+ * opening-range leg is not part of this (see src/lib/signals.ts).
+ */
+function SignalCell({ ticker, price }: { ticker: string; price: number | null | undefined }) {
+  const { signal, loaded } = useSignal(ticker);
+
+  if (!loaded) return <span className="skeleton" />;
+  if (!signal) return <span className="num muted-dash">—</span>;
+
+  const tone = signal.side === 'BUY' ? 'up' : 'down';
+  // How far the price has run since the flip, and how long ago that was — the
+  // two things the signal filters cut on, so the row has to show them or the
+  // filter looks arbitrary.
+  const gap = signalGapPct(signal, price);
+  return (
+    <span
+      className={`sig ${tone}`}
+      title={`UT Bot (ATR ${UT_BOT.atrPeriod} × ${UT_BOT.keyValue}) on HMA ${UT_BOT.hmaLength}, daily bars — ${signal.side} at ${formatPrice(signal.price)} on ${formatDate(signal.date)}, ${signal.age === 0 ? 'today' : `${signal.age} bars ago`}`}
+    >
+      <span className="sig-head">
+        <span className="sig-badge">{signal.side}</span>
+        <span className="num">{formatPrice(signal.price)}</span>
+        {gap !== null && (
+          <span className={`sig-gap num ${gap >= 0 ? 'up' : 'down'}`}>{formatPercent(gap)}</span>
+        )}
+      </span>
+      <span className="sig-when">
+        {formatDate(signal.date)} · {signal.age === 0 ? 'today' : `${signal.age}d`}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The grid's three signal cells.
+ *
+ * Each calls `useSignal` for the same ticker, which looks like three fetches
+ * and is one: the hook reads a shared day-cache and `fetchSignal` collapses
+ * concurrent callers onto a single promise. Three subscriptions per row is the
+ * price of three real columns, and it is cheaper than the truncation was.
+ */
+function SignalSide({ ticker }: { ticker: string }) {
+  const { signal, loaded } = useSignal(ticker);
+  if (!loaded) return <span className="skeleton" />;
+  if (!signal) return <span className="num muted-dash">—</span>;
+
+  return (
+    <span
+      className={`sig sig-inline ${signal.side === 'BUY' ? 'up' : 'down'}`}
+      title={`UT Bot (ATR ${UT_BOT.atrPeriod} × ${UT_BOT.keyValue}) on HMA ${UT_BOT.hmaLength}, daily bars — ${signal.side} at ${formatPrice(signal.price)} on ${formatDate(signal.date)}, ${signal.age === 0 ? 'today' : `${signal.age} bars ago`}`}
+    >
+      <span className="sig-badge">{signal.side}</span>
+      {/* Date only. The age went with it into the tooltip: the date already
+          says when, and "01 Jun 2026 · 596d" was two ways of saying one thing
+          in a track that could hold neither. */}
+      <span className="sig-when">{formatDate(signal.date)}</span>
+    </span>
+  );
+}
+
+function SignalAt({ ticker }: { ticker: string }) {
+  const { signal, loaded } = useSignal(ticker);
+  if (!loaded) return <span className="skeleton" />;
+  if (!signal) return <span className="num muted-dash">—</span>;
+  return <span className="num">{formatPrice(signal.price)}</span>;
+}
+
+function SignalGap({ ticker, price }: { ticker: string; price: number | null | undefined }) {
+  const { signal, loaded } = useSignal(ticker);
+  if (!loaded) return <span className="skeleton" />;
+  const gap = signal ? signalGapPct(signal, price) : null;
+  if (gap === null) return <span className="num muted-dash">—</span>;
+  // One decimal, not two. A day's change is ±3% and wants the precision; a gap
+  // since the signal is routinely ±80%, where the second decimal is noise in a
+  // column of numbers meant to be skimmed.
+  return (
+    <span className={`num ${gap >= 0 ? 'up' : 'down'}`}>
+      {gap >= 0 ? '+' : '−'}
+      {Math.abs(gap).toFixed(1)}%
     </span>
   );
 }
@@ -275,21 +394,10 @@ export function StockTable({
       helper.display({ id: 'index', header: '#', cell: () => null }),
       helper.accessor('symbol', {
         header: 'Symbol',
-        cell: (ctx) => ctx.getValue(),
+        cell: (ctx) => <SymbolCell row={ctx.row.original} />,
       }),
       helper.accessor('name', {
         header: 'Company',
-      }),
-      helper.accessor('series', {
-        header: 'Series',
-        cell: (ctx) => <span className={`badge ${ctx.getValue()}`}>{ctx.getValue()}</span>,
-      }),
-      // Sorted on the joined string, which puts BSE-only rows in their own block
-      // ("BSE" < "NSE,BSE") rather than interleaving them alphabetically.
-      helper.accessor((r) => r.exchanges.join(','), {
-        id: 'exchange',
-        header: 'Exch',
-        cell: (ctx) => <ExchangeBadges exchanges={ctx.row.original.exchanges} />,
       }),
       // Sorted on a rank rather than a label, so the order is F&O-first and then
       // largest-to-smallest instead of alphabetical.
@@ -308,22 +416,6 @@ export function StockTable({
         sortingFn: numericSort,
         cell: (ctx) => <PriceCell value={ctx.row.original.quote?.price} loaded={quotesLoaded} />,
       }),
-      helper.accessor((r) => r.quote?.change ?? undefined, {
-        id: 'change',
-        header: 'Chg',
-        sortUndefined: 'last',
-        sortingFn: numericSort,
-        cell: (ctx) => {
-          const v = ctx.row.original.quote?.change;
-          if (v === null || v === undefined) return <Missing loaded={quotesLoaded} />;
-          return (
-            <span className={`num ${v >= 0 ? 'up' : 'down'}`}>
-              {v >= 0 ? '+' : ''}
-              {v.toFixed(2)}
-            </span>
-          );
-        },
-      }),
       helper.accessor((r) => r.quote?.changePercent ?? undefined, {
         id: 'changePercent',
         header: 'Chg %',
@@ -332,18 +424,6 @@ export function StockTable({
         cell: (ctx) => (
           <ChangeChip value={ctx.row.original.quote?.changePercent} loaded={quotesLoaded} />
         ),
-      }),
-      helper.accessor((r) => r.quote?.previousClose ?? undefined, {
-        id: 'previousClose',
-        header: 'Prev close',
-        sortUndefined: 'last',
-        sortingFn: numericSort,
-        cell: (ctx) => (
-          <PriceCell value={ctx.row.original.quote?.previousClose} loaded={quotesLoaded} />
-        ),
-      }),
-      helper.accessor('isin', {
-        header: 'ISIN',
       }),
       helper.accessor((r) => r.listingDate ?? undefined, {
         id: 'listingDate',
@@ -354,12 +434,39 @@ export function StockTable({
         sortingFn: 'text',
         cell: (ctx) => formatDate(ctx.row.original.listingDate),
       }),
-      helper.accessor((r) => r.faceValue ?? undefined, {
-        id: 'faceValue',
-        header: 'FV',
-        sortUndefined: 'last',
-        sortingFn: numericSort,
-        cell: (ctx) => <span className="num">{ctx.row.original.faceValue ?? '—'}</span>,
+      // Three columns under one heading, rather than one column holding three
+      // numbers: at any width that fits the rest of the table, a badge plus a
+      // price plus a percentage in a single track truncates the price, which is
+      // the number the whole column exists for.
+      //
+      // None of them sorts: the values are fetched per visible cell, so the
+      // table never holds the whole column and could only sort the part it has
+      // seen.
+      helper.group({
+        id: 'signal',
+        header: 'Signal',
+        columns: [
+          helper.display({
+            id: 'sigSide',
+            header: 'Side',
+            cell: (ctx) => <SignalSide ticker={ctx.row.original.ticker} />,
+          }),
+          helper.display({
+            id: 'sigAt',
+            header: 'At',
+            cell: (ctx) => <SignalAt ticker={ctx.row.original.ticker} />,
+          }),
+          helper.display({
+            id: 'sigGap',
+            header: 'Gap',
+            cell: (ctx) => (
+              <SignalGap
+                ticker={ctx.row.original.ticker}
+                price={ctx.row.original.quote?.price}
+              />
+            ),
+          }),
+        ],
       }),
       // The screen's own numbers, appended so they read as an extra section
       // rather than interleaving with the listing data. Present only while a
@@ -503,10 +610,9 @@ export function StockTable({
   const RIGHT_ALIGNED = new Set([
     'index',
     'price',
-    'change',
     'changePercent',
-    'previousClose',
-    'faceValue',
+    'sigAt',
+    'sigGap',
     'pctOfHigh',
     'monthlyRsi14',
     'rocePct',
@@ -516,20 +622,47 @@ export function StockTable({
   // Column visibility is filtered at render rather than through TanStack's
   // visibility state, so hidden columns stay fully sortable from the mobile
   // sort control.
-  const mediumHidden = screenResults ? MEDIUM_HIDDEN_SCREENING : MEDIUM_HIDDEN;
-  const isVisible = (id: string) => layout !== 'medium' || !mediumHidden.has(id);
+  const hidden =
+    layout === 'medium'
+      ? screenResults
+        ? MEDIUM_HIDDEN_SCREENING
+        : MEDIUM_HIDDEN
+      : layout === 'wide' && screenResults
+        ? WIDE_HIDDEN_SCREENING
+        : NONE;
+  const isVisible = (id: string) => !hidden.has(id);
 
-  const cellClass = (id: string) => {
-    const align = RIGHT_ALIGNED.has(id) ? ' right' : '';
-    if (id === 'index') return `td idx${align}`;
-    if (id === 'symbol') return 'td sym';
-    if (id === 'name') return 'td name';
-    if (id === 'isin' || id === 'listingDate') return 'td muted';
-    if (id === 'exchange') return 'td exch';
-    return `td${align}`;
+  /**
+   * The signal block's outer edges, so a hairline can run down both sides of it
+   * through the header and the body. The heading alone was doing all the work
+   * of saying "these belong together", from a long way above the numbers.
+   */
+  const visibleSignalIds = ['sigSide', 'sigAt', 'sigGap'].filter(isVisible);
+  const groupEdge = (id: string) => {
+    const edges = [];
+    if (id === visibleSignalIds[0]) edges.push('group-start');
+    if (id === visibleSignalIds.at(-1)) edges.push('group-end');
+    return edges;
   };
 
-  const headers = table.getHeaderGroups()[0].headers.filter((h) => isVisible(h.column.id));
+  const cellClass = (id: string) => {
+    const parts = ['td', ...groupEdge(id)];
+    if (RIGHT_ALIGNED.has(id)) parts.push('right');
+    if (id === 'index') parts.push('idx');
+    else if (id === 'symbol') parts.push('sym');
+    else if (id === 'name') parts.push('name');
+    else if (id === 'listingDate') parts.push('muted');
+    else if (id === 'sigSide') parts.push('sig-td');
+    return parts.join(' ');
+  };
+
+  // The leaf columns, in the order they are laid out — the grid tracks are
+  // numbered from this, and so is every header's placement below.
+  const headers = table
+    .getHeaderGroups()
+    .at(-1)!
+    .headers.filter((h) => isVisible(h.column.id));
+  const leafIndex = new Map(headers.map((h, i) => [h.column.id, i]));
 
   // The header row doubles as the sort control on desktop; on mobile there is
   // no room for it, so sorting moves into an explicit select + direction pair.
@@ -572,27 +705,25 @@ export function StockTable({
         <div key={row.id} {...shared} className="tr row-stack">
           <div className="stack-main">
             <span className="stack-sym">
-              {row.original.symbol}
+              <SymbolCell row={row.original} />
               {row.original.cls?.fno && <span className="badge fno">F&amp;O</span>}
-              {/* Only the exception is worth a badge here — a phone row has
-                  space for three chips at most, and most rows are on NSE, so
-                  marking those says nothing. */}
-              {!row.original.exchanges.includes('NSE') && (
-                <span className="badge exch exch-BSE">BSE</span>
-              )}
-              <span className={`badge ${row.original.series}`}>{row.original.series}</span>
             </span>
             <span className="stack-name">{row.original.name}</span>
             {result && (
-              <span className="stack-screen num">
-                {result.approx && '≈'}
-                {formatFromHigh(result.metrics.pctOfHigh)} from 10Y high
-                {result.metrics.monthlyRsi14 !== null &&
-                  result.metrics.monthlyRsi14 !== undefined &&
-                  ` · RSI ${result.metrics.monthlyRsi14.toFixed(0)}`}
-                {result.metrics.rocePct !== null &&
-                  result.metrics.rocePct !== undefined &&
-                  ` · ROCE ${result.metrics.rocePct.toFixed(0)}%`}
+              <span className="stack-screen">
+                <Metric
+                  label="10Y high"
+                  value={`${result.approx ? '≈' : ''}${formatFromHigh(result.metrics.pctOfHigh)}`}
+                />
+                <Metric label="RSI" value={result.metrics.monthlyRsi14?.toFixed(0)} />
+                <Metric
+                  label="ROCE"
+                  value={
+                    result.metrics.rocePct === null || result.metrics.rocePct === undefined
+                      ? undefined
+                      : `${result.metrics.rocePct.toFixed(0)}%`
+                  }
+                />
               </span>
             )}
           </div>
@@ -605,6 +736,7 @@ export function StockTable({
               )}
             </span>
             <ChangeChip value={q?.changePercent} loaded={quotesLoaded} />
+            <SignalCell ticker={row.original.ticker} price={q?.price} />
           </div>
         </div>
       );
@@ -671,21 +803,67 @@ export function StockTable({
         style={{ '--row-h': `${rowHeight}px` } as React.CSSProperties}
       >
         {layout !== 'mobile' && (
+          /**
+           * Two header rows in one grid, not two stacked grids — a column with
+           * no group heading has to span both rows, and `grid-row: span 2` only
+           * spans rows of the grid it is in. Every cell is placed explicitly
+           * from `leafIndex`, so auto-placement never has to guess around the
+           * spans.
+           */
           <div className="thead grid-row">
-            {headers.map((header) => {
-              const sorted = header.column.getIsSorted();
-              return (
-                <div
-                  key={header.id}
-                  className={`th${RIGHT_ALIGNED.has(header.column.id) ? ' right' : ''}`}
-                  onClick={header.column.getToggleSortingHandler()}
-                  title={`Sort by ${String(header.column.columnDef.header)}`}
-                >
-                  {flexRender(header.column.columnDef.header, header.getContext())}
-                  {sorted && <span className="caret">{sorted === 'asc' ? '▲' : '▼'}</span>}
-                </div>
-              );
-            })}
+            {table.getHeaderGroups().flatMap((group, depth) =>
+              group.headers.map((header) => {
+                // A placeholder is the empty slot under an ungrouped column;
+                // the column itself takes both rows instead.
+                if (header.isPlaceholder) return null;
+
+                const leaves = header
+                  .getLeafHeaders()
+                  .filter((leaf) => isVisible(leaf.column.id));
+                const start = leaves.length > 0 ? leafIndex.get(leaves[0].column.id) : undefined;
+                // Every leaf hidden at this layout — the heading has nothing
+                // left to sit over.
+                if (start === undefined) return null;
+
+                const grouped = header.subHeaders.length > 0;
+                const sorted = header.column.getIsSorted();
+                const end = start + leaves.length;
+                return (
+                  <div
+                    key={header.id}
+                    className={[
+                      'th',
+                      RIGHT_ALIGNED.has(header.column.id) ? 'right' : '',
+                      grouped ? 'th-group group-start group-end' : '',
+                      // An ungrouped column has no label in the second row, so
+                      // it takes both — sat on the same baseline as the ones
+                      // that do, not floating in the middle of the band.
+                      depth === 0 && !grouped ? 'th-span' : '',
+                      ...(grouped ? [] : groupEdge(header.column.id)),
+                      start === 0 ? 'edge-start' : '',
+                      end === headers.length ? 'edge-end' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    style={{
+                      gridColumn: `${start + 1} / span ${leaves.length}`,
+                      gridRow: depth === 0 && !grouped ? '1 / span 2' : depth + 1,
+                    }}
+                    onClick={header.column.getToggleSortingHandler()}
+                    title={
+                      header.column.getCanSort()
+                        ? `Sort by ${String(header.column.columnDef.header)}`
+                        : // The signal columns are fetched per visible cell, so
+                          // there is no full column to sort.
+                          'UT Bot on HMA, daily bars'
+                    }
+                  >
+                    {flexRender(header.column.columnDef.header, header.getContext())}
+                    {sorted && <span className="caret">{sorted === 'asc' ? '▲' : '▼'}</span>}
+                  </div>
+                );
+              }),
+            )}
           </div>
         )}
 

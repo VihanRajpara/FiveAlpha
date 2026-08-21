@@ -76,25 +76,38 @@ function ChipGroup({ group }: { group: FilterGroupSpec }) {
 
 interface Props {
   groups: FilterGroupSpec[];
+  /**
+   * Groups that live in the sheet at every width. There are too many of them
+   * to sit in the bar — a chip row that scrolls past the window edge is a
+   * filter you have to go looking for — and they are the second question you
+   * ask, after the first four have set the universe.
+   */
+  advanced?: FilterGroupSpec[];
   /** Shown live on the sheet's confirm button. */
   resultCount: number;
 }
 
 /**
- * Filter controls, rendered inline on wide screens and as a bottom sheet on
- * everything narrower. Both render from the same group specs, so the two
- * layouts cannot drift apart.
+ * Filter controls: the core groups inline on wide screens and as a bottom sheet
+ * on everything narrower, with the advanced groups always in the sheet. Every
+ * layout renders from the same group specs, so they cannot drift apart.
  */
-export function Filters({ groups, resultCount }: Props) {
+export function Filters({ groups, advanced = [], resultCount }: Props) {
   const compact = useMediaQuery(COMPACT_QUERY);
   const [open, setOpen] = useState(false);
 
-  const activeCount = groups.filter((g) => g.value !== g.options[0]?.value).length;
+  // Which groups the sheet shows depends on whether the bar is showing the
+  // core ones already.
+  const sheetGroups = compact ? [...groups, ...advanced] : advanced;
+  const isDefault = (g: FilterGroupSpec) => g.value === g.options[0]?.value;
+  const activeCount = (compact ? [...groups, ...advanced] : advanced).filter(
+    (g) => !isDefault(g),
+  ).length;
 
-  // Growing the window past the breakpoint puts the chips back on screen, so a
-  // sheet left open would be a modal over controls that are already visible.
+  // Crossing the breakpoint changes what the sheet contains, so a sheet left
+  // open would swap its own contents underneath the reader.
   useEffect(() => {
-    if (!compact) setOpen(false);
+    setOpen(false);
   }, [compact]);
 
   useEffect(() => {
@@ -115,38 +128,40 @@ export function Filters({ groups, resultCount }: Props) {
     };
   }, [open]);
 
-  if (!compact) {
-    return (
-      <div className="filters-inline">
-        {groups.map((g) => (
-          <ChipGroup key={g.key} group={g} />
-        ))}
-      </div>
-    );
-  }
-
   const clearAll = () => {
-    for (const g of groups) {
+    for (const g of sheetGroups) {
       if (g.options[0]) g.onChange(g.options[0].value);
     }
   };
 
   return (
     <>
-      <button
-        type="button"
-        className="filter-trigger"
-        data-active={activeCount > 0}
-        onClick={() => setOpen(true)}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-      >
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-          <path d="M4 6h16M7 12h10M10 18h4" />
-        </svg>
-        Filters
-        {activeCount > 0 && <span className="filter-count">{activeCount}</span>}
-      </button>
+      {/* Wide: the core groups stay in the bar and the button opens the rest.
+          Narrow: the button is all of it. */}
+      {!compact && (
+        <div className="filters-inline">
+          {groups.map((g) => (
+            <ChipGroup key={g.key} group={g} />
+          ))}
+        </div>
+      )}
+
+      {sheetGroups.length > 0 && (
+        <button
+          type="button"
+          className="filter-trigger"
+          data-active={activeCount > 0}
+          onClick={() => setOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <path d="M4 6h16M7 12h10M10 18h4" />
+          </svg>
+          {compact ? 'Filters' : 'More'}
+          {activeCount > 0 && <span className="filter-count">{activeCount}</span>}
+        </button>
+      )}
 
       {open &&
         createPortal(
@@ -154,7 +169,7 @@ export function Filters({ groups, resultCount }: Props) {
             <div className="sheet-scrim" onClick={() => setOpen(false)} />
             <div className="sheet" role="dialog" aria-modal="true" aria-label="Filters">
               <div className="sheet-head">
-                <h3>Filters</h3>
+                <h3>{compact ? 'Filters' : 'More filters'}</h3>
                 <button
                   type="button"
                   className="icon-btn"
@@ -165,7 +180,7 @@ export function Filters({ groups, resultCount }: Props) {
                 </button>
               </div>
 
-              {groups.map((g) => (
+              {sheetGroups.map((g) => (
                 <div className="sheet-group" key={g.key}>
                   <ChipGroup group={g} />
                 </div>
