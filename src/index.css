@@ -352,6 +352,14 @@ body {
   flex: none;
 }
 
+/* Same trap as the drawer had: this is a flex column that is also the scroller,
+   so once the content passes `max-height` its children start shrinking instead
+   of overflowing. With nine advanced groups in here that is no longer
+   hypothetical — nothing in a scrolling sheet may shrink. */
+.sheet > * {
+  flex: none;
+}
+
 .sheet-head {
   display: flex;
   align-items: center;
@@ -1636,6 +1644,17 @@ body {
   animation: fade-in 0.2s ease;
 }
 
+/**
+ * The shell only. It does **not** scroll — `.drawer-body` does.
+ *
+ * When this element was both the flex column and the scroller, everything
+ * inside it was a flex item free to shrink, and the sections carrying their own
+ * `overflow` (the chart, each financial table) have an automatic minimum size
+ * of zero. A company with six tables was quietly crushed: boxes collapsed while
+ * their text still painted, so taps hit whichever collapsed box lay under the
+ * finger rather than the heading being touched, and the last table had no
+ * height to reach at all.
+ */
 .drawer {
   position: fixed;
   top: 0;
@@ -1647,8 +1666,22 @@ body {
   z-index: 41;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
   animation: slide-in 0.24s cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* The header stays put; the document under it scrolls. On a sheet this is the
+   difference between a close button that is always reachable and one you have
+   to scroll back up to find. */
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  /* The last section is otherwise flush with the bottom edge — and on a phone,
+     under the home indicator. */
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
 }
 
 @keyframes fade-in {
@@ -1665,6 +1698,7 @@ body {
 }
 
 .drawer-head {
+  flex: none;
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -2320,6 +2354,14 @@ body {
 
   .chart-box {
     padding: 8px 4px 4px;
+  }
+
+  /* A vertical scroller nested inside the sheet's own is a trap on touch: a
+     finger that lands on a P&L scrolls the P&L and the sheet appears stuck.
+     The tables run to full height here and the sheet does the scrolling; the
+     horizontal scroll stays, because thirteen periods will never fit. */
+  .fin-scroll {
+    max-height: none;
   }
 }
 
