@@ -838,8 +838,8 @@ body {
 .table-wrap[data-layout='wide'] .grid-row {
   grid-template-columns:
     64px 148px minmax(200px, 1.6fr) 76px 108px 132px 116px 104px 120px
-    116px 152px 116px 76px;
-  min-width: 1508px;
+    116px 152px 116px 76px 152px;
+  min-width: 1660px;
 }
 
 /* Screening adds four columns on the right — vs 10Y high · RSI(M) · ROCE ·
@@ -848,22 +848,23 @@ body {
 .table-wrap[data-layout='wide'][data-screen='true'] .grid-row {
   grid-template-columns:
     64px 148px minmax(200px, 1.6fr) 76px 108px 132px 116px 104px 120px
-    116px 152px 116px 76px 120px 96px 96px 116px;
-  min-width: 1936px;
+    116px 152px 116px 76px 152px 120px 96px 96px 116px;
+  min-width: 2088px;
 }
 
-/* Tablet: the seven columns worth keeping, sized to fit with no side-scroll —
-   Symbol · Company · Exch · Type · LTP · Chg · Chg%. */
+/* Tablet: the six columns worth keeping, sized to fit with no side-scroll —
+   Symbol · Company · Exch · LTP · Chg% · Signal. Type and the rupee change gave
+   way to the signal; see MEDIUM_HIDDEN in StockTable. */
 .table-wrap[data-layout='medium'] .grid-row {
-  grid-template-columns: 118px minmax(96px, 1.5fr) 100px 118px 96px 88px 108px;
+  grid-template-columns: 118px minmax(96px, 1.5fr) 100px 96px 108px 140px;
   min-width: 0;
 }
 
-/* Tablet while screening: six columns, still no side-scroll —
-   Symbol · Company · LTP · Chg% · vs 10Y high · RSI(M). See
+/* Tablet while screening: seven columns, still no side-scroll —
+   Symbol · Company · LTP · Chg% · Signal · vs 10Y high · RSI(M). See
    MEDIUM_HIDDEN_SCREENING in StockTable for what gives way and why. */
 .table-wrap[data-layout='medium'][data-screen='true'] .grid-row {
-  grid-template-columns: 112px minmax(90px, 1.4fr) 96px 104px 116px 84px;
+  grid-template-columns: 104px minmax(84px, 1.4fr) 92px 96px 130px 104px 76px;
   min-width: 0;
 }
 
@@ -1116,6 +1117,61 @@ body {
   line-height: 1;
 }
 
+/* ---------- UT Bot signal ---------- */
+
+.td.sig-td {
+  overflow: hidden;
+}
+
+.sig {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.sig-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sig-badge {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.sig.up .sig-badge {
+  background: var(--up-container);
+  color: var(--up);
+}
+
+.sig.down .sig-badge {
+  background: var(--down-container);
+  color: var(--down);
+}
+
+.sig-head .num {
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The date the flip happened. Quieter than the price it happened at — one is
+   the trigger, the other is only when. */
+.sig-when {
+  font-size: 10.5px;
+  color: var(--on-surface-faint);
+}
+
 /* ---------- mobile: stacked rows + explicit sort control ---------- */
 
 .sortbar {
@@ -1343,6 +1399,16 @@ body {
   align-items: flex-end;
   gap: 4px;
   flex: none;
+}
+
+.stack-side .sig {
+  align-items: flex-end;
+  gap: 0;
+}
+
+.stack-side .sig-head {
+  flex-direction: row-reverse;
+  gap: 5px;
 }
 
 .stack-price {

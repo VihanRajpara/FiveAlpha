@@ -12,10 +12,12 @@ import {
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useSignal } from '../hooks/useSignal';
 import { CAP_SHORT, classRank } from '../lib/classification';
 import { ExchangeBadges } from './ExchangeBadges';
 import { SelectMenu } from './SelectMenu';
 import { formatCrore, formatDate, formatFromHigh, formatPercent, formatPrice } from '../lib/format';
+import { UT_BOT } from '../lib/signals';
 import type { ScreenResult } from '../lib/screens';
 import type { Classification, SecurityWithQuote } from '../types';
 
@@ -51,6 +53,11 @@ const MEDIUM_HIDDEN = new Set([
   'isin',
   'listingDate',
   'faceValue',
+  // The signal column earns its place at this width, so two that say less give
+  // way for it: `change` repeats `changePercent` in rupees, and `segment` is a
+  // property of the company rather than of today.
+  'segment',
+  'change',
 ]);
 
 /**
@@ -64,8 +71,6 @@ const MEDIUM_HIDDEN = new Set([
 const MEDIUM_HIDDEN_SCREENING = new Set([
   ...MEDIUM_HIDDEN,
   'exchange',
-  'segment',
-  'change',
   'rocePct',
   'marketCapCr',
 ]);
@@ -192,6 +197,35 @@ function ScreenCell({
     >
       {approx && '≈'}
       {format(value)}
+    </span>
+  );
+}
+
+/**
+ * The UT-Bot-on-HMA verdict for one row: which way it flipped, the close that
+ * flipped it, and when.
+ *
+ * A component rather than a value on the row because it fetches its own bars —
+ * see `useSignal`. Daily bars, so "when" is a date; the study's intraday
+ * opening-range leg is not part of this (see src/lib/signals.ts).
+ */
+function SignalCell({ ticker }: { ticker: string }) {
+  const { signal, loaded } = useSignal(ticker);
+
+  if (!loaded) return <span className="skeleton" />;
+  if (!signal) return <span className="num muted-dash">—</span>;
+
+  const tone = signal.side === 'BUY' ? 'up' : 'down';
+  return (
+    <span
+      className={`sig ${tone}`}
+      title={`UT Bot (ATR ${UT_BOT.atrPeriod} × ${UT_BOT.keyValue}) on HMA ${UT_BOT.hmaLength}, daily bars — ${signal.side} at ${formatPrice(signal.price)} on ${formatDate(signal.date)}, ${signal.age === 0 ? 'today' : `${signal.age} bars ago`}`}
+    >
+      <span className="sig-head">
+        <span className="sig-badge">{signal.side}</span>
+        <span className="num">{formatPrice(signal.price)}</span>
+      </span>
+      <span className="sig-when">{formatDate(signal.date)}</span>
     </span>
   );
 }
@@ -361,6 +395,13 @@ export function StockTable({
         sortingFn: numericSort,
         cell: (ctx) => <span className="num">{ctx.row.original.faceValue ?? '—'}</span>,
       }),
+      // Not sortable: the values are fetched per visible cell, so the table
+      // never holds the whole column and could only sort the part it has seen.
+      helper.display({
+        id: 'signal',
+        header: 'Signal',
+        cell: (ctx) => <SignalCell ticker={ctx.row.original.ticker} />,
+      }),
       // The screen's own numbers, appended so they read as an extra section
       // rather than interleaving with the listing data. Present only while a
       // screen is loaded: four permanently empty columns would be worse than
@@ -526,6 +567,7 @@ export function StockTable({
     if (id === 'name') return 'td name';
     if (id === 'isin' || id === 'listingDate') return 'td muted';
     if (id === 'exchange') return 'td exch';
+    if (id === 'signal') return 'td sig-td';
     return `td${align}`;
   };
 
@@ -605,6 +647,7 @@ export function StockTable({
               )}
             </span>
             <ChangeChip value={q?.changePercent} loaded={quotesLoaded} />
+            <SignalCell ticker={row.original.ticker} />
           </div>
         </div>
       );
@@ -679,7 +722,13 @@ export function StockTable({
                   key={header.id}
                   className={`th${RIGHT_ALIGNED.has(header.column.id) ? ' right' : ''}`}
                   onClick={header.column.getToggleSortingHandler()}
-                  title={`Sort by ${String(header.column.columnDef.header)}`}
+                  title={
+                    header.column.getCanSort()
+                      ? `Sort by ${String(header.column.columnDef.header)}`
+                      : // The signal column is fetched per visible cell, so
+                        // there is no full column to sort.
+                        'UT Bot on HMA, daily bars'
+                  }
                 >
                   {flexRender(header.column.columnDef.header, header.getContext())}
                   {sorted && <span className="caret">{sorted === 'asc' ? '▲' : '▼'}</span>}
