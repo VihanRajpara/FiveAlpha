@@ -1,4 +1,4 @@
-import { fetchPaced, screenerPath, RateLimitedError } from './fundamentals';
+import { fetchScreenerPage, screenerPaths } from './fundamentals';
 import type { Security } from '../types';
 
 /**
@@ -85,7 +85,11 @@ export function parseCompany(html: string, url: string): CompanyDetail {
 
   const ratios = [...doc.querySelectorAll('#top-ratios li')]
     .map((li) => ({ name: txt(li.querySelector('.name')), value: txt(li.querySelector('.value')) }))
-    .filter((r) => r.name !== '' && r.value !== '');
+    // A digit, not just text: screener.in renders the strip for a company it
+    // has no figures for, leaving "₹ Cr." and "%" behind. Those are units with
+    // nothing in front of them and read as a broken panel — which is what the
+    // drawer was showing before `fetchScreenerPage` learned to fall back.
+    .filter((r) => r.name !== '' && /\d/.test(r.value));
 
   const list = (sel: string) => [...doc.querySelectorAll(`${sel} li`)].map(txt).filter(Boolean);
 
@@ -111,18 +115,22 @@ export async function fetchCompany(
   security: Pick<Security, 'symbol' | 'bseCode' | 'exchanges'>,
   signal?: AbortSignal,
 ): Promise<CompanyDetail | null> {
-  const path = screenerPath(security);
-  if (!path) return null;
+  // Keyed by the path asked for, not the one that answered — see
+  // `fetchScreenerPage`, which decides between them from what comes back.
+  const [key] = screenerPaths(security);
+  if (!key) return null;
 
-  const hit = cache.get(path);
+  const hit = cache.get(key);
   if (hit) return hit;
 
-  const res = await fetchPaced(path, signal);
-  if (res.status === 429) throw new RateLimitedError();
   // 404 is a real answer: screener.in has no page under this symbol.
-  if (!res.ok) return null;
+  const page = await fetchScreenerPage(security, signal);
+  if (!page) return null;
 
-  const detail = parseCompany(await res.text(), `https://www.screener.in${path.replace('/api/screener', '')}`);
-  cache.set(path, detail);
+  const detail = parseCompany(
+    page.html,
+    `https://www.screener.in${page.path.replace('/api/screener', '')}`,
+  );
+  cache.set(key, detail);
   return detail;
 }

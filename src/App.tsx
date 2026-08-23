@@ -343,8 +343,45 @@ export default function App() {
    */
   const filterGroups = useMemo<FilterGroupSpec[]>(
     () => [
-      // First, because it is the widest cut: it decides whether you are looking
-      // at ~2,400 NSE rows or all ~5,200.
+      // The signal, first — it is what the page is for, and it was behind the
+      // "More" button, which is the one place a filter you reach for every time
+      // should not be. Costs a request per row, so the affordability guard
+      // disables the four of them together rather than hiding them: a control
+      // that vanishes reads as a bug, one that is disabled reads as a reason.
+      {
+        key: 'signalSide',
+        label: 'Signal',
+        value: signal.side,
+        disabled: !signalFilterAffordable,
+        options: SIGNAL_SIDE_OPTIONS,
+        onChange: (v) => setSignal((s) => ({ ...s, side: v })),
+      },
+      {
+        key: 'signalAge',
+        label: 'Signal age',
+        value: signal.age,
+        disabled: !signalFilterAffordable,
+        options: SIGNAL_AGE_OPTIONS,
+        onChange: (v) => setSignal((s) => ({ ...s, age: v })),
+      },
+      {
+        key: 'signalGap',
+        label: 'From signal',
+        value: signal.gap,
+        disabled: !signalFilterAffordable,
+        options: SIGNAL_GAP_OPTIONS,
+        onChange: (v) => setSignal((s) => ({ ...s, gap: v })),
+      },
+      {
+        key: 'signalScore',
+        label: 'Signal quality',
+        value: signal.score ?? 'ALL',
+        disabled: !signalFilterAffordable,
+        options: SIGNAL_SCORE_OPTIONS,
+        onChange: (v) => setSignal((s) => ({ ...s, score: v })),
+      },
+      // Then the widest cut of the universe: whether you are looking at ~2,400
+      // NSE rows or all ~5,200.
       {
         key: 'exchange',
         label: 'Exchange',
@@ -391,52 +428,17 @@ export default function App() {
         onChange: (v) => setCap(v as CapFilter),
       },
     ],
-    [exchange, series, seriesOptions, segment, cap, classificationReady],
+    [signal, signalFilterAffordable, exchange, series, seriesOptions, segment, cap, classificationReady],
   );
 
   /**
-   * The second question, behind the "More" button: what the numbers say, once
-   * the four groups above have settled what you are looking at.
+   * The second question, behind the "More" button: what the screen measured.
    *
-   * Four of them read the signal column, which costs a request per row — hence
-   * the affordability guard. The last four read the screen's own metrics and
-   * stay disabled until one has run, because a filter on a number nothing has
-   * measured would empty the table and look broken.
+   * These stay disabled until a screen has run, because a filter on a number
+   * nothing has measured would empty the table and look broken.
    */
   const advancedGroups = useMemo<FilterGroupSpec[]>(
     () => [
-      {
-        key: 'signalSide',
-        label: 'Signal',
-        value: signal.side,
-        disabled: !signalFilterAffordable,
-        options: SIGNAL_SIDE_OPTIONS,
-        onChange: (v) => setSignal((s) => ({ ...s, side: v })),
-      },
-      {
-        key: 'signalAge',
-        label: 'Signal age',
-        value: signal.age,
-        disabled: !signalFilterAffordable,
-        options: SIGNAL_AGE_OPTIONS,
-        onChange: (v) => setSignal((s) => ({ ...s, age: v })),
-      },
-      {
-        key: 'signalGap',
-        label: 'From signal',
-        value: signal.gap,
-        disabled: !signalFilterAffordable,
-        options: SIGNAL_GAP_OPTIONS,
-        onChange: (v) => setSignal((s) => ({ ...s, gap: v })),
-      },
-      {
-        key: 'signalScore',
-        label: 'Signal quality',
-        value: signal.score ?? 'ALL',
-        disabled: !signalFilterAffordable,
-        options: SIGNAL_SCORE_OPTIONS,
-        onChange: (v) => setSignal((s) => ({ ...s, score: v })),
-      },
       ...NUMERIC_FILTERS.map((f) => ({
         key: f.key,
         label: f.label,
@@ -446,7 +448,7 @@ export default function App() {
         onChange: (v: string) => setBands((prev) => ({ ...prev, [f.key]: v })),
       })),
     ],
-    [signal, signalFilterAffordable, bands, screening],
+    [bands, screening],
   );
 
   const breadth = useMemo(() => {

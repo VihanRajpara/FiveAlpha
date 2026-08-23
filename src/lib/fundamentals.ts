@@ -157,22 +157,88 @@ export class RateLimitedError extends Error {
 }
 
 /**
+ * The company's page, consolidated first and standalone behind it.
+ *
  * Screener.in keys companies by NSE symbol where one exists and by BSE scrip
  * code otherwise — the same either/or the app already resolved into
  * `Security.ticker`, so it is read off `exchanges` rather than guessed.
  *
- * `/consolidated/` matters more than it looks. The standalone page of a holding
- * company reports a materially different ROCE — Reliance is 7.78% standalone
- * against 10.3% consolidated, i.e. opposite sides of this screen's `> 10` test.
- * Screener.in serves the consolidated URL with a 200 even for companies that
- * have no consolidated statements, falling back to the standalone figures
- * itself, so there is no redirect to follow and no second request to make.
+ * **Why two paths and not one.** `/consolidated/` matters: the standalone page
+ * of a holding company reports a materially different ROCE — Reliance is 7.78%
+ * standalone against 10.3% consolidated, i.e. opposite sides of this screen's
+ * `> 10` test. This used to request it and stop there, on the belief that
+ * screener.in falls back to the standalone figures itself for companies that
+ * file no consolidated statements. **It does not.** It serves those a 200 with
+ * the ratio strip fully rendered and every value *empty* — one company, as an
+ * illustration of the shape:
+ *
+ *     /company/KRISHANA/consolidated/  →  200, Market Cap=[]  ROCE=[]   (101 KB)
+ *     /company/KRISHANA/              →  200, Market Cap=[6,134] ROCE=[27.2] (184 KB)
+ *
+ * Which is nobody's quirk: it is *every* company with no subsidiaries, which is
+ * most of the small and micro caps. **Three of eight** NSE symbols sampled at
+ * random came back this way. So the ROCE leg was unanswerable for a whole class
+ * of the market — worse than unanswerable, see `parseTopRatios` — and the
+ * "screener.in ↗" link in the drawer opened the same blank page.
+ *
+ * So the page to use is decided by what came back rather than assumed in
+ * advance — see `fetchScreenerPage`. Companies that do file consolidated
+ * statements still cost exactly one request, which is all of the large caps.
  */
-export function screenerPath(security: Pick<Security, 'symbol' | 'bseCode' | 'exchanges'>): string | null {
-  if (security.exchanges.includes('NSE')) {
-    return `${BASE}/${encodeURIComponent(security.symbol)}/consolidated/`;
+export function screenerPaths(security: Pick<Security, 'symbol' | 'bseCode' | 'exchanges'>): string[] {
+  const key = security.exchanges.includes('NSE') ? security.symbol : security.bseCode;
+  if (!key) return [];
+  const base = `${BASE}/${encodeURIComponent(key)}/`;
+  return [`${base}consolidated/`, base];
+}
+
+/** A company page that was actually served, and what its ratio strip holds. */
+export interface ScreenerPage {
+  /** The proxy path it came from — `/consolidated/` or not, decided at runtime. */
+  path: string;
+  html: string;
+  ratios: Map<string, number[]>;
+}
+
+/** Does the ratio strip carry any figure at all, or is it a rendered blank? */
+const hasFigures = (ratios: Map<string, number[]>): boolean =>
+  [...ratios.values()].some((numbers) => numbers.length > 0);
+
+/**
+ * The best of a company's pages, fetched at most twice.
+ *
+ * The single place either half of the scrape gets its HTML, so the fallback
+ * above cannot be applied to the screen's numbers and forgotten for the
+ * drawer's tables — they were two requests for one page and would have needed
+ * the same fix twice.
+ *
+ * A 404 on the first path is the whole company missing, not that variant of it:
+ * screener.in 404s both URLs for a symbol it does not carry (checked), so there
+ * is nothing to gain by asking again and one paced request per dead scrip to
+ * lose. A page that is blank in *both* variants is returned as it is — the
+ * caller reads a missing ratio as unknown, which it is.
+ */
+export async function fetchScreenerPage(
+  security: Pick<Security, 'symbol' | 'bseCode' | 'exchanges'>,
+  signal?: AbortSignal,
+): Promise<ScreenerPage | null> {
+  let last: ScreenerPage | null = null;
+
+  for (const path of screenerPaths(security)) {
+    const res = await fetchPaced(path, signal);
+    if (res.status === 404) return null;
+    // Only after the backoffs in `fetchPaced` are spent. At that point the
+    // block is not something this run can wait out.
+    if (res.status === 429) throw new RateLimitedError();
+    if (!res.ok) throw new Error(`screener.in returned ${res.status} for ${path}`);
+
+    const html = await res.text();
+    const page: ScreenerPage = { path, html, ratios: parseTopRatios(html) };
+    if (hasFigures(page.ratios)) return page;
+    last = page;
   }
-  return security.bseCode ? `${BASE}/${encodeURIComponent(security.bseCode)}/consolidated/` : null;
+
+  return last;
 }
 
 /** Pulls `#top-ratios` into a name → numbers map. Exported for the tests. */
@@ -191,8 +257,17 @@ export function parseTopRatios(html: string): Map<string, number[]> {
     const name = /class="name"[^>]*>([\s\S]*?)<\/span>/.exec(item)?.[1];
     if (!name) continue;
 
+    // `Number('')` is **0**, not NaN, so `Number.isFinite` alone let an empty
+    // span through as a figure of zero. Which is not hypothetical markup: a
+    // company with no consolidated statements is served exactly
+    // `<span class="number"></span>` for every ratio, and this read that page as
+    // "market cap 0, ROCE 0" — a definite *fail* on both legs rather than an
+    // unknown, quietly dropping every such row from every screen. The blank has
+    // to be discarded before `Number` sees it.
     const numbers = [...item.matchAll(/class="number"[^>]*>([\s\S]*?)<\/span>/g)]
-      .map((m) => Number(m[1].replace(/[,\s]/g, '')))
+      .map((m) => m[1].replace(/<[^>]*>/g, '').replace(/[,\s]/g, ''))
+      .filter((text) => text !== '')
+      .map(Number)
       .filter((n) => Number.isFinite(n));
 
     out.set(name.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim(), numbers);
@@ -242,48 +317,45 @@ export const persistFundamentals = (): void => settled.flush();
  * scrip screener.in doesn't carry), which is a normal outcome for a few hundred
  * of the BSE-only rows and not an error. It is cached like any other answer.
  *
- * Keyed by URL rather than by symbol: dual-listed rows and re-runs after a
- * filter change resolve to the same page, and should only pay for it once.
+ * Keyed by the company's first path rather than by symbol: dual-listed rows and
+ * re-runs after a filter change resolve to the same page, and should only pay
+ * for it once. The key is the *asked* path, not the one that answered — which
+ * variant that turns out to be is the answer, and caching under it would ask
+ * again from the top every time.
  */
 export function fetchFundamentals(
   security: Pick<Security, 'symbol' | 'bseCode' | 'exchanges'>,
   signal?: AbortSignal,
 ): Promise<Fundamentals | null> {
-  const url = screenerPath(security);
-  if (!url) return Promise.resolve(null);
+  const [key] = screenerPaths(security);
+  if (!key) return Promise.resolve(null);
 
-  if (settled.has(url)) return Promise.resolve(settled.get(url) ?? null);
+  if (settled.has(key)) return Promise.resolve(settled.get(key) ?? null);
 
-  const hit = inflight.get(url);
+  const hit = inflight.get(key);
   if (hit) return hit;
 
   const pending = (async (): Promise<Fundamentals | null> => {
-    const res = await fetchPaced(url, signal);
+    const page = await fetchScreenerPage(security, signal);
+    if (!page) return null;
 
-    if (res.status === 404) return null;
-    // Only after the backoffs above are spent. At that point the block is not
-    // something this run can wait out.
-    if (res.status === 429) throw new RateLimitedError();
-    if (!res.ok) throw new Error(`screener.in returned ${res.status} for ${security.symbol}`);
-
-    const ratios = parseTopRatios(await res.text());
     return {
-      marketCapCr: ratios.get('Market Cap')?.[0] ?? null,
-      rocePct: ratios.get('ROCE')?.[0] ?? null,
-      url,
+      marketCapCr: page.ratios.get('Market Cap')?.[0] ?? null,
+      rocePct: page.ratios.get('ROCE')?.[0] ?? null,
+      url: page.path,
     };
   })()
     .then((fundamentals) => {
-      settled.set(url, fundamentals);
-      inflight.delete(url);
+      settled.set(key, fundamentals);
+      inflight.delete(key);
       return fundamentals;
     });
 
   // A failed request must not be remembered as a failure: the next run should
   // retry it. Only a settled *answer* — including the 404 null — is worth
   // keeping.
-  pending.catch(() => inflight.delete(url));
+  pending.catch(() => inflight.delete(key));
 
-  inflight.set(url, pending);
+  inflight.set(key, pending);
   return pending;
 }

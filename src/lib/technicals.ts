@@ -41,7 +41,7 @@ export interface Technicals {
    * of its months.
    *
    * **Null when the history does not span ten calendar years.** See
-   * `DECADE_YEARS` — a two-year-old listing has no ten-year high, and inventing
+   * `DECADE_MONTHS` — a two-year-old listing has no ten-year high, and inventing
    * one from the history that exists is what made this screen match three times
    * as many rows as Chartink's.
    */
@@ -178,27 +178,42 @@ const SPIKE_RATIO = 2;
  * ten years of history, and Chartink rejected all 91 on this leg while agreeing
  * with the RSI leg on 84 of them.
  *
- * The count is of distinct calendar years, not bars, because that is the unit
- * the clause is written in. **Eleven** rather than ten: the max itself does
- * include the current, part-finished year — Chartink's ten-year high for
- * THYROCARE today is its 2026 high — but a row is only judged once ten
- * *completed* years sit behind it. That number is calibrated against Chartink
- * rather than reasoned out, and the calibration is unambiguous. Over all 2,401
- * NSE symbols, against Chartink's 136:
+ * **The test is the window, not a count of calendar years.** This was
+ * `years.size >= 11` — distinct `yyyy` strings, eleven of them, a number
+ * calibrated against Chartink rather than reasoned out. Over all 2,401 NSE
+ * symbols, against Chartink's 136:
  *
- * | minimum years | matches | agreed | spurious | missed |
+ * | rule | matches | agreed | spurious | missed |
  * |---|---|---|---|---|
  * | none (the old behaviour) | 214 | 123 | 91 | 13 |
- * | 10 | 128 | 120 | 8 | 16 |
- * | **11** | **115** | **114** | **1** | **22** |
+ * | 10 distinct years | 128 | 120 | 8 | 16 |
+ * | **11 distinct years** | **115** | **114** | **1** | **22** |
  *
- * The cost is real and worth naming: Yahoo's history is shorter than the
- * exchange's for a handful of long-listed shares — `DEEPINDS` and `ARIHANT`
- * start in 2021 here — so those become **unjudged rather than matched**, which
- * is most of the 22. That is the honest answer, and the screen reports how many
- * rows it could not judge.
+ * It worked because eleven distinct years is what a *complete* window happens
+ * to look like, not because eleven is a length. Which makes it a proxy, and one
+ * that is wrong at the edge in the direction that matters: a share first traded
+ * in **October 2016** touches eleven calendar years by August 2026 and has been
+ * listed for nine years and ten months, so the proxy hands it a "ten-year high"
+ * it does not have — exactly the IPO-flattering failure the rule exists to
+ * stop.
+ *
+ * So the test is the span of the series itself, in the unit the clause is
+ * written in: ten years of months. Measured over fifteen long-listed NSE
+ * symbols, `range=10y&interval=1mo` returns the identical window for every one
+ * of them — 121 points, 2016-09 to 2026-08, spanning exactly 120 months — so a
+ * complete history spans `DECADE_MONTHS` and a truncated one cannot. The two
+ * rules agree on every row in the table above and differ only on that edge.
+ *
+ * The cost is unchanged and worth naming: Yahoo's history is shorter than the
+ * exchange's for a handful of long-listed shares, so those become **unjudged
+ * rather than matched** — most of the 22 missed. That is the honest answer, and
+ * the screen reports how many rows it could not judge.
  */
-const DECADE_YEARS = 11;
+const DECADE_MONTHS = 120;
+
+/** Does a series of monthly bars cover the whole ten-year window? */
+const spansDecade = (months: string[]): boolean =>
+  months.length > 0 && monthsSpanned(months[0], months[months.length - 1]) >= DECADE_MONTHS;
 
 export function computeTechnicals(rawBars: Candle[]): Technicals | null {
   const bars = collapseMonths(rawBars);
@@ -207,18 +222,18 @@ export function computeTechnicals(rawBars: Candle[]): Technicals | null {
   // `high` is not, and a null there would poison Math.max into NaN.
   const closes: number[] = [];
   const highs: number[] = [];
-  const years = new Set<string>();
+  const months: string[] = [];
   for (const bar of bars) {
     if (typeof bar.close !== 'number') continue;
     closes.push(bar.close);
-    years.add(bar.date.slice(0, 4));
+    months.push(bar.date.slice(0, 7));
     if (typeof bar.high === 'number' && bar.high <= bar.close * SPIKE_RATIO) highs.push(bar.high);
   }
 
   if (closes.length === 0 || highs.length === 0) return null;
 
   return {
-    high10y: years.size >= DECADE_YEARS ? Math.max(...highs) : null,
+    high10y: spansDecade(months) ? Math.max(...highs) : null,
     close: closes[closes.length - 1],
     monthlyRsi14: closes.length >= MIN_BARS ? rsi(closes) : null,
     bars: bars.length,
@@ -345,7 +360,7 @@ export interface CoarseTechnicals {
   monthlyRsi14: number | null;
   bars: number;
   since: string;
-  /** History spans `DECADE_YEARS`, i.e. a ten-year high exists at all. */
+  /** History spans `DECADE_MONTHS`, i.e. a ten-year high exists at all. */
   decade: boolean;
   /**
    * Bars present as a fraction of the calendar months the history spans.
@@ -403,12 +418,10 @@ export function computeCoarseTechnicals(rawBars: Candle[]): CoarseTechnicals | n
   const bars = collapseMonths(rawBars);
 
   const closes: number[] = [];
-  const years = new Set<string>();
   const months: string[] = [];
   for (const bar of bars) {
     if (typeof bar.close !== 'number') continue;
     closes.push(bar.close);
-    years.add(bar.date.slice(0, 4));
     months.push(bar.date.slice(0, 7));
   }
 
@@ -422,7 +435,7 @@ export function computeCoarseTechnicals(rawBars: Candle[]): CoarseTechnicals | n
     monthlyRsi14: closes.length >= MIN_BARS ? rsi(closes) : null,
     bars: bars.length,
     since: bars[0]?.date ?? '',
-    decade: years.size >= DECADE_YEARS,
+    decade: span >= DECADE_MONTHS,
     density: span > 0 ? closes.length / span : 0,
   };
 }

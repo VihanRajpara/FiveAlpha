@@ -80,7 +80,7 @@ interface Props {
    * Groups that live in the sheet at every width. There are too many of them
    * to sit in the bar — a chip row that scrolls past the window edge is a
    * filter you have to go looking for — and they are the second question you
-   * ask, after the first four have set the universe.
+   * ask, once the bar has settled what you are looking at.
    */
   advanced?: FilterGroupSpec[];
   /** Shown live on the sheet's confirm button. */

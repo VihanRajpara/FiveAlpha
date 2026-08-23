@@ -218,4 +218,152 @@ assert.ok(matchesSignalFilter(weak, 110, { side: 'ALL', age: 'ALL', gap: 'ALL', 
 assert.ok(matchesSignalFilter(weak, 110, { side: 'ALL', age: 'ALL', gap: 'ALL' }));
 assert.ok(!matchesSignalFilter(null, 110, { side: 'ALL', age: 'ALL', gap: 'ALL', score: '60' }));
 
-console.log('signals.ts + filters.ts ok —', JSON.stringify(signal));
+
+// --- technicals: the ten-year window --------------------------------------
+const bundle = async (entry) =>
+  import(
+    'data:text/javascript;base64,' +
+      Buffer.from(
+        (
+          await build({
+            entryPoints: [entry],
+            bundle: true,
+            format: 'esm',
+            platform: 'node',
+            write: false,
+          })
+        ).outputFiles[0].text,
+      ).toString('base64')
+  );
+
+const { computeTechnicals, computeCoarseTechnicals, collapseMonths, rsi } =
+  await bundle('src/lib/technicals.ts');
+
+/** Monthly bars from `yyyy-mm` for `count` months, closing at `close`. */
+const months = (from, count, close = 100) =>
+  Array.from({ length: count }, (_, i) => {
+    const [y, m] = from.split('-').map(Number);
+    const month = m - 1 + i;
+    const date = `${y + Math.floor(month / 12)}-${String((month % 12) + 1).padStart(2, '0')}-01`;
+    return { date, open: close, high: close * 1.1, low: close * 0.9, close, volume: 1 };
+  });
+
+// Yahoo returns the same window for every long-listed symbol: 2016-09 to
+// 2026-08, 120 months. That is a complete decade and carries a ten-year high.
+const full = months('2016-09', 120);
+assert.ok(computeTechnicals(full).high10y > 0, '120 months of history has a ten-year high');
+assert.equal(computeCoarseTechnicals(full).decade, true);
+
+// One month short of the window is a listing inside it, and has none.
+assert.equal(computeTechnicals(months('2016-10', 119)).high10y, null, '119 months does not');
+assert.equal(computeCoarseTechnicals(months('2016-10', 119)).decade, false);
+
+// The edge the year-count proxy got wrong: first traded October 2016, so it
+// touches eleven distinct calendar years while being under ten years old.
+const octoberIpo = months('2016-10', 119);
+assert.equal(new Set(octoberIpo.map((b) => b.date.slice(0, 4))).size, 11, 'eleven calendar years');
+assert.equal(computeCoarseTechnicals(octoberIpo).decade, false, 'and still not a decade');
+
+// A recent listing is nowhere near, and is unjudged rather than measured
+// against its own short history.
+assert.equal(computeTechnicals(months('2023-03', 43)).high10y, null);
+assert.equal(computeCoarseTechnicals(months('2023-03', 43)).decade, false);
+
+// Yahoo reports the current month twice; the pair is one month, not two.
+const dupe = [...months('2016-09', 120), { ...months('2026-08', 1)[0], date: '2026-08-21' }];
+assert.equal(collapseMonths(dupe).length, 120, 'the trailing live bar folds into its month');
+assert.equal(computeCoarseTechnicals(dupe).density, 1, 'and does not inflate the density');
+assert.ok(Math.abs(rsi(new Array(40).fill(0).map((_, i) => 100 + i)) - 100) < 1e-9);
+
+// --- screener.in: consolidated, or standalone when it is a rendered blank ---
+const { fetchScreenerPage, screenerPaths, parseTopRatios } = await bundle('src/lib/fundamentals.ts');
+
+const page = (ratios) =>
+  `<ul id="top-ratios">${Object.entries(ratios)
+    .map(
+      ([name, value]) =>
+        // A blank is an *empty* number span, which is what screener.in
+        // actually serves — not a missing one.
+        `<li><span class="name">${name}</span><span class="value">` +
+        `<span class="number">${value ?? ''}</span></span></li>`,
+    )
+    .join('')}</ul>`;
+
+// Exactly the shape screener.in serves for a company with no consolidated
+// statements: 200, the strip rendered, every value empty.
+const BLANK = page({ 'Market Cap': null, ROCE: null });
+const REAL = page({ 'Market Cap': '6,134', ROCE: '27.2' });
+
+assert.equal(parseTopRatios(BLANK).get('ROCE').length, 0, 'a blank strip parses to no numbers');
+assert.deepEqual(parseTopRatios(REAL).get('Market Cap'), [6134], 'and commas do not split a figure');
+
+const company = (symbol, exchanges = ['NSE'], bseCode = null) => ({ symbol, bseCode, exchanges });
+
+assert.deepEqual(screenerPaths(company('ANYCO')), [
+  '/api/screener/company/ANYCO/consolidated/',
+  '/api/screener/company/ANYCO/',
+]);
+assert.ok(
+  screenerPaths(company('X', ['BSE'], '500325'))[0].includes('/500325/'),
+  'BSE-only rows are keyed by scrip code',
+);
+assert.deepEqual(screenerPaths(company('X', ['BSE'])), [], 'and are unaskable without one');
+assert.ok(
+  screenerPaths(company('ARE&M'))[0].includes('ARE%26M'),
+  'an ampersand in a symbol survives the query',
+);
+
+/** Serves canned HTML per path and records what was asked for. */
+function stubFetch(bodies) {
+  const asked = [];
+  globalThis.fetch = async (url) => {
+    asked.push(url);
+    const body = bodies[url];
+    if (body === undefined) return new Response('', { status: 404 });
+    return new Response(body, { status: 200 });
+  };
+  return asked;
+}
+
+/**
+ * Which page answers is a property of the *response*, never of the company.
+ *
+ * So the four cases are replayed for unrelated symbols — an NSE ticker, one
+ * with an ampersand in it, a BSE-only scrip code — and the paths come out of
+ * `screenerPaths` rather than being written down. Nothing in here can quietly
+ * become true of one ticker only, which is the whole point: the blank
+ * consolidated page is what every company with no subsidiaries is served, and
+ * there are hundreds of them.
+ */
+for (const target of [company('ANYCO'), company('ARE&M'), company('X', ['BSE'], '500325')]) {
+  const [consolidated, standalone] = screenerPaths(target);
+  const where = target.symbol;
+
+  // Blank consolidated → ask again, and answer from the standalone page.
+  let asked = stubFetch({ [consolidated]: BLANK, [standalone]: REAL });
+  let got = await fetchScreenerPage(target);
+  assert.equal(asked.length, 2, `${where}: a blank consolidated page is not the answer`);
+  assert.equal(got.path, standalone, `${where}: the standalone page is`);
+  assert.deepEqual(got.ratios.get('ROCE'), [27.2], `${where}: with its figures`);
+
+  // The common case still costs one request — consolidated is the better page
+  // wherever it has figures, and is not second-guessed.
+  asked = stubFetch({ [consolidated]: REAL, [standalone]: BLANK });
+  got = await fetchScreenerPage(target);
+  assert.equal(asked.length, 1, `${where}: a consolidated page with figures ends it`);
+  assert.equal(got.path, consolidated);
+
+  // A company screener.in does not carry 404s both ways: one request, no page.
+  asked = stubFetch({});
+  assert.equal(await fetchScreenerPage(target), null, `${where}: a 404 is a real answer`);
+  assert.equal(asked.length, 1, `${where}: and is not asked twice`);
+
+  // Blank both ways is still returned — a missing ratio reads as unknown, and
+  // the drawer has a page to show and link to.
+  asked = stubFetch({ [consolidated]: BLANK, [standalone]: BLANK });
+  got = await fetchScreenerPage(target);
+  assert.equal(asked.length, 2, `${where}: both variants tried`);
+  assert.equal(got.ratios.get('ROCE').length, 0, `${where}: with nothing on it`);
+}
+
+console.log('signals.ts + filters.ts + technicals.ts + fundamentals.ts ok');
