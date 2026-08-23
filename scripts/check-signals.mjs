@@ -11,7 +11,8 @@ const out = await build({
   platform: 'node',
   write: false,
 });
-const { hma, atr, latestSignal, signalGapPct, matchesSignalFilter } = await import(
+const { hma, atr, latestSignal, signalGapPct, matchesSignalFilter, cleanBars, stopDistancePct, runUtBot } =
+  await import(
   'data:text/javascript;base64,' + Buffer.from(out.outputFiles[0].text).toString('base64')
 );
 
@@ -144,5 +145,77 @@ assert.ok(!matchesBands(row, undefined, { price: 'u100', dayMove: 'up5' }), 'one
 // A screen-derived filter rejects a row the screen never reached.
 assert.ok(!matchesBands(row, undefined, { roce: 'o20' }));
 assert.ok(matchesBands(row, { metrics: { rocePct: 22 } }, { roce: 'o20' }));
+
+
+// --- bad ticks -------------------------------------------------------------
+// A high three times the bar's own body is a Yahoo tick, not a range. Clamped
+// to the body, so the ATR it feeds does not widen the trailing stop for the
+// rest of the smoothing window.
+const ticked = cleanBars([
+  { date: '2026-01-01', open: 100, high: 105, low: 95, close: 102, volume: 1 },
+  { date: '2026-01-02', open: 100, high: 400, low: 95, close: 101, volume: 1 },
+  { date: '2026-01-03', open: 100, high: 105, low: 10, close: 101, volume: 1 },
+  { date: '2026-01-04', open: 100, high: 99, low: 101, close: 103, volume: 1 },
+  { date: '2026-01-05', open: null, high: null, low: null, close: 100, volume: 1 },
+  { date: '2026-01-06', open: 100, high: 105, low: 95, close: null, volume: 1 },
+]);
+assert.equal(ticked.length, 4, 'bars with no usable high/low/close are dropped');
+assert.equal(ticked[0].high, 105, 'an honest bar is left alone');
+assert.equal(ticked[1].high, 101, 'a 4x high is clamped to the body');
+assert.equal(ticked[2].low, 100, 'and a low a tenth of it, likewise');
+assert.equal(ticked[3].high, 103, 'a high under the body is raised to it');
+assert.equal(ticked[3].low, 100, 'and a low above the body lowered');
+
+// The tick must not move the verdict: same series, one poisoned high.
+const poisoned = v.map((b, i) => (i === 200 ? { ...b, high: b.close * 4 } : b));
+assert.equal(latestSignal(poisoned).date, signal.date, 'a bad tick must not move the flip');
+
+// --- the trailing stop -----------------------------------------------------
+assert.ok(signal.stop > 0, 'a signal carries the level it flips back at');
+assert.ok(signal.stop < v.at(-1).close, 'a long stop sits below the price');
+assert.ok(stopDistancePct(signal, 1000) > 0, 'room above the stop is positive on a BUY');
+assert.ok(stopDistancePct(signal, signal.stop * 0.9) < 0, 'and negative once price is through it');
+// Signed by side, not by direction: a SELL is safe while price is *below*.
+const sell = { ...signal, side: 'SELL', stop: 100 };
+assert.ok(stopDistancePct(sell, 90) > 0, 'a SELL has room while price is under its stop');
+assert.ok(stopDistancePct(sell, 110) < 0);
+assert.equal(stopDistancePct(signal, null), null, 'an unpriced row has no distance');
+
+// --- context ---------------------------------------------------------------
+// The V recovers above its own 200-day average, so the BUY fires with the trend.
+assert.equal(signal.trend, 1, 'a BUY in an uptrend agrees with it');
+assert.equal(latestSignal(peak).trend, 1, 'as does a SELL in a downtrend');
+assert.ok(signal.score >= 0 && signal.score <= 100, 'the score is a percentage');
+assert.equal(typeof signal.provisional, 'boolean');
+// Every bar has volume 1, so the flip bar traded exactly its own average.
+assert.ok(Math.abs(signal.volumeRatio - 1) < 1e-9);
+// Turnover is close x volume, medianed: 1 share a day is not tradeable, and
+// the score has to say so.
+assert.ok(signal.turnover < 2_500_000);
+assert.ok(signal.score < 60, `an untradeable name cannot score well: ${signal.score}`);
+
+// A saw-tooth flips repeatedly, which is the only way a hit rate exists at all.
+const saw = Array.from({ length: 420 }, (_, i) =>
+  bar(i, 500 + 120 * Math.sin((i / 35) * Math.PI)),
+);
+const sawSignal = latestSignal(saw);
+assert.ok(sawSignal.history, 'repeated flips give the rule a track record here');
+assert.ok(sawSignal.history.trades >= 3, 'under three round trips it stays null');
+assert.ok(
+  sawSignal.history.wins >= 0 && sawSignal.history.wins <= sawSignal.history.trades,
+  'wins cannot exceed trades',
+);
+// Round trips are flip-to-flip, and the open one is not counted.
+assert.equal(sawSignal.history.trades, runUtBot(saw).flips.length - 1);
+
+// --- the score filter ------------------------------------------------------
+const strong = { ...buy, score: 80 };
+const weak = { ...buy, score: 30 };
+assert.ok(matchesSignalFilter(strong, 110, { side: 'ALL', age: 'ALL', gap: 'ALL', score: '75' }));
+assert.ok(!matchesSignalFilter(weak, 110, { side: 'ALL', age: 'ALL', gap: 'ALL', score: '60' }));
+assert.ok(matchesSignalFilter(weak, 110, { side: 'ALL', age: 'ALL', gap: 'ALL', score: 'ALL' }));
+// An omitted score slot is 'ALL' — older callers must keep working.
+assert.ok(matchesSignalFilter(weak, 110, { side: 'ALL', age: 'ALL', gap: 'ALL' }));
+assert.ok(!matchesSignalFilter(null, 110, { side: 'ALL', age: 'ALL', gap: 'ALL', score: '60' }));
 
 console.log('signals.ts + filters.ts ok —', JSON.stringify(signal));

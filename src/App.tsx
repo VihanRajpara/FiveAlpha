@@ -81,9 +81,9 @@ const CAP_FILTER_HINT: Record<CapFilter, string> = {
 };
 
 /**
- * The three signal filters. Their values are the keys `matchesSignalFilter`
- * reads — `SIGNAL_AGE_MAX` and `SIGNAL_GAP_BANDS` — so the thresholds live next
- * to the arithmetic and only the labels live here.
+ * The four signal filters. Their values are the keys `matchesSignalFilter`
+ * reads — `SIGNAL_AGE_MAX`, `SIGNAL_GAP_BANDS`, `SIGNAL_SCORE_MIN` — so the
+ * thresholds live next to the arithmetic and only the labels live here.
  */
 const SIGNAL_SIDE_OPTIONS = [
   { value: 'ALL', label: 'Any', hint: 'Both sides of the trailing stop' },
@@ -105,6 +105,17 @@ const SIGNAL_GAP_OPTIONS = [
   { value: '0_5', label: '0–5%', hint: 'Up to 5% above the signal price — the entry is still close' },
   { value: '5_15', label: '5–15%', hint: '5–15% above the signal price' },
   { value: '15', label: '>15%', hint: 'More than 15% above — most of the move has happened' },
+];
+
+/**
+ * The crossing is the same arithmetic on every symbol; this is what the bars
+ * say about it — trend, volume on the flip, tradeable turnover, and how this
+ * rule has done on this name before. See `SCORE` in src/lib/signals.ts.
+ */
+const SIGNAL_SCORE_OPTIONS = [
+  { value: 'ALL', label: 'Any', hint: 'However well the flip is backed up' },
+  { value: '60', label: '60+', hint: 'Discards flips against the trend, on no volume, or in untradeable names' },
+  { value: '75', label: '75+', hint: 'With the trend and confirmed — few rows pass this' },
 ];
 
 /**
@@ -164,7 +175,12 @@ export default function App() {
   const [breadthFilter, setBreadthFilter] = useState<BreadthKey | null>(null);
   // Signal filters, applied after the screen rather than with the other
   // filters: they cost a request per row, so they run over the shortlist.
-  const [signal, setSignal] = useState<SignalFilter>({ side: 'ALL', age: 'ALL', gap: 'ALL' });
+  const [signal, setSignal] = useState<SignalFilter>({
+    side: 'ALL',
+    age: 'ALL',
+    gap: 'ALL',
+    score: 'ALL',
+  });
   // The numeric band filters, keyed by `NUMERIC_FILTERS[].key`. One bag rather
   // than a `useState` each: they are all the same shape, and adding the next
   // one should be a row of data, not another hook.
@@ -287,7 +303,7 @@ export default function App() {
   // quietly lost rows.
   useEffect(() => {
     if (!signalFilterAffordable && signalFilterOn) {
-      setSignal({ side: 'ALL', age: 'ALL', gap: 'ALL' });
+      setSignal({ side: 'ALL', age: 'ALL', gap: 'ALL', score: 'ALL' });
     }
   }, [signalFilterAffordable, signalFilterOn]);
 
@@ -382,7 +398,7 @@ export default function App() {
    * The second question, behind the "More" button: what the numbers say, once
    * the four groups above have settled what you are looking at.
    *
-   * Three of them read the signal column, which costs a request per row — hence
+   * Four of them read the signal column, which costs a request per row — hence
    * the affordability guard. The last four read the screen's own metrics and
    * stay disabled until one has run, because a filter on a number nothing has
    * measured would empty the table and look broken.
@@ -412,6 +428,14 @@ export default function App() {
         disabled: !signalFilterAffordable,
         options: SIGNAL_GAP_OPTIONS,
         onChange: (v) => setSignal((s) => ({ ...s, gap: v })),
+      },
+      {
+        key: 'signalScore',
+        label: 'Signal quality',
+        value: signal.score ?? 'ALL',
+        disabled: !signalFilterAffordable,
+        options: SIGNAL_SCORE_OPTIONS,
+        onChange: (v) => setSignal((s) => ({ ...s, score: v })),
       },
       ...NUMERIC_FILTERS.map((f) => ({
         key: f.key,

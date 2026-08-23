@@ -2564,6 +2564,43 @@ body {
   text-overflow: ellipsis;
 }
 
+/* How well the flip is backed up (trend, volume, turnover, this rule's record
+   on this name — see SCORE in src/lib/signals.ts). Ink, not colour: the row
+   already carries a side badge and a day-change chip, and a third tint would
+   be the fourth thing shouting. Only a score worth acting on is inked. */
+.sig-score {
+  flex: none;
+  margin-left: auto;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--on-surface-faint);
+  white-space: nowrap;
+}
+
+.sig-score.strong {
+  color: var(--on-surface);
+}
+
+/* Inside the phone row's second line it is part of a sentence, not a chip. */
+.sig-strip-when .sig-score {
+  margin-left: 0;
+  padding: 0;
+  background: none;
+  font-size: inherit;
+  font-weight: 600;
+}
+
+/* That line carries three facts now, not two, so on a narrow phone it wraps
+   rather than ellipsing away the newest of them. */
+.sig-strip-when {
+  white-space: normal;
+  overflow: visible;
+}
+
 /* ---------- drawer: signal ---------- */
 
 /* Which study produced the verdict, stated next to the heading rather than as

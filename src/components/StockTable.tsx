@@ -15,8 +15,15 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useSignal } from '../hooks/useSignal';
 import { CAP_SHORT, classRank } from '../lib/classification';
 import { SelectMenu } from './SelectMenu';
-import { formatCrore, formatDate, formatFromHigh, formatPercent, formatPrice } from '../lib/format';
-import { UT_BOT, formatGap, signalGapPct } from '../lib/signals';
+import {
+  formatCrore,
+  formatDate,
+  formatFromHigh,
+  formatPercent,
+  formatPrice,
+  formatVolume,
+} from '../lib/format';
+import { UT_BOT, formatGap, scoreLabel, signalGapPct, type Signal } from '../lib/signals';
 import type { ScreenResult } from '../lib/screens';
 import type { Classification, SecurityWithQuote } from '../types';
 
@@ -235,6 +242,41 @@ function ScreenCell({
  * see `useSignal`. Daily bars, so "when" is a date; the study's intraday
  * opening-range leg is not part of this (see src/lib/signals.ts).
  */
+/**
+ * Everything behind the score, in one hover.
+ *
+ * A tooltip rather than more columns: the table already spends three tracks on
+ * the signal, and these are the *reasons* for it — read once, when a row looks
+ * interesting, not scanned down the page.
+ */
+function signalHint(signal: Signal): string {
+  return [
+    `Score ${signal.score} · ${scoreLabel(signal.score)}`,
+    `UT Bot (ATR ${UT_BOT.atrPeriod} × ${UT_BOT.keyValue}) on HMA ${UT_BOT.hmaLength}, daily bars`,
+    `${signal.side} at ${formatPrice(signal.price)} on ${formatDate(signal.date)}, ${
+      signal.age === 0 ? 'today' : `${signal.age} bars ago`
+    }`,
+    `Flips back at ${formatPrice(signal.stop)}`,
+    signal.trend === 0
+      ? 'Trend unknown — short history'
+      : signal.trend === 1
+        ? 'With the 200-day trend'
+        : 'Against the 200-day trend',
+    signal.volumeRatio === null
+      ? 'No volume reported'
+      : `Flip volume ${signal.volumeRatio.toFixed(1)}× its 20-day average`,
+    signal.turnover === null
+      ? 'Turnover unknown'
+      : `Turnover ₹${formatVolume(signal.turnover)} a day (20d median)`,
+    signal.history
+      ? `This rule here: ${signal.history.wins}/${signal.history.trades} won, avg ${formatGap(signal.history.avgPct)}`
+      : 'Too few past flips to judge the rule on this name',
+    signal.provisional ? 'Today’s bar is still open — this flip can reverse' : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 function SignalStrip({ ticker, price }: { ticker: string; price: number | null | undefined }) {
   const { signal, loaded } = useSignal(ticker);
 
@@ -261,7 +303,14 @@ function SignalStrip({ ticker, price }: { ticker: string; price: number | null |
         )}
       </span>
       <span className="sig-strip-when">
-        {formatDate(signal.date)} · {signal.age === 0 ? 'today' : `${signal.age}d`}
+        {/* Bars, not days: 20 sessions is a calendar month. The column used to
+            print "20d" for both. */}
+        {formatDate(signal.date)} ·{' '}
+        {signal.age === 0 ? 'today' : `${signal.age} ${signal.age === 1 ? 'bar' : 'bars'}`} ·{' '}
+        <span className="sig-score" title={signalHint(signal)}>
+          {signal.score} {scoreLabel(signal.score)}
+        </span>
+        {signal.provisional && ' · live'}
       </span>
     </div>
   );
@@ -283,13 +332,16 @@ function SignalSide({ ticker }: { ticker: string }) {
   return (
     <span
       className={`sig sig-inline ${signal.side === 'BUY' ? 'up' : 'down'}`}
-      title={`UT Bot (ATR ${UT_BOT.atrPeriod} × ${UT_BOT.keyValue}) on HMA ${UT_BOT.hmaLength}, daily bars — ${signal.side} at ${formatPrice(signal.price)} on ${formatDate(signal.date)}, ${signal.age === 0 ? 'today' : `${signal.age} bars ago`}`}
+      title={signalHint(signal)}
     >
       <span className="sig-badge">{signal.side}</span>
       {/* Date only. The age went with it into the tooltip: the date already
           says when, and "01 Jun 2026 · 596d" was two ways of saying one thing
           in a track that could hold neither. */}
       <span className="sig-when">{formatDate(signal.date)}</span>
+      {/* Two digits, because a BUY against the trend on no volume is not the
+          same row as a BUY with both, and the badge alone said they were. */}
+      <span className={`sig-score ${signal.score >= 60 ? 'strong' : ''}`}>{signal.score}</span>
     </span>
   );
 }
