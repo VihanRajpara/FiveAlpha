@@ -4,6 +4,7 @@ import { CAP_LABEL } from '../lib/classification';
 import { formatDate, formatPercent, formatPrice, formatVolume } from '../lib/format';
 import type { Candle, ChartRange, Classification, Quote, Security } from '../types';
 import { useSignal } from '../hooks/useSignal';
+import { WatchPicker } from './WatchPicker';
 import {
   UT_BOT,
   formatGap,
@@ -235,6 +236,10 @@ export function StockDetail({ security, quote, cls, onClose }: Props) {
           {cls?.fno && <span className="badge fno">F&amp;O</span>}
           <ExchangeBadges exchanges={security.exchanges} />
           <span className={`badge ${security.series}`}>{security.series}</span>
+          {/* The same star as the row behind it, and the visible half of the
+              `w` shortcut — a keystroke with nothing on screen to point at is a
+              keystroke only its author knows about. */}
+          <WatchPicker symbol={security.symbol} size="lg" />
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             ✕
           </button>

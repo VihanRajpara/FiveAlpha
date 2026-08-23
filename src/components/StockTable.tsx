@@ -13,6 +13,10 @@ import {
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useSignal } from '../hooks/useSignal';
+// One component for the star and the menu of lists behind it, so the grid, the
+// tablet layout and the phone cards cannot drift apart — they all render
+// `SymbolCell`.
+import { WatchPicker } from './WatchPicker';
 import { CAP_SHORT, classRank } from '../lib/classification';
 import { SelectMenu } from './SelectMenu';
 import {
@@ -142,6 +146,7 @@ const LAST = 'm6 18 6-6-6-6M13 18l6-6-6-6';
 function SymbolCell({ row }: { row: SecurityWithQuote }) {
   return (
     <>
+      <WatchPicker symbol={row.symbol} />
       {row.symbol}
       {!row.exchanges.includes('NSE') && <span className="badge exch exch-BSE">BSE</span>}
       {row.series !== 'EQ' && <span className={`badge ${row.series}`}>{row.series}</span>}

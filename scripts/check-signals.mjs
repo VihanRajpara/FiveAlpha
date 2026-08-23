@@ -366,4 +366,284 @@ for (const target of [company('ANYCO'), company('ARE&M'), company('X', ['BSE'], 
   assert.equal(got.ratios.get('ROCE').length, 0, `${where}: with nothing on it`);
 }
 
-console.log('signals.ts + filters.ts + technicals.ts + fundamentals.ts ok');
+
+// --- the watchlists --------------------------------------------------------
+// It is the one thing here the user typed in, so the store is checked against a
+// real storage implementation rather than a mock of one.
+const store = new Map();
+globalThis.localStorage = {
+  getItem: (k) => (store.has(k) ? store.get(k) : null),
+  setItem: (k, v) => store.set(k, String(v)),
+  removeItem: (k) => store.delete(k),
+};
+
+// A data-URL module is cached by its own text, so a second `bundle` of the same
+// file is the *same* module instance — no use for checking that the lists are
+// read back on a fresh load. A nonce makes each one a genuinely new page.
+let nonce = 0;
+const reload = async () => {
+  const out = await build({
+    entryPoints: ['src/lib/watchlist.ts'],
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    write: false,
+    // The database mirror stays out of this. Left external, its dynamic import
+    // cannot resolve from a data: URL and rejects — which is the same path a
+    // browser takes when Supabase is unconfigured or offline, so the store is
+    // checked in exactly the state it has to survive.
+    external: ['./watchlistSync'],
+  });
+  const text = `${out.outputFiles[0].text}\n//${nonce++}`;
+  return import('data:text/javascript;base64,' + Buffer.from(text).toString('base64'));
+};
+
+const wl = await reload();
+
+// One list to begin with, and the star writes to it.
+assert.equal(wl.watchlistSnapshot().lists.length, 1, 'there is always a list to star into');
+assert.equal(wl.isWatched('TCS'), false);
+assert.equal(wl.toggleWatch('TCS'), true, 'starring returns the new state');
+assert.equal(wl.isWatched('TCS'), true);
+assert.equal(wl.toggleWatch('TCS'), false, 'and unstarring returns it too');
+
+// Newest first — the row you just starred is the one you were looking at.
+wl.toggleWatch('INFY');
+wl.toggleWatch('WIPRO');
+assert.deepEqual(wl.activeList().symbols, ['WIPRO', 'INFY']);
+
+// The snapshot must be referentially stable between changes, or
+// `useSyncExternalStore` re-renders forever.
+const before = wl.watchlistSnapshot();
+assert.equal(wl.watchlistSnapshot(), before, 'an unchanged store is the same object');
+wl.toggleWatch('LT');
+assert.notEqual(wl.watchlistSnapshot(), before, 'a changed one is not');
+
+// A second list is separate, active, and empty — you make one in order to fill
+// it, so creating it selects it.
+const second = wl.createList('Momentum');
+assert.equal(wl.watchlistSnapshot().activeId, second, 'a new list is the active one');
+assert.deepEqual(wl.activeList().symbols, [], 'and starts empty');
+assert.equal(wl.isWatched('INFY'), false, 'a symbol in another list is not starred here');
+
+wl.toggleWatch('SUZLON');
+assert.deepEqual(wl.activeList().symbols, ['SUZLON']);
+const [first] = wl.watchlistSnapshot().lists;
+assert.deepEqual(first.symbols, ['LT', 'WIPRO', 'INFY'], 'and the other list is untouched');
+
+// The same symbol can sit in two lists; they are independent.
+wl.toggleWatch('INFY');
+assert.equal(wl.isWatched('INFY'), true);
+wl.setActiveList(first.id);
+assert.equal(wl.isWatched('INFY'), true, 'still in the first list too');
+wl.toggleWatch('INFY');
+assert.equal(wl.isWatched('INFY'), false);
+wl.setActiveList(second);
+assert.equal(wl.isWatched('INFY'), true, 'removing it from one leaves the other alone');
+
+// --- membership: a symbol lives in as many lists as you tick ---------------
+// What the star's fill means, and what the picker ticks.
+assert.equal(wl.isWatchedAnywhere('INFY'), true, 'in one list is starred');
+assert.deepEqual(wl.listsWith('INFY'), [second], 'and the picker knows which');
+
+wl.toggleInList(first.id, 'INFY');
+assert.deepEqual(
+  wl.listsWith('INFY').sort(),
+  [first.id, second].sort(),
+  'the same symbol can sit in two lists at once',
+);
+assert.equal(wl.isWatchedAnywhere('INFY'), true);
+
+// Unticking one leaves the other — the whole point of asking which list.
+wl.toggleInList(first.id, 'INFY');
+assert.deepEqual(wl.listsWith('INFY'), [second]);
+assert.equal(wl.isWatchedAnywhere('INFY'), true, 'still saved somewhere');
+
+// Unticking the last one empties the star.
+wl.toggleInList(second, 'INFY');
+assert.deepEqual(wl.listsWith('INFY'), []);
+assert.equal(wl.isWatchedAnywhere('INFY'), false);
+
+// A list that no longer exists is not a crash, and not a silent write either.
+assert.equal(wl.toggleInList('gone', 'INFY'), false);
+assert.equal(wl.isWatchedAnywhere('INFY'), false);
+
+// The `w` shortcut still writes to the list the section is showing.
+wl.toggleInList(second, 'INFY');
+assert.equal(wl.watchlistSnapshot().activeId, second);
+assert.equal(wl.toggleWatch('ONGC'), true, 'toggleWatch targets the active list');
+assert.deepEqual(wl.listsWith('ONGC'), [second]);
+
+// Names are trimmed, capped and never blank — a nameless tab cannot be clicked.
+wl.renameList(second, '   ');
+assert.equal(wl.watchlistSnapshot().lists.find((l) => l.id === second).name, 'Momentum');
+wl.renameList(second, '  Breakouts  ');
+assert.equal(wl.watchlistSnapshot().lists.find((l) => l.id === second).name, 'Breakouts');
+const longId = wl.createList('x'.repeat(80));
+assert.equal(
+  wl.watchlistSnapshot().lists.find((l) => l.id === longId).name.length,
+  40,
+  'a pasted essay is cut to a tab-sized name',
+);
+
+// Deleting the active list must leave *some* list active, or every star after
+// it writes into nothing.
+const doomed = wl.watchlistSnapshot().activeId;
+wl.deleteList(doomed);
+assert.ok(
+  wl.watchlistSnapshot().lists.some((l) => l.id === wl.watchlistSnapshot().activeId),
+  'the active id always names a list that exists',
+);
+assert.ok(!wl.watchlistSnapshot().lists.some((l) => l.id === doomed));
+
+// Emptying keeps the list; deleting the last one empties it rather than
+// leaving a state with no way out.
+wl.setActiveList(first.id);
+assert.ok(wl.activeList().symbols.length > 0);
+wl.clearList(first.id);
+assert.deepEqual(wl.activeList().symbols, [], 'emptied');
+assert.ok(wl.watchlistSnapshot().lists.some((l) => l.id === first.id), 'but still there');
+
+while (wl.watchlistSnapshot().lists.length > 1) {
+  wl.deleteList(wl.watchlistSnapshot().lists.at(-1).id);
+}
+wl.toggleWatch('ONGC');
+wl.deleteList(wl.watchlistSnapshot().activeId);
+assert.equal(wl.watchlistSnapshot().lists.length, 1, 'the last list survives being deleted');
+assert.deepEqual(wl.activeList().symbols, [], 'emptied instead');
+
+// Every change must reach every subscriber — the row, the drawer, the tabs.
+let calls = 0;
+const stop = wl.subscribeWatchlist(() => calls++);
+wl.toggleWatch('LT');
+assert.equal(calls, 1, 'subscribers hear about a change');
+stop();
+wl.toggleWatch('LT');
+assert.equal(calls, 1, 'and stop hearing once they unsubscribe');
+
+// --- what is in storage, and what comes back out ---------------------------
+// The single unnamed array the first version wrote must become a named list,
+// not a fresh start: losing someone's stars to a refactor is not a migration.
+store.set('fivealpha:watchlist', JSON.stringify(['TCS', 'INFY', 7, null, '']));
+let migrated = await reload();
+assert.deepEqual(migrated.activeList().symbols, ['TCS', 'INFY'], 'the old list is carried over');
+assert.equal(migrated.watchlistSnapshot().lists.length, 1);
+assert.equal(migrated.isWatched('TCS'), true);
+
+// A real save round-trips.
+migrated.createList('Long term');
+migrated.toggleWatch('HDFCBANK');
+const reopened = await reload();
+assert.equal(reopened.watchlistSnapshot().lists.length, 2, 'both lists come back');
+assert.equal(reopened.activeList().name, 'Long term', 'and the same one is active');
+assert.equal(reopened.isWatched('HDFCBANK'), true);
+
+// Junk starts empty rather than throwing the table down with it.
+for (const junk of ['{not json', '{"lists":"nope"}', '{}', 'null', '[]']) {
+  store.set('fivealpha:watchlist', junk);
+  const recovered = await reload();
+  assert.equal(recovered.watchlistSnapshot().lists.length, 1, `one list from ${junk}`);
+  assert.deepEqual(recovered.activeList().symbols, [], `and no symbols from ${junk}`);
+}
+
+// An active id naming a list that is gone would leave every star writing into
+// nothing, so it falls back to the first list rather than being trusted.
+store.set(
+  'fivealpha:watchlist',
+  JSON.stringify({ activeId: 'vanished', lists: [{ id: 'a', name: 'A', symbols: ['TCS'] }] }),
+);
+const repaired = await reload();
+assert.equal(repaired.watchlistSnapshot().activeId, 'a');
+assert.equal(repaired.isWatched('TCS'), true);
+
+// --- CSV out ---------------------------------------------------------------
+const { toCsv, parseCsv } = await bundle('src/lib/csv.ts');
+
+// The three characters that need quoting are exactly the ones the reader in the
+// same file cares about, so a round trip is the test.
+const headers = ['Symbol', 'Company', 'LTP'];
+const body = [
+  ['TCS', 'Tata Consultancy', 3200.5],
+  ['X', 'Comma, Inc', null],
+  ['Y', 'A "quoted" name', undefined],
+  ['Z', 'Two\nlines', 0],
+];
+const csv = toCsv(headers, body);
+assert.deepEqual(parseCsv(csv), [
+  headers,
+  ['TCS', 'Tata Consultancy', '3200.5'],
+  ['X', 'Comma, Inc', ''],
+  ['Y', 'A "quoted" name', ''],
+  ['Z', 'Two\nlines', '0'],
+], 'what is written parses back to what went in');
+
+// Quoting only where it is needed — an export of 2,400 rows should not double
+// in size for nothing.
+assert.ok(csv.startsWith('Symbol,Company,LTP\r\n'), 'plain fields stay bare');
+assert.ok(csv.includes('"Comma, Inc"'), 'and only the ones that must are quoted');
+assert.equal(toCsv(['a'], [[null]]), 'a\r\n', 'an empty value is an empty field, not "null"');
+
+
+// --- where the star's menu opens -------------------------------------------
+// The bug this exists to catch was invisible in a build and obvious on a phone:
+// a menu that opened three hundred pixels above the star that summoned it.
+const { placeMenu, menuHeight } = await bundle('src/components/PopMenu.tsx');
+
+/** What the star's picker asks for: one row per list, plus its own chrome. */
+const picker = (lists) => menuHeight(lists, 92);
+const W = 268;
+
+/** A star of the size the table renders, at a given point. */
+const starAt = (left, top) => ({ left, top, right: left + 24, bottom: top + 24 });
+const phone = { width: 420, height: 700 };
+
+// The reported case: one list, a row two thirds down a phone screen. 138px of
+// menu against 186px of room below it — it opens *downwards*, under the star.
+const low = placeMenu(starAt(28, 490), phone, picker(1), W);
+assert.ok(low.top > 490, `must open below the star, opened at ${low.top}`);
+assert.ok(low.top - 514 < 12, 'and right under it, not floating');
+
+// Same star, twenty lists: now it genuinely does not fit below, so it flips —
+// and its bottom edge still sits just above the star rather than anywhere else.
+const many = placeMenu(starAt(28, 490), phone, picker(20), W);
+assert.ok(many.top < 490, 'a menu too tall for the space below opens upward');
+assert.equal(many.top + many.maxHeight + 6, 490, 'with its foot at the star');
+
+// A star near the top has no room above, so a tall menu goes below and scrolls.
+const top = placeMenu(starAt(28, 40), phone, picker(20), W);
+assert.ok(top.top > 40, 'nothing opens off the top of the screen');
+assert.ok(top.top + top.maxHeight <= phone.height, 'nor off the bottom');
+
+// Height follows content, never the cap: two lists is not a 340px menu.
+const two = placeMenu(starAt(28, 100), phone, picker(2), W);
+assert.ok(two.maxHeight < 200, `two lists should not reserve ${two.maxHeight}px`);
+assert.ok(placeMenu(starAt(28, 100), phone, picker(20), W).maxHeight > two.maxHeight, 'more lists, more menu');
+
+// Whichever side wins, it stays on screen — checked over every position a star
+// can occupy, at both extremes of list count.
+for (let y = 0; y <= phone.height - 24; y += 10) {
+  for (const n of [0, 1, 3, 20]) {
+    const at = placeMenu(starAt(28, y), phone, picker(n), W);
+    assert.ok(at.top >= 8, `y=${y} n=${n}: opened above the viewport (${at.top})`);
+    assert.ok(
+      at.top + at.maxHeight <= phone.height,
+      `y=${y} n=${n}: ran off the bottom (${at.top + at.maxHeight})`,
+    );
+  }
+}
+
+// The bar's own actions menu shares this placement, and it is the one that made
+// the case for sharing it: hand-positioned `right: 0`, it opened off the *left*
+// edge of a phone. Anchored to a trigger at the right of a narrow bar, it now
+// stays on screen.
+const dots = placeMenu(starAt(390, 40), phone, menuHeight(3, 48), 236);
+assert.ok(dots.left >= 8, `opened off the left edge at ${dots.left}`);
+assert.ok(dots.left + 236 <= phone.width, 'and not off the right');
+assert.ok(dots.top > 64, 'below its trigger, which has the room');
+
+// Horizontally the same: a star in the last column must not open off the edge.
+assert.equal(placeMenu(starAt(410, 100), phone, picker(3), W).left, phone.width - W - 8);
+assert.equal(placeMenu(starAt(2, 100), phone, picker(3), W).left, 8, 'nor off the left');
+assert.equal(placeMenu(starAt(200, 100), { width: 1600, height: 900 }, picker(3), W).left, 192, 'aligned to the star when there is room');
+
+console.log('signals · filters · technicals · fundamentals · watchlist · csv · picker ok');

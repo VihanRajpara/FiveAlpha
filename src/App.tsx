@@ -5,6 +5,7 @@ import { StockDetail } from './components/StockDetail';
 import { ThemeToggle } from './components/ThemeToggle';
 import { Filters, type FilterGroupSpec } from './components/Filters';
 import { ScreenBar } from './components/ScreenBar';
+import { WatchlistBar } from './components/WatchlistBar';
 import { useMarketData } from './hooks/useMarketData';
 import { useScreen } from './hooks/useScreen';
 import { useSignals } from './hooks/useSignals';
@@ -16,6 +17,9 @@ import {
   type SignalFilter,
 } from './lib/signals';
 import { ANY, NUMERIC_FILTERS, matchesBands } from './lib/filters';
+import { useActiveList } from './hooks/useWatchlist';
+import { toggleWatch } from './lib/watchlist';
+import { downloadCsv, toCsv } from './lib/csv';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
 import { UNCLASSIFIED } from './lib/classification';
 import { compareSeries, describeSeries } from './lib/listings';
@@ -161,7 +165,19 @@ export default function App() {
   }, []);
 
   const [search, setSearch] = useState('');
+  // `/` focuses it from anywhere — see the shortcut handler below.
+  const searchRef = useRef<HTMLInputElement>(null);
   const [exchange, setExchange] = useState<ExchangeFilter>('NSE');
+  /**
+   * Which section is on screen. Two, and they share everything below the bar —
+   * the same table, the same drawer, the same signal column — because a
+   * watchlist you cannot read the signal off is a list of names.
+   */
+  const [view, setView] = useState<'screener' | 'watchlist'>('screener');
+  const watchlistView = view === 'watchlist';
+  // The list the star writes to. It lives in localStorage
+  // (src/lib/watchlist.ts); nothing about it is component state.
+  const active = useActiveList();
   // Not a closed union any more: the available series depend on which exchange
   // is selected, and BSE's group letters are data, not a list we can enumerate.
   const [series, setSeries] = useState<string>('ALL');
@@ -256,10 +272,30 @@ export default function App() {
     if (series !== 'ALL' && !seriesOptions.some((o) => o.value === series)) setSeries('ALL');
   }, [seriesOptions, series]);
 
+  const watched = useMemo(() => new Set(active.symbols), [active.symbols]);
+
+  /**
+   * The universe, which is a different thing in each section.
+   *
+   * In Watchlists it is the starred symbols and nothing else — deliberately
+   * *not* cut by exchange, series, segment or cap. Those describe a market you
+   * are searching through; this is a list somebody picked by hand, and a
+   * default NSE filter silently hiding a starred BSE-only row would be the app
+   * losing something the user put there.
+   */
+  const universe = useMemo(
+    () => (watchlistView ? joined.filter((row) => watched.has(row.symbol)) : exchangeRows),
+    [watchlistView, joined, watched, exchangeRows],
+  );
+
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return exchangeRows.filter((row) => {
-      if (series !== 'ALL' && row.series !== series) return false;
+    return universe.filter((row) => {
+      if (watchlistView) {
+        // Only the search applies on a hand-picked list; the cuts above it are
+        // about narrowing a market, and this one is already narrow.
+        if (q === '') return true;
+      } else if (series !== 'ALL' && row.series !== series) return false;
       if (segment !== 'ALL' && (row.cls?.fno ?? false) !== (segment === 'FNO')) return false;
       if (cap !== 'ALL' && row.cls?.capBand !== cap) return false;
       if (q === '') return true;
@@ -271,7 +307,7 @@ export default function App() {
         (row.bseCode?.includes(q) ?? false)
       );
     });
-  }, [exchangeRows, search, series, segment, cap]);
+  }, [universe, watchlistView, search, series, segment, cap]);
 
   /**
    * What the table actually shows: the filtered rows, cut to the screen's
@@ -290,8 +326,12 @@ export default function App() {
       // Cutting from the first moment of a run rather than from the first
       // published batch: the table then fills up with matches as they are
       // found, instead of showing the whole list and suddenly collapsing.
-      matchesOnly && screening ? rows.filter((row) => screenRun.matches.has(row.symbol)) : rows,
-    [rows, matchesOnly, screening, screenRun.matches],
+      // A screen run in the other section must not quietly hide half of a
+      // watchlist: the list is the answer here, not a universe to search.
+      matchesOnly && screening && !watchlistView
+        ? rows.filter((row) => screenRun.matches.has(row.symbol))
+        : rows,
+    [rows, matchesOnly, screening, screenRun.matches, watchlistView],
   );
 
   const bandFilterOn = Object.values(bands).some((v) => v !== ANY);
@@ -380,55 +420,71 @@ export default function App() {
         options: SIGNAL_SCORE_OPTIONS,
         onChange: (v) => setSignal((s) => ({ ...s, score: v })),
       },
-      // Then the widest cut of the universe: whether you are looking at ~2,400
-      // NSE rows or all ~5,200.
-      {
-        key: 'exchange',
-        label: 'Exchange',
-        value: exchange,
-        options: EXCHANGE_FILTERS.map((e) => ({
-          value: e,
-          label: EXCHANGE_LABEL[e],
-          hint: EXCHANGE_HINT[e],
-        })),
-        onChange: (v) => setExchange(v as ExchangeFilter),
-      },
-      {
-        key: 'series',
-        label: 'Series',
-        value: series,
-        options: seriesOptions,
-        onChange: setSeries,
-      },
-      // Segment and cap read from the NSE lists, so they stay disabled until
-      // those land — offering an "F&O" filter that matches nothing would look
-      // like the app had lost the data.
-      {
-        key: 'segment',
-        label: 'Segment',
-        value: segment,
-        disabled: !classificationReady,
-        options: SEGMENT_FILTERS.map((s) => ({
-          value: s,
-          label: SEGMENT_LABEL[s],
-          hint: SEGMENT_HINT[s],
-        })),
-        onChange: (v) => setSegment(v as SegmentFilter),
-      },
-      {
-        key: 'cap',
-        label: 'Cap',
-        value: cap,
-        disabled: !classificationReady,
-        options: CAP_FILTERS.map((c) => ({
-          value: c,
-          label: CAP_FILTER_LABEL[c],
-          hint: CAP_FILTER_HINT[c],
-        })),
-        onChange: (v) => setCap(v as CapFilter),
-      },
+      // The universe cuts, which the Watchlists section does not have: a list
+      // is already a universe, and filtering it by exchange would hide rows
+      // somebody put there on purpose. Spread rather than disabled, so the bar
+      // there holds the signal filters alone.
+      ...(watchlistView
+        ? []
+        : [
+          {
+            key: 'exchange',
+            label: 'Exchange',
+            value: exchange,
+            options: EXCHANGE_FILTERS.map((e) => ({
+              value: e,
+              label: EXCHANGE_LABEL[e],
+              hint: EXCHANGE_HINT[e],
+            })),
+            onChange: (v: string) => setExchange(v as ExchangeFilter),
+          },
+          {
+            key: 'series',
+            label: 'Series',
+            value: series,
+            options: seriesOptions,
+            onChange: setSeries,
+          },
+          // Segment and cap read from the NSE lists, so they stay disabled until
+          // those land — offering an "F&O" filter that matches nothing would look
+          // like the app had lost the data.
+          {
+            key: 'segment',
+            label: 'Segment',
+            value: segment,
+            disabled: !classificationReady,
+            options: SEGMENT_FILTERS.map((s) => ({
+              value: s,
+              label: SEGMENT_LABEL[s],
+              hint: SEGMENT_HINT[s],
+            })),
+            onChange: (v: string) => setSegment(v as SegmentFilter),
+          },
+          {
+            key: 'cap',
+            label: 'Cap',
+            value: cap,
+            disabled: !classificationReady,
+            options: CAP_FILTERS.map((c) => ({
+              value: c,
+              label: CAP_FILTER_LABEL[c],
+              hint: CAP_FILTER_HINT[c],
+            })),
+            onChange: (v: string) => setCap(v as CapFilter),
+          },
+        ]),
     ],
-    [signal, signalFilterAffordable, exchange, series, seriesOptions, segment, cap, classificationReady],
+    [
+      signal,
+      signalFilterAffordable,
+      watchlistView,
+      exchange,
+      series,
+      seriesOptions,
+      segment,
+      cap,
+      classificationReady,
+    ],
   );
 
   /**
@@ -496,6 +552,75 @@ export default function App() {
     signals.version,
   ]);
 
+  /**
+   * The table as it stands, as a file.
+   *
+   * Exactly the rows on screen and the numbers already computed — no fetching,
+   * so it costs nothing and cannot be a partial download that looks complete.
+   * Whatever a run has not reached is an empty cell, which is what the table
+   * shows too.
+   */
+  const exportCsv = useCallback(() => {
+    const headers = [
+      'Symbol', 'Company', 'Exchanges', 'Series', 'ISIN',
+      'LTP', 'Change %',
+      'Signal', 'Signal price', 'Signal date', 'Bars since', 'Trailing stop', 'Score',
+      '% of 10Y high', 'Monthly RSI', 'ROCE %', 'Market cap (Cr)',
+      'Watchlist',
+    ];
+
+    const body = visible.map((row) => {
+      const sig = peekSignal(row.ticker);
+      const m = screenRun.results.get(row.symbol)?.metrics;
+      return [
+        row.symbol, row.name, row.exchanges.join('+'), row.series, row.isin,
+        row.quote?.price, row.quote?.changePercent,
+        sig?.side, sig?.price, sig?.date, sig?.age, sig?.stop, sig?.score,
+        m?.pctOfHigh, m?.monthlyRsi14, m?.rocePct, m?.marketCapCr,
+        watched.has(row.symbol) ? 'yes' : '',
+      ];
+    });
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadCsv(`fivealpha-${stamp}.csv`, toCsv(headers, body));
+  }, [visible, screenRun.results, watched]);
+
+  /**
+   * Two shortcuts, and only two: `/` to search from anywhere and `w` to star
+   * whatever is open. Both are what the keyboard already does on every screener
+   * worth using, and neither needs a legend to be discovered by the people who
+   * try them.
+   *
+   * Escape belongs to whatever is on top — the drawer and the filter sheet each
+   * close themselves — so the only Escape handled here is the one that gets you
+   * out of the search box. Nothing fires while a field has focus, or the letter
+   * `w` could not be typed into it.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing =
+        !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+
+      if (e.key === 'Escape' && typing) {
+        el.blur();
+        return;
+      }
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+
+      if (e.key === '/') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      } else if (e.key === 'w' && selected) {
+        toggleWatch(selected.symbol);
+      }
+    };
+
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selected]);
+
   // Honest about which lists actually loaded: if BSE's API was unreachable the
   // merge falls back to NSE alone, and the header should say so rather than
   // claim coverage the table doesn't have.
@@ -540,7 +665,9 @@ export default function App() {
             <span className="count num">
               {loading
                 ? 'Loading…'
-                : `${listedOn} · ${visible.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} companies`}
+                : watchlistView
+                  ? `${active.name} · ${visible.length.toLocaleString('en-IN')} of ${active.symbols.length.toLocaleString('en-IN')} starred`
+                  : `${listedOn} · ${visible.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} companies`}
             </span>
           </div>
         </div>
@@ -553,14 +680,30 @@ export default function App() {
             <path d="m20 20-3.5-3.5" strokeLinecap="round" />
           </svg>
           <input
+            ref={searchRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search symbol, company or ISIN"
             aria-label="Search shares"
           />
+          {/* The shortcut, where the thing it operates is — a legend nobody has
+              to go looking for, and it disappears once you are typing. */}
+          {search === '' && <kbd className="kbd-hint">/</kbd>}
         </div>
 
         <div className="spacer" />
+
+        {/* Only what is on screen, and only what has been computed — see
+            `exportCsv`. Disabled on an empty table rather than handing over a
+            file with a header row and nothing under it. */}
+        <button
+          className="btn ghost"
+          onClick={exportCsv}
+          disabled={visible.length === 0}
+          title={`Download these ${visible.length.toLocaleString('en-IN')} rows as CSV`}
+        >
+          Export
+        </button>
 
         <ThemeToggle />
 
@@ -588,6 +731,36 @@ export default function App() {
       </header>
 
       <div className="subbar">
+        {/* Beside the filters rather than up in the header: it is the same kind
+            of control — what the table below is showing — and the header ran
+            out of room for it at laptop widths, where it landed on the brand.
+            The count is of the active list: one you have to remember to go and
+            look at is one you stop using. */}
+        <nav className="segmented viewnav" role="tablist" aria-label="Sections">
+          <button
+            type="button"
+            role="tab"
+            data-active={!watchlistView}
+            aria-selected={!watchlistView}
+            onClick={() => setView('screener')}
+          >
+            Screener
+          </button>
+          <button
+            type="button"
+            role="tab"
+            data-active={watchlistView}
+            aria-selected={watchlistView}
+            onClick={() => setView('watchlist')}
+            title="Your starred symbols, in named lists"
+          >
+            Watchlists
+            {active.symbols.length > 0 && (
+              <span className="viewnav-count num">{active.symbols.length}</span>
+            )}
+          </button>
+        </nav>
+
         <Filters groups={filterGroups} advanced={advancedGroups} resultCount={visible.length} />
         {/* Without this the table looks like it is losing rows: a signal filter
             excludes rows whose signal has not arrived, and they arrive over a
@@ -599,16 +772,23 @@ export default function App() {
         )}
       </div>
 
-      <ScreenBar
-        screens={SCREENS}
-        selected={selectedScreen}
-        onSelect={selectScreen}
-        run={screenRun}
-        universeCount={rows.length}
-        onRun={runScreen}
-        matchesOnly={matchesOnly}
-        onMatchesOnlyChange={setMatchesOnly}
-      />
+      {/* Same slot, because it is the same job: the thing that decides what the
+          table underneath is showing. A screen in one section, a list in the
+          other. */}
+      {watchlistView ? (
+        <WatchlistBar shown={visible.length} />
+      ) : (
+        <ScreenBar
+          screens={SCREENS}
+          selected={selectedScreen}
+          onSelect={selectScreen}
+          run={screenRun}
+          universeCount={rows.length}
+          onRun={runScreen}
+          matchesOnly={matchesOnly}
+          onMatchesOnlyChange={setMatchesOnly}
+        />
+      )}
 
       {/* Breadth across whatever the current filter selects — the closest thing
           this dataset has to a market summary. */}
