@@ -851,7 +851,7 @@ body {
      monitor: all the slack went to one place. Weighted shares spread it, so the
      table scales as a whole instead of one column ballooning. */
   grid-template-columns:
-    48px minmax(124px, 0.9fr) minmax(170px, 2.4fr) minmax(104px, 0.8fr)
+    48px minmax(140px, 0.9fr) minmax(170px, 2.4fr) minmax(104px, 0.8fr)
     minmax(100px, 0.8fr) minmax(100px, 0.8fr) minmax(104px, 0.8fr)
     minmax(124px, 1fr) minmax(96px, 0.8fr) minmax(88px, 0.7fr);
   min-width: 0;
@@ -866,7 +866,7 @@ body {
    window widens, instead of every spare pixel landing in Company. */
 .table-wrap[data-layout='wide'][data-screen='true'] .grid-row {
   grid-template-columns:
-    44px minmax(118px, 0.85fr) minmax(150px, 2.2fr) minmax(96px, 0.75fr)
+    44px minmax(134px, 0.85fr) minmax(150px, 2.2fr) minmax(96px, 0.75fr)
     minmax(98px, 0.75fr) minmax(118px, 0.95fr) minmax(88px, 0.7fr)
     minmax(84px, 0.7fr) minmax(92px, 0.75fr) minmax(70px, 0.6fr)
     minmax(76px, 0.65fr) minmax(96px, 0.75fr);
@@ -875,7 +875,7 @@ body {
 
 /* Tablet: Symbol · Company · LTP · Chg% · Side · Gap — see MEDIUM_HIDDEN. */
 .table-wrap[data-layout='medium'] .grid-row {
-  grid-template-columns: 112px minmax(90px, 1.4fr) 100px 108px 96px 88px;
+  grid-template-columns: 128px minmax(90px, 1.4fr) 100px 108px 96px 88px;
   min-width: 0;
 }
 
@@ -885,7 +885,7 @@ body {
 .table-wrap[data-layout='medium'][data-screen='true'] .grid-row {
   /* Tracks sized so the total still fits at 701px — the narrow end of this
      layout — with the gutters. Any wider and the Company column takes it. */
-  grid-template-columns: 100px minmax(72px, 1.3fr) 88px 96px 92px 96px 72px;
+  grid-template-columns: 116px minmax(72px, 1.3fr) 88px 96px 92px 96px 72px;
   min-width: 0;
 }
 
@@ -2232,6 +2232,21 @@ body {
     padding: 8px var(--gutter);
   }
 
+  /* Shares one row with the Filters button, so it gives up its separator and
+     some padding before either of them gives up a word. */
+  .subbar > .viewnav {
+    margin-right: 0;
+  }
+
+  .subbar > .viewnav::after {
+    display: none;
+  }
+
+  .viewnav button {
+    padding: 0 11px;
+    font-size: 12.5px;
+  }
+
   .screenbar {
     gap: 6px;
     padding: 0 var(--gutter) 8px;
@@ -2564,6 +2579,43 @@ body {
   text-overflow: ellipsis;
 }
 
+/* How well the flip is backed up (trend, volume, turnover, this rule's record
+   on this name — see SCORE in src/lib/signals.ts). Ink, not colour: the row
+   already carries a side badge and a day-change chip, and a third tint would
+   be the fourth thing shouting. Only a score worth acting on is inked. */
+.sig-score {
+  flex: none;
+  margin-left: auto;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--on-surface-faint);
+  white-space: nowrap;
+}
+
+.sig-score.strong {
+  color: var(--on-surface);
+}
+
+/* Inside the phone row's second line it is part of a sentence, not a chip. */
+.sig-strip-when .sig-score {
+  margin-left: 0;
+  padding: 0;
+  background: none;
+  font-size: inherit;
+  font-weight: 600;
+}
+
+/* That line carries three facts now, not two, so on a narrow phone it wraps
+   rather than ellipsing away the newest of them. */
+.sig-strip-when {
+  white-space: normal;
+  overflow: visible;
+}
+
 /* ---------- drawer: signal ---------- */
 
 /* Which study produced the verdict, stated next to the heading rather than as
@@ -2633,4 +2685,422 @@ body {
   padding: 4px 24px 20px;
   font-size: 13px;
   color: var(--on-surface-variant);
+}
+
+/* ---------- watchlist ---------- */
+
+/* The star lives inside the symbol cell, which is inside a row that opens the
+   drawer — so it needs a hit area a finger can find without being a target the
+   eye keeps tripping over. Off is faint ink; on is the app's own accent, and
+   the icon is *filled* rather than merely tinted, so a scan down the column
+   reads on shape alone and does not depend on colour vision. */
+.star {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  /* The parent cell is a flex row with its own gap, so the star only reclaims
+     the padding it adds on its own left — the symbol still starts where the
+     column does. Every track it sits in was widened by 16px to pay for it. */
+  margin: -4px 0 -4px -5px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--on-surface-faint);
+  /* Enough to see against a busy row, not enough to compete with the symbol. */
+  opacity: 0.45;
+  cursor: pointer;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+  vertical-align: middle;
+}
+
+.star:hover {
+  background: var(--surface-2);
+  opacity: 1;
+}
+
+.star[data-on='true'] {
+  color: var(--primary);
+  opacity: 1;
+}
+
+.star:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  opacity: 1;
+}
+
+/* On a touch screen there is no hover to reveal it, so it sits at full strength
+   and the row gives it room. */
+@media (hover: none) {
+  .star {
+    opacity: 0.7;
+  }
+}
+
+/* The drawer's copy: a header control, not a cell decoration. */
+.star-lg {
+  width: 34px;
+  height: 34px;
+  margin: 0;
+  opacity: 0.6;
+}
+
+/* ---------- keyboard hint ---------- */
+
+/* Sits at the right-hand end of the search box and gets out of the way the
+   moment there is a query to read. Pointer-events off: it is a label, and a
+   click on it should land in the field under it. */
+.kbd-hint {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  min-width: 20px;
+  padding: 2px 6px;
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--on-surface-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* A phone has no keyboard shortcut to advertise, and the space is worth more. */
+@media (max-width: 899px) {
+  .kbd-hint {
+    display: none;
+  }
+}
+
+/* ---------- sections ---------- */
+
+/* A `.segmented`, because it is one — the same two-state control the screen bar
+   and the filters use, so the bar reads as one row of like things rather than a
+   bespoke tab strip that happens to sit next to them. That also inherits the
+   tonal active state, which is the one that survives dark mode: a
+   surface-coloured thumb there sits *below* the track and reads as unselected.
+
+   All this adds is the badge. */
+.viewnav {
+  flex: none;
+}
+
+.viewnav-count {
+  min-width: 17px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  /* Tinted from the button's own colour, so it is accent on the active tab and
+     muted on the other without a second rule for each state. */
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- watchlists section ---------- */
+
+.wl-row {
+  flex-wrap: wrap;
+}
+
+/* Tabs rather than a dropdown: there are two or three of them, they are this
+   section's navigation, and a dropdown hides the counts that tell you which
+   list you meant. They scroll rather than wrap once there are many. */
+.wl-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px;
+  margin: -2px;
+}
+
+.wl-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.wl-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  height: 34px;
+  max-width: 220px;
+  padding: 0 14px;
+  border: 1px solid var(--outline);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--on-surface-variant);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.wl-tab:hover {
+  background: var(--surface-hover);
+  color: var(--on-surface);
+}
+
+/* The active tab is where the star writes, so it is marked the way the star
+   itself is — the app's accent, not a grey fill. */
+.wl-tab[data-active='true'] {
+  border-color: var(--primary);
+  background: var(--primary-container);
+  color: var(--primary);
+}
+
+.wl-tab-count {
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.75;
+}
+
+.wl-new {
+  border-style: dashed;
+  color: var(--on-surface-faint);
+}
+
+.wl-new:hover {
+  border-style: solid;
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* The list's own actions. The menu itself is portalled and placed by `PopMenu`,
+   so nothing here positions it — an absolutely positioned one used to run off
+   the left edge of a phone. */
+.wl-more {
+  flex: none;
+}
+
+/* Destructive, and marked as such only once it is under the pointer: a red row
+   sitting in an open menu reads as a warning about the menu. */
+.wl-opt-danger[data-active='true'],
+.wl-opt-danger:hover {
+  background: var(--down-container);
+  color: var(--down);
+}
+
+.wl-opt:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.wl-opt:disabled:hover {
+  background: none;
+}
+
+.wl-edit input {
+  height: 34px;
+  min-width: 180px;
+  padding: 0 12px;
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+/* On a phone the row stacks: the tabs take the full width and scroll, and the
+   three actions sit under them rather than being pushed off the edge. */
+@media (max-width: 899px) {
+  .wl-row .wl-tabs {
+    order: 1;
+    width: 100%;
+  }
+
+  .wl-row .spacer {
+    display: none;
+  }
+}
+
+/* ---------- the star's list picker ---------- */
+
+/* Shares `.menu`'s shell — portal, shadow, rounding, entry animation — and
+   nothing below it. The rows are checkboxes rather than options, so they get
+   their own control rather than `.menu-item` (which is written for a `div` and
+   leaves a button's own border and background showing through). */
+.wl-menu {
+  display: flex;
+  flex-direction: column;
+  /* Hugs its content up to the cap the trigger measured, rather than always
+     standing at full height with dead space under the last list. */
+  height: auto;
+  padding: 0;
+  overflow: hidden;
+}
+
+.wl-menu-head {
+  flex: none;
+  padding: 11px 14px 9px;
+  border-bottom: 1px solid var(--outline-faint);
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+  letter-spacing: 0.01em;
+}
+
+.wl-menu-head b {
+  color: var(--on-surface);
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+/* The only part that scrolls, so the heading and the way to make another list
+   stay put no matter how many there are. */
+.wl-menu-list {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+}
+
+/* Full button reset first: without it the browser's own border, background,
+   centred text and 13px system font all show through, which is what made this
+   look like a form rather than a menu. */
+.wl-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--on-surface);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Pointer and keyboard share one highlight, so arrowing down the list looks the
+   same as running a mouse over it. */
+.wl-opt[data-active='true'] {
+  background: var(--surface-2);
+}
+
+.wl-opt:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.wl-opt[aria-checked='true'] {
+  font-weight: 600;
+}
+
+/* A real checkbox, not a tick glyph in a text slot: the box is there whether it
+   is ticked or not, so nothing shifts sideways when one is, and "this row is a
+   thing you switch" is legible before it is read. */
+.wl-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 17px;
+  height: 17px;
+  border: 1.5px solid var(--outline);
+  border-radius: 5px;
+  color: transparent;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.wl-box[data-on='true'] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.wl-opt-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.wl-opt-count {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--on-surface-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The footer action. Separated by a rule because it does something different
+   from every row above it — it makes a list rather than choosing one. */
+.wl-menu-add {
+  flex: none;
+  height: 42px;
+  margin: 0;
+  padding: 0 16px;
+  border-top: 1px solid var(--outline-faint);
+  border-radius: 0;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.wl-add-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+  background: var(--primary-container);
+  color: var(--primary);
+}
+
+.wl-menu-new {
+  flex: none;
+  padding: 8px;
+  border-top: 1px solid var(--outline-faint);
+}
+
+.wl-menu-new input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 1.5px solid var(--primary);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.wl-menu-new input::placeholder {
+  color: var(--on-surface-faint);
+}
+
+/* Held open, the star reads as pressed rather than merely hovered — the menu it
+   belongs to is somewhere else on the page entirely. */
+.star[data-open='true'] {
+  background: var(--surface-2);
+  color: var(--primary);
+  opacity: 1;
 }

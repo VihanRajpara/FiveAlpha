@@ -4,7 +4,14 @@ import { CAP_LABEL } from '../lib/classification';
 import { formatDate, formatPercent, formatPrice, formatVolume } from '../lib/format';
 import type { Candle, ChartRange, Classification, Quote, Security } from '../types';
 import { useSignal } from '../hooks/useSignal';
-import { UT_BOT, formatGap, signalGapPct } from '../lib/signals';
+import { WatchPicker } from './WatchPicker';
+import {
+  UT_BOT,
+  formatGap,
+  scoreLabel,
+  signalGapPct,
+  stopDistancePct,
+} from '../lib/signals';
 import { CompanyFundamentals } from './CompanyFundamentals';
 import { ExchangeBadges } from './ExchangeBadges';
 import { PriceChart } from './PriceChart';
@@ -46,6 +53,7 @@ function SignalPanel({ ticker, price }: { ticker: string; price: number | null |
   }
 
   const gap = signal ? signalGapPct(signal, price) : null;
+  const room = signal ? stopDistancePct(signal, price ?? signal.price) : null;
 
   return (
     <section className="company">
@@ -69,6 +77,14 @@ function SignalPanel({ ticker, price }: { ticker: string; price: number | null |
             </span>
           </div>
 
+          {/* Said out loud rather than left to be discovered: a flip on a bar
+              that is still trading can be gone by the close. */}
+          {signal.provisional && (
+            <p className="sig-none">
+              Today&rsquo;s bar is still open — this flip can reverse before the close.
+            </p>
+          )}
+
           <dl className="facts">
             <div className="fact">
               <dt>Signal price</dt>
@@ -87,6 +103,57 @@ function SignalPanel({ ticker, price }: { ticker: string; price: number | null |
             <div className="fact">
               <dt>Bars since</dt>
               <dd className="num">{signal.age}</dd>
+            </div>
+            {/* The study is a trailing stop, so this is the level it flips back
+                at — the signal's own statement of where it is wrong. */}
+            <div className="fact">
+              <dt>Trailing stop</dt>
+              <dd className="num">{formatPrice(signal.stop)}</dd>
+            </div>
+            <div className="fact">
+              <dt>Room to stop</dt>
+              <dd className={`num ${room === null ? '' : room >= 0 ? 'up' : 'down'}`}>
+                {room === null ? '—' : formatGap(room)}
+              </dd>
+            </div>
+            <div className="fact">
+              <dt>Confidence</dt>
+              <dd className="num">
+                {signal.score} · {scoreLabel(signal.score)}
+              </dd>
+            </div>
+            <div className="fact">
+              <dt>Trend</dt>
+              <dd className={signal.trend === 1 ? 'up' : signal.trend === -1 ? 'down' : ''}>
+                {signal.trend === 0
+                  ? 'Too little history'
+                  : signal.trend === 1
+                    ? 'With the 200-day'
+                    : 'Against the 200-day'}
+              </dd>
+            </div>
+            <div className="fact">
+              <dt>Volume on flip</dt>
+              <dd className="num">
+                {signal.volumeRatio === null ? '—' : `${signal.volumeRatio.toFixed(1)}× 20d avg`}
+              </dd>
+            </div>
+            <div className="fact">
+              <dt>Turnover (20d median)</dt>
+              <dd className="num">
+                {signal.turnover === null ? '—' : `₹${formatVolume(signal.turnover)}`}
+              </dd>
+            </div>
+            {/* Every earlier flip in the window closed at the next one, so this
+                is the same rule's record on this name — evidence, not a
+                backtest: no costs, no slippage, one year of bars. */}
+            <div className="fact">
+              <dt>This rule here (1y)</dt>
+              <dd className="num">
+                {signal.history
+                  ? `${signal.history.wins}/${signal.history.trades} won · avg ${formatGap(signal.history.avgPct)}`
+                  : 'Too few flips'}
+              </dd>
             </div>
           </dl>
         </>
@@ -169,6 +236,10 @@ export function StockDetail({ security, quote, cls, onClose }: Props) {
           {cls?.fno && <span className="badge fno">F&amp;O</span>}
           <ExchangeBadges exchanges={security.exchanges} />
           <span className={`badge ${security.series}`}>{security.series}</span>
+          {/* The same star as the row behind it, and the visible half of the
+              `w` shortcut — a keystroke with nothing on screen to point at is a
+              keystroke only its author knows about. */}
+          <WatchPicker symbol={security.symbol} size="lg" />
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             ✕
           </button>

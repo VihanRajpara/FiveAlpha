@@ -26,8 +26,18 @@
 
 const PREFIX = 'fivealpha:';
 
-/** Bump to discard every stored value — a shape change, not a data change. */
-const VERSION = 3;
+/**
+ * Bump to discard every stored value.
+ *
+ * A shape change, normally — but also a *correctness* change in whatever
+ * produced the values, and for the same reason: what is in the store was
+ * written by the old code and will be believed until it expires. Version 4 is
+ * one of those. Fundamentals are kept for **thirty days**, and the parse that
+ * wrote them read screener.in's empty ratio spans as a figure of zero, so
+ * without this bump every affected company would carry `ROCE 0` — a definite
+ * fail on that leg — for a month after the fix.
+ */
+const VERSION = 4;
 
 /** Long enough that a run's burst of writes settles into one rewrite. */
 const FLUSH_DELAY_MS = 3000;
