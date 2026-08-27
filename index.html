@@ -9,11 +9,10 @@
     content="Every share listed on the NSE cash market, with live prices, F&amp;O eligibility and market-cap classification." />
   <meta name="theme-color" content="#ffffff" />
 
-  <!-- SVG first for browsers that take it (stays crisp at any size); the .ico
-       carries 16/32/48 bitmaps for everything else, Safari included. -->
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <!-- The mark is artwork, not paths, so there is no SVG favicon to prefer;
+       the .ico carries its own bitmap at every size down to 16. -->
+  <link rel="icon" href="/favicon.ico?v=8" sizes="16x16 32x32 48x48 64x64 128x128 256x256" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=8" />
   <link rel="manifest" href="/site.webmanifest" />
   <meta name="apple-mobile-web-app-title" content="FiveAlpha" />
   <!-- Applies the saved theme before first paint. Without this the page

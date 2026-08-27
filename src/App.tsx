@@ -19,7 +19,6 @@ import {
 import { ANY, NUMERIC_FILTERS, matchesBands } from './lib/filters';
 import { useActiveList } from './hooks/useWatchlist';
 import { toggleWatch } from './lib/watchlist';
-import { downloadCsv, toCsv } from './lib/csv';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
 import { UNCLASSIFIED } from './lib/classification';
 import { compareSeries, describeSeries } from './lib/listings';
@@ -203,17 +202,13 @@ export default function App() {
   const [bands, setBands] = useState<Record<string, string>>({});
 
   const screenRun = useScreen();
-  // Pre-selected rather than 'none': there is one screen, and the shortlist is
-  // the point of the page — see the auto-run below.
-  const [screenId, setScreenId] = useState<string>(SCREENS[0]?.id ?? 'none');
   // The point of running a screen is the shortlist, so the table cuts to it by
   // default; the toggle in the bar puts the rejected rows back, dimmed, for
   // anyone checking the screen's work rather than trusting it.
   const [matchesOnly, setMatchesOnly] = useState(true);
-  const selectedScreen = useMemo(
-    () => SCREENS.find((s) => s.id === screenId) ?? null,
-    [screenId],
-  );
+  // There is one screen and it is the point of the page, so it is fixed rather
+  // than picked — see the auto-run below.
+  const selectedScreen = SCREENS[0] ?? null;
 
   const joined = useMemo<SecurityWithQuote[]>(
     () =>
@@ -365,16 +360,6 @@ export default function App() {
     autoRan.current = true;
     runScreen();
   }, [loading, quotesLoaded, rows.length, runScreen]);
-
-  const selectScreen = useCallback(
-    (id: string) => {
-      setScreenId(id);
-      // Leaving a previous screen's columns and shortlist behind after picking
-      // "None" would be a table showing the result of something not selected.
-      if (id !== screenRun.screen?.id) screenRun.clear();
-    },
-    [screenRun],
-  );
 
   /**
    * One description of the filters, rendered as inline chips on wide screens
@@ -553,39 +538,6 @@ export default function App() {
   ]);
 
   /**
-   * The table as it stands, as a file.
-   *
-   * Exactly the rows on screen and the numbers already computed — no fetching,
-   * so it costs nothing and cannot be a partial download that looks complete.
-   * Whatever a run has not reached is an empty cell, which is what the table
-   * shows too.
-   */
-  const exportCsv = useCallback(() => {
-    const headers = [
-      'Symbol', 'Company', 'Exchanges', 'Series', 'ISIN',
-      'LTP', 'Change %',
-      'Signal', 'Signal price', 'Signal date', 'Bars since', 'Trailing stop', 'Score',
-      '% of 10Y high', 'Monthly RSI', 'ROCE %', 'Market cap (Cr)',
-      'Watchlist',
-    ];
-
-    const body = visible.map((row) => {
-      const sig = peekSignal(row.ticker);
-      const m = screenRun.results.get(row.symbol)?.metrics;
-      return [
-        row.symbol, row.name, row.exchanges.join('+'), row.series, row.isin,
-        row.quote?.price, row.quote?.changePercent,
-        sig?.side, sig?.price, sig?.date, sig?.age, sig?.stop, sig?.score,
-        m?.pctOfHigh, m?.monthlyRsi14, m?.rocePct, m?.marketCapCr,
-        watched.has(row.symbol) ? 'yes' : '',
-      ];
-    });
-
-    const stamp = new Date().toISOString().slice(0, 10);
-    downloadCsv(`fivealpha-${stamp}.csv`, toCsv(headers, body));
-  }, [visible, screenRun.results, watched]);
-
-  /**
    * Two shortcuts, and only two: `/` to search from anywhere and `w` to star
    * whatever is open. Both are what the keyboard already does on every screener
    * worth using, and neither needs a legend to be discovered by the people who
@@ -651,14 +603,11 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          {/* Same three ascending bars as the favicon — the tab and the header
-              should be recognisably the same mark. */}
+          {/* The same file the tab and the installed app use. It is
+              artwork rather than paths, so it is not inlined — see
+              scripts/icons.py, which builds every size from one source. */}
           <span className="logo" aria-hidden>
-            <svg width="19" height="19" viewBox="0 0 100 100" fill="currentColor">
-              <rect x="8" y="56" width="20" height="26" rx="4.5" />
-              <rect x="40" y="38" width="20" height="44" rx="4.5" />
-              <rect x="72" y="18" width="20" height="64" rx="4.5" />
-            </svg>
+            <img src="/logo.png" width="34" height="34" alt="" />
           </span>
           <div>
             <h1>FiveAlpha</h1>
@@ -692,18 +641,6 @@ export default function App() {
         </div>
 
         <div className="spacer" />
-
-        {/* Only what is on screen, and only what has been computed — see
-            `exportCsv`. Disabled on an empty table rather than handing over a
-            file with a header row and nothing under it. */}
-        <button
-          className="btn ghost"
-          onClick={exportCsv}
-          disabled={visible.length === 0}
-          title={`Download these ${visible.length.toLocaleString('en-IN')} rows as CSV`}
-        >
-          Export
-        </button>
 
         <ThemeToggle />
 
@@ -779,9 +716,7 @@ export default function App() {
         <WatchlistBar shown={visible.length} />
       ) : (
         <ScreenBar
-          screens={SCREENS}
           selected={selectedScreen}
-          onSelect={selectScreen}
           run={screenRun}
           universeCount={rows.length}
           onRun={runScreen}
