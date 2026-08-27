@@ -19,3 +19,6 @@ supabase/.temp/
 *.local.sql
 *.tsbuildinfo
 .DS_Store
+
+# python bytecode from scripts/
+__pycache__/

@@ -162,12 +162,19 @@ body {
 .logo {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
+  /* The tile is part of the artwork, so this only sets the shadow it casts —
+     the radius matches the one baked into the PNG. */
   border-radius: 8px;
-  background: var(--primary);
-  color: var(--on-primary);
+  box-shadow: var(--elev-1);
   flex: none;
+}
+
+.logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .brand h1 {
@@ -686,50 +693,6 @@ body {
   color: var(--on-surface-variant);
 }
 
-.screen-clause summary {
-  width: fit-content;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--primary);
-}
-
-.screen-clause[open] summary {
-  margin-bottom: 8px;
-}
-
-.screen-legs {
-  display: grid;
-  gap: 6px;
-  margin: 0 0 8px;
-  padding: 0;
-  list-style: none;
-}
-
-.screen-legs li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.screen-leg-label {
-  min-width: 220px;
-  color: var(--on-surface);
-}
-
-.screen-legs code {
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: var(--surface-2);
-  color: var(--on-surface-variant);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  /* Clause fragments are long and unspaced; without this one of them decides
-     the page's minimum width. */
-  overflow-wrap: anywhere;
-}
-
 /* ---------- market summary strip ---------- */
 
 .summary {
@@ -997,21 +960,6 @@ body {
   border-bottom: 1px solid var(--outline-faint);
   cursor: pointer;
   transition: background 0.1s ease;
-}
-
-/* Screen verdicts. Only the rejects are marked: with the default matches-only
-   cut every visible row is a pass, so an accent on each of them was a line down
-   the whole table saying nothing. Rejected rows are dimmed rather than hidden so
-   the screen's working is checkable, and they come back to full strength on
-   hover for anyone reading one. */
-.tr[data-verdict='fail'],
-.tr[data-verdict='unknown'] {
-  opacity: 0.45;
-}
-
-.tr[data-verdict='fail']:hover,
-.tr[data-verdict='unknown']:hover {
-  opacity: 1;
 }
 
 .tr:hover {
@@ -2302,13 +2250,8 @@ body {
     font-size: 12px;
   }
 
-  /* The label and clause columns are desktop luxuries: on a phone the leg text
-     and its fragment stack, and the progress bar takes whatever width is left
-     on the row rather than a fixed 140px it may not have. */
-  .screen-leg-label {
-    min-width: 0;
-  }
-
+  /* On a phone the progress bar takes whatever width is left on the row rather
+     than a fixed 140px it may not have. */
   .screenbar .progress {
     flex: 1;
     width: auto;
@@ -2710,35 +2653,23 @@ body {
   border-radius: 50%;
   background: none;
   color: var(--on-surface-faint);
-  /* Enough to see against a busy row, not enough to compete with the symbol. */
-  opacity: 0.45;
   cursor: pointer;
-  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+  transition: color 0.12s ease, background 0.12s ease;
   vertical-align: middle;
 }
 
 .star:hover {
   background: var(--surface-2);
-  opacity: 1;
+  color: var(--on-surface-variant);
 }
 
 .star[data-on='true'] {
   color: var(--primary);
-  opacity: 1;
 }
 
 .star:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
-  opacity: 1;
-}
-
-/* On a touch screen there is no hover to reveal it, so it sits at full strength
-   and the row gives it room. */
-@media (hover: none) {
-  .star {
-    opacity: 0.7;
-  }
 }
 
 /* The drawer's copy: a header control, not a cell decoration. */
@@ -2746,7 +2677,6 @@ body {
   width: 34px;
   height: 34px;
   margin: 0;
-  opacity: 0.6;
 }
 
 /* ---------- keyboard hint ---------- */

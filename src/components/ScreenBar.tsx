@@ -1,4 +1,3 @@
-import { SelectMenu } from './SelectMenu';
 import {
   LARGE_RUN,
   formatDuration,
@@ -9,20 +8,14 @@ import {
 import type { ScreenDef } from '../lib/screens';
 
 /**
- * The screen control: pick a screen, run it over whatever the filters currently
+ * The screen control: run the one screen over whatever the filters currently
  * select, then read the verdict.
  *
  * It sits below the filters and above the table because that is the order the
  * work happens in — a screen is expensive per row (see useScreen) and the
  * filters are what make it affordable, so the bar reads as the second half of
  * one sentence rather than as an independent control.
- *
- * The clause itself is on show, collapsed. A screen that silently drops 95% of
- * the table has to be able to say exactly what it did, and the Chartink text is
- * the most precise statement of that available.
  */
-
-const NONE = 'none';
 
 /**
  * Named after what each stage is *doing to the rows*, not after the endpoint it
@@ -60,10 +53,8 @@ function stageLine(progress: ScreenProgress): string {
 }
 
 interface Props {
-  screens: ScreenDef[];
-  /** The screen chosen in the picker — not necessarily one that has been run. */
+  /** The screen this bar runs — not necessarily one that has been run yet. */
   selected: ScreenDef | null;
-  onSelect: (id: string) => void;
   run: ScreenRun;
   /** How many rows the current filters select — the run's universe. */
   universeCount: number;
@@ -73,9 +64,7 @@ interface Props {
 }
 
 export function ScreenBar({
-  screens,
   selected,
-  onSelect,
   run,
   universeCount,
   onRun,
@@ -91,19 +80,6 @@ export function ScreenBar({
   return (
     <div className="screenbar">
       <div className="screenbar-row">
-        <span className="filter-label">Screen</span>
-
-        <SelectMenu
-          ariaLabel="Screen"
-          value={selected?.id ?? NONE}
-          options={[
-            { value: NONE, label: 'None', hint: 'Show every row the filters select' },
-            ...screens.map((s) => ({ value: s.id, label: s.name, hint: s.summary })),
-          ]}
-          onChange={onSelect}
-          minMenuWidth={320}
-        />
-
         {selected && (
           <button
             type="button"
@@ -173,10 +149,6 @@ export function ScreenBar({
                 All
               </button>
             </div>
-
-            <button type="button" className="btn ghost" onClick={run.clear}>
-              Clear
-            </button>
           </>
         )}
       </div>
@@ -206,30 +178,6 @@ export function ScreenBar({
         </p>
       )}
 
-      {selected && (
-        <details className="screen-clause">
-          <summary>What this runs</summary>
-          <p className="screen-note">{selected.summary}</p>
-          <ul className="screen-legs">
-            {selected.legs.map((leg) => (
-              <li key={leg.id}>
-                <span className="screen-leg-label">{leg.label}</span>
-                <code>{leg.clause}</code>
-              </li>
-            ))}
-          </ul>
-          <p className="screen-note">
-            Translated from{' '}
-            <a href={selected.source} target="_blank" rel="noreferrer noopener">
-              the Chartink screen
-            </a>
-            . Prices, the 10-year high and market cap come from Yahoo Finance — bars for the first
-            two, a batch quote for the third, which is why the cap band is applied before anything
-            else. ROCE is scraped from screener.in company pages, consolidated where they exist, and
-            is the only figure a row has to be asked for one at a time.
-          </p>
-        </details>
-      )}
     </div>
   );
 }
