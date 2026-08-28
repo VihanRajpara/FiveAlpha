@@ -19,6 +19,17 @@ import { supabase } from './supabaseClient';
 
 const KEY = 'fivealpha:user';
 
+/**
+ * The last username to sign in *successfully*, kept across sign-out so the form
+ * comes back with the name already in it.
+ *
+ * A separate key from the session on purpose: signing out has to end the
+ * session and must not forget who you are, and those are two different
+ * lifetimes in one localStorage. Never the PIN — remembering that would be
+ * remembering the whole credential.
+ */
+const LAST_KEY = 'fivealpha:last-username';
+
 export interface User {
   username: string;
 }
@@ -72,14 +83,25 @@ export async function login(username: string, pin: string): Promise<User | strin
   const user = { username: matched };
   try {
     localStorage.setItem(KEY, JSON.stringify(user));
+    localStorage.setItem(LAST_KEY, user.username);
   } catch {
     // No storage: signed in for this tab only, which still works.
   }
   return user;
 }
 
+/** Who signed in here last, for the form to open on. */
+export function lastUsername(): string | null {
+  try {
+    return localStorage.getItem(LAST_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function logout(): void {
   try {
+    // `LAST_KEY` deliberately survives — see above.
     localStorage.removeItem(KEY);
   } catch {
     // Nothing stored, nothing to clear.

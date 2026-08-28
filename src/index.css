@@ -2110,15 +2110,19 @@ body {
   margin: 0 auto;
 }
 
-/* The stacked lockup: the one place with room to show the mark above the
-   wordmark, and the first thing on screen while the lists are fetched. */
-.center-msg .brand-splash {
-  width: min(190px, 60%);
+/* The stacked lockup — the mark above the wordmark, painted through its own
+   alpha PNG. Used twice: while the lists are being fetched, and at the top of
+   the sign-in card. Only the width differs, so only the width is set per use. */
+.brand-splash {
   aspect-ratio: 1.431;
-  margin-bottom: 6px;
   background: var(--brand-gradient);
   -webkit-mask: url('/brand/stacked.png') center / contain no-repeat;
   mask: url('/brand/stacked.png') center / contain no-repeat;
+}
+
+.center-msg .brand-splash {
+  width: min(190px, 60%);
+  margin-bottom: 6px;
 }
 
 .center-msg strong {
@@ -2138,67 +2142,180 @@ body {
 
 /* ---------- sign-in ---------- */
 
-/* Signed out there is no header, no table and nothing to scroll, so the card
-   sits in the middle of the shell rather than at the top of an empty page. */
+/* The signed-out page: one card, centred, on the canvas with a single wash of
+   the brand gradient behind it. That wash is the only saturated thing here —
+   everything else is the same graphite and indigo as the app it opens into, so
+   the two do not read as different products. */
 .login-page {
+  position: relative;
+  display: flex;
+  align-items: center;
   justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 32px var(--gutter);
+  background: var(--canvas);
+  overflow: hidden;
 }
 
-.login {
-  width: 100%;
-  gap: 12px;
+.login-page::before {
+  content: '';
+  position: absolute;
+  top: -30vh;
+  left: 50%;
+  width: min(900px, 140vw);
+  aspect-ratio: 1;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: var(--brand-gradient);
+  filter: blur(110px);
+  opacity: light-dark(0.16, 0.2);
+  pointer-events: none;
 }
 
-/* One column at every width — the two fields are short enough that a phone and
-   a monitor want the same shape, and the cap is what stops the inputs stretching
-   to the card's full 560px. */
+.login-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: min(400px, 100%);
+  padding: 34px 30px 26px;
+  border: 1px solid var(--outline-faint);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--elev-3);
+  text-align: center;
+  animation: login-in 0.35s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card {
+    animation: none;
+  }
+}
+
+@keyframes login-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+.login-mark {
+  width: 132px;
+  margin: 0 auto 14px;
+}
+
+.login-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--on-surface);
+}
+
+.login-sub {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+}
+
 .login-field {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
-  width: min(280px, 100%);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.03em;
-  color: var(--on-surface-variant);
+  align-items: stretch;
+  gap: 6px;
   text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--on-surface-faint);
 }
 
 .login-field input {
   width: 100%;
-  height: 44px;
+  height: 46px;
   padding: 0 14px;
-  border: 1px solid var(--outline-faint);
-  border-radius: 10px;
-  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--surface-2);
   color: var(--on-surface);
   font-family: inherit;
   font-size: 14px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  letter-spacing: normal;
+  text-transform: none;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .login-field input:focus {
   outline: none;
-  border-color: var(--primary);
-  box-shadow: var(--elev-1);
+  background: var(--surface);
+  /* A ring rather than a border, so the field does not shift by a pixel when it
+     takes focus. */
+  box-shadow: 0 0 0 2px var(--primary);
 }
 
-/* Four characters that are a code rather than a word: spaced out and monospaced
-   so the dots are countable. */
-.login-field input[type='password'] {
+/* Four characters that are a code, not a word: centred, spaced and monospaced
+   so the dots are countable at a glance. */
+.login-field-pin input {
+  text-align: center;
   font-family: var(--font-mono);
-  letter-spacing: 0.4em;
+  font-size: 19px;
+  letter-spacing: 0.6em;
+  /* Letter-spacing trails the last dot as well, which pushes centred text half
+     a space to the left. This puts it back. */
+  text-indent: 0.3em;
 }
 
 .login-submit {
-  width: min(280px, 100%);
-  margin-top: 4px;
+  height: 46px;
+  margin-top: 14px;
+  border: none;
+  border-radius: 12px;
+  background: var(--brand-gradient);
+  /* Not white: the gradient is deep in light mode and pastel in dark, so the
+     label follows it — the same pairing `--primary` and `--on-primary` already
+     have everywhere else. */
+  color: var(--on-primary);
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: var(--elev-1);
+  transition: box-shadow 0.15s ease, filter 0.15s ease, translate 0.15s ease;
+}
+
+.login-submit:hover:not(:disabled) {
+  filter: saturate(1.1) brightness(1.05);
+  box-shadow: var(--elev-2);
+  translate: 0 -1px;
+}
+
+.login-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .login-error {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--down-container);
   color: var(--down);
   font-size: 12.5px;
+  text-align: left;
+}
+
+.login-foot {
+  margin: 18px 0 0;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--on-surface-faint);
 }
 
 /* Who is signed in, beside the button that ends it. Hidden on a phone, where
@@ -2214,6 +2331,10 @@ body {
 }
 
 @media (max-width: 700px) {
+  .login-card {
+    padding: 28px 22px 22px;
+  }
+
   .whoami {
     display: none;
   }

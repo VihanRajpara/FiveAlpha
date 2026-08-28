@@ -1,16 +1,19 @@
 import { useState } from 'react';
-import { login, type User } from '../lib/auth';
+import { lastUsername, login, type User } from '../lib/auth';
 
 /**
  * The whole of the signed-out app: a username, four digits, and one button.
  *
  * Validation is the browser's — `required`, `pattern` and `minLength` say what
- * a valid entry is, and the form will not submit without one, which is a
- * message in the user's own language for free. The PIN is checked in the
- * database (see src/lib/auth.ts); nothing here can tell whether it is right.
+ * a valid entry is and the form will not submit without one, which is a message
+ * in the user's own language for free. The PIN is checked in the database (see
+ * src/lib/auth.ts); nothing here can tell whether it is right.
  */
 export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
-  const [username, setUsername] = useState('');
+  // Whoever signed in last on this device, so the common case is four digits
+  // and Enter. Read once: it must not change under the field as it is typed in.
+  const [remembered] = useState(lastUsername);
+  const [username, setUsername] = useState(remembered ?? '');
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,11 +41,14 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
   }
 
   return (
-    <div className="app login-page">
-      <form className="center-msg login" onSubmit={submit}>
-        <div className="brand-splash" aria-hidden />
-        <strong>Sign in</strong>
-        <span>Your username and four-digit PIN.</span>
+    <div className="login-page">
+      <form className="login-card" onSubmit={submit}>
+        <div className="brand-splash login-mark" aria-hidden />
+
+        <h1 className="login-title">{remembered ? 'Welcome back' : 'Sign in'}</h1>
+        <p className="login-sub">
+          {remembered ? 'Enter your PIN to continue.' : 'Your username and four-digit PIN.'}
+        </p>
 
         <label className="login-field">
           <span>Username</span>
@@ -54,16 +60,18 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
             autoCorrect="off"
             spellCheck={false}
             required
-            autoFocus
+            // The empty box gets the caret. With a name already in it the PIN
+            // is the only thing left to type, so it gets it instead.
+            autoFocus={!remembered}
           />
         </label>
 
-        <label className="login-field">
+        <label className="login-field login-field-pin">
           <span>PIN</span>
           <input
             value={pin}
-            // Digits only, as they are typed: a numeric keypad is a hint on a
-            // phone and nothing at all on a laptop.
+            // Digits only, as they are typed: `inputMode` raises a keypad on a
+            // phone and does nothing at all on a laptop.
             onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
             type="password"
             inputMode="numeric"
@@ -73,18 +81,21 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
             maxLength={4}
             placeholder="••••"
             required
+            autoFocus={Boolean(remembered)}
           />
         </label>
 
-        <button className="btn login-submit" type="submit" disabled={busy}>
+        <button className="login-submit" type="submit" disabled={busy}>
           {busy ? 'Checking…' : 'Sign in'}
         </button>
 
         {error && (
-          <span className="login-error" role="alert">
+          <p className="login-error" role="alert">
             {error}
-          </span>
+          </p>
         )}
+
+        <p className="login-foot">NSE + BSE equities · prices ~15 min delayed</p>
       </form>
     </div>
   );
