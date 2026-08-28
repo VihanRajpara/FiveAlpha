@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { saveSession, clearSession, type User } from './session';
 
 /**
  * Sign-in against `app_users` — see supabase/migrations/0007_users.sql, which
@@ -6,52 +7,26 @@ import { supabase } from './supabaseClient';
  *
  * Nothing here compares anything: the match happens in the `login` function in
  * the database, because a check that runs in the browser is a check the caller
- * can skip — and because the table it reads is invisible to this key. This file
- * is the session: who is signed in on this device, and how to stop being them.
+ * can skip — and because the table it reads is invisible to this key. The
+ * session itself lives in `session.ts`.
  *
  * **The gate is the screen, not the data.** A signed-out visitor sees the sign
- * in form instead of the app, and that is all it does: the market tables are
- * public and the watchlists are still keyed on the browser's owner id. Someone
- * editing localStorage by hand is past it. That is the right size of lock for a
- * personal screener, and it is worth being plain about rather than implying
- * more.
+ * in form instead of the app. Watchlists are keyed on the username from here
+ * (`supabaseClient.owner`), so they now follow the person rather than the
+ * browser — but the key that reads them still ships in the bundle, so someone
+ * editing localStorage by hand can name any owner they like. That is the right
+ * size of lock for a personal screener, and it is worth being plain about
+ * rather than implying more.
  */
 
-const KEY = 'fivealpha:user';
-
-/**
- * The last username to sign in *successfully*, kept across sign-out so the form
- * comes back with the name already in it.
- *
- * A separate key from the session on purpose: signing out has to end the
- * session and must not forget who you are, and those are two different
- * lifetimes in one localStorage. Never the PIN — remembering that would be
- * remembering the whole credential.
- */
-const LAST_KEY = 'fivealpha:last-username';
-
-export interface User {
-  username: string;
-}
+export type { User } from './session';
+export { currentUser, lastUsername } from './session';
 
 /**
  * Without a Supabase project there is nothing to sign in against — the app runs
  * off the direct NSE/BSE source and the gate would lock everyone out of it.
  */
 export const authEnabled = supabase !== null;
-
-/** Whoever this browser last signed in as, or null. */
-export function currentUser(): User | null {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<User>;
-    return parsed?.username ? { username: parsed.username } : null;
-  } catch {
-    // Unparseable, or no storage at all (private mode): not signed in.
-    return null;
-  }
-}
 
 /**
  * The signed-in user, or the message to show under the form.
@@ -76,34 +51,16 @@ export async function login(username: string, pin: string): Promise<User | strin
   }
 
   // The stored spelling of the username, or null. Taken from the database
-  // rather than from the box, so the header shows the account's own casing.
+  // rather than from the box, so the header shows the account's own casing —
+  // and so the watchlist owner matches the rows already saved under it.
   const matched = data as string | null;
   if (!matched) return 'Wrong username or PIN.';
 
   const user = { username: matched };
-  try {
-    localStorage.setItem(KEY, JSON.stringify(user));
-    localStorage.setItem(LAST_KEY, user.username);
-  } catch {
-    // No storage: signed in for this tab only, which still works.
-  }
+  saveSession(user);
   return user;
 }
 
-/** Who signed in here last, for the form to open on. */
-export function lastUsername(): string | null {
-  try {
-    return localStorage.getItem(LAST_KEY);
-  } catch {
-    return null;
-  }
-}
-
 export function logout(): void {
-  try {
-    // `LAST_KEY` deliberately survives — see above.
-    localStorage.removeItem(KEY);
-  } catch {
-    // Nothing stored, nothing to clear.
-  }
+  clearSession();
 }

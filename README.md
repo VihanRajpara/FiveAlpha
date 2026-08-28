@@ -226,7 +226,9 @@ update public.app_users set pin = '1234' where username = 'vihan';
 
 PINs are stored as typed, not hashed, and there is no lockout: anyone who can read the table can read every PIN, and nothing slows down a script working through all 10,000 four-digit combinations. What stops the browser being that reader is RLS with **no policies at all**, which makes `app_users` invisible to PostgREST — otherwise the publishable key inside the bundle would be enough to select the PINs out of it. The `login` function is `security definer` and is the only door.
 
-**What the gate is.** It keeps a visitor out of the *screen*. Market data is public and readable by `anon`, and watchlists are still keyed on the browser's random owner id rather than on the account, so this is not isolation between users. Tying `watchlists.owner` to the username is a one-migration change if that is ever wanted.
+**What the gate is.** It keeps a visitor out of the *screen*. Market data is public and readable by `anon`, so none of that is protected — nor does it need to be.
+
+Watchlists *are* keyed on the account: `watchlists.owner` holds the signed-in username, which the client sends as the `x-owner` header on every request and the policies in [`0006_watchlists.sql`](supabase/migrations/0006_watchlists.sql) match rows against. Lists therefore follow the person, not the browser, and the local copy in `localStorage` is keyed per account too, so two people sharing a machine never see or push each other's lists. That header is self-asserted, though — anyone who edits it can name another owner — so this is separation between users, not security against them.
 
 ### Security model
 

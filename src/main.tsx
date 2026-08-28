@@ -23,7 +23,11 @@ function Root() {
       user={user}
       onSignOut={() => {
         logout();
-        setUser(null);
+        // A reload rather than `setUser(null)`: the watchlist store is module
+        // state holding the signed-out account's lists, and handing those to
+        // whoever signs in next is the one thing this must not do. Nothing is
+        // lost by it — the form is the next thing on screen either way.
+        location.reload();
       }}
     />
   );

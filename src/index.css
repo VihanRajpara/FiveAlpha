@@ -2147,20 +2147,19 @@ body {
    everything else is the same graphite and indigo as the app it opens into, so
    the two do not read as different products. */
 .login-page {
-  position: relative;
   display: flex;
-  align-items: center;
-  justify-content: center;
   min-height: 100vh;
   min-height: 100dvh;
-  padding: 32px var(--gutter);
+  padding: 28px var(--gutter);
   background: var(--canvas);
-  overflow: hidden;
 }
 
+/* Fixed rather than absolute, so it adds nothing to the page's height and needs
+   no `overflow: hidden` to contain it — and `overflow: hidden` here is exactly
+   what would put the top of the card out of reach on a short screen. */
 .login-page::before {
   content: '';
-  position: absolute;
+  position: fixed;
   top: -30vh;
   left: 50%;
   width: min(900px, 140vw);
@@ -2176,6 +2175,11 @@ body {
 .login-card {
   position: relative;
   z-index: 1;
+  /* Centred with `margin: auto` instead of the parent's `align-items`, which
+     centres by overflowing equally in both directions — on a landscape phone
+     that pushes the logo above the top of the window with no way to scroll to
+     it. This just stops centring and starts scrolling when it runs out of room. */
+  margin: auto;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -2245,7 +2249,9 @@ body {
   background: var(--surface-2);
   color: var(--on-surface);
   font-family: inherit;
-  font-size: 14px;
+  /* Not 14: Safari on iOS zooms the whole page in when a field under 16px takes
+     focus, and it does not zoom back out. */
+  font-size: 16px;
   letter-spacing: normal;
   text-transform: none;
   transition: background 0.15s ease, box-shadow 0.15s ease;
@@ -2336,6 +2342,38 @@ body {
   }
 
   .whoami {
+    display: none;
+  }
+}
+
+/* Landscape on a phone, or a short window: the card gives up its breathing room
+   rather than its bottom half. Keyed on height, not width — a wide window can
+   be just as short. */
+@media (max-height: 640px) {
+  .login-page {
+    padding: 16px var(--gutter);
+  }
+
+  .login-card {
+    gap: 8px;
+    padding: 22px 24px 18px;
+  }
+
+  .login-mark {
+    width: 96px;
+    margin-bottom: 8px;
+  }
+
+  .login-title {
+    font-size: 19px;
+  }
+
+  .login-sub {
+    margin-bottom: 6px;
+  }
+
+  /* Decoration, and the first thing that can go. */
+  .login-foot {
     display: none;
   }
 }

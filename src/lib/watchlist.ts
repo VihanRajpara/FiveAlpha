@@ -1,3 +1,5 @@
+import { owner } from './supabaseClient';
+
 /**
  * Named watchlists, kept in `localStorage` and shared by every component that
  * renders one.
@@ -31,11 +33,20 @@
  * locally and rendered before anything is sent anywhere; src/lib/watchlistSync.ts
  * mirrors it into Postgres afterwards and is allowed to fail. That order is what
  * makes the app work offline, work with an empty .env, and never show a spinner
- * for a star. See supabase/migrations/0006_watchlists.sql for how rows are owned
- * when there is no sign-in.
+ * for a star. Rows are owned by the signed-in username — see
+ * supabase/migrations/0006_watchlists.sql and `owner` in src/lib/supabaseClient.ts.
  */
 
-const KEY = 'fivealpha:watchlist';
+/**
+ * One local copy per account, not one per browser.
+ *
+ * The lists belong to whoever is signed in, so the cache of them has to as
+ * well: sharing a machine with the key unsuffixed meant the first user's lists
+ * were sitting in localStorage when the second signed in, and — finding no rows
+ * of their own in the table — the sync would helpfully push them up under the
+ * second account. The suffix makes that impossible rather than careful.
+ */
+const key = (): string => `fivealpha:watchlist:${owner()}`;
 
 export interface Watchlist {
   id: string;
@@ -109,7 +120,7 @@ function normalise(raw: unknown): WatchlistState {
 function load(): WatchlistState {
   if (state) return state;
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(key());
     state = normalise(raw ? JSON.parse(raw) : null);
   } catch {
     // Private mode, disabled storage, or bad JSON. In-memory still works.
@@ -120,7 +131,7 @@ function load(): WatchlistState {
 
 function write(next: WatchlistState): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(next));
+    localStorage.setItem(key(), JSON.stringify(next));
   } catch {
     // A full quota loses the write, not the session.
   }
@@ -335,7 +346,9 @@ const cleanName = (name: string, index: number, fallback?: string): string =>
 // notices. The event only fires in the *other* tabs, so this cannot loop.
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
-    if (e.key !== KEY) return;
+    // `key()` and not a captured constant: it carries the username, and the
+    // other tab is only worth listening to when it is the same account.
+    if (e.key !== key()) return;
     state = null;
     load();
     for (const listener of listeners) listener();
