@@ -27,7 +27,15 @@ import {
   formatPrice,
   formatVolume,
 } from '../lib/format';
-import { UT_BOT, formatGap, scoreLabel, signalGapPct, type Signal } from '../lib/signals';
+import {
+  SIGNAL_FILTER_MAX,
+  UT_BOT,
+  formatGap,
+  peekSignal,
+  scoreLabel,
+  signalGapPct,
+  type Signal,
+} from '../lib/signals';
 import type { ScreenResult } from '../lib/screens';
 import type { Classification, SecurityWithQuote } from '../types';
 
@@ -44,6 +52,17 @@ import type { Classification, SecurityWithQuote } from '../types';
  * change) is in the detail drawer, one click away on the row.
  */
 type Layout = 'wide' | 'medium' | 'mobile';
+
+/**
+ * Names for the mobile sort menu, where a column header is read on its own
+ * rather than under the heading it sits below: "At" and "Gap" mean nothing
+ * without the "Signal" band above them.
+ */
+const SORT_LABEL: Record<string, string> = {
+  sigSide: 'Signal side',
+  sigAt: 'Signal price',
+  sigGap: 'Signal gap',
+};
 
 /**
  * Row heights per layout — must track `--row-h`, which is set from these. The
@@ -378,6 +397,12 @@ interface Props {
   screenResults: Map<string, ScreenResult> | null;
   sorting: SortingState;
   onSortingChange: React.Dispatch<React.SetStateAction<SortingState>>;
+  /**
+   * Whether the signal columns may be sorted on — true only while the list is
+   * short enough for `App` to have fetched every row's signal, which is what
+   * sorting a column needs and what showing it does not.
+   */
+  signalSortable: boolean;
   selectedSymbol: string | null;
   onSelect: (row: SecurityWithQuote) => void;
 }
@@ -388,6 +413,7 @@ export function StockTable({
   screenResults,
   sorting,
   onSortingChange,
+  signalSortable,
   selectedSymbol,
   onSelect,
 }: Props) {
@@ -490,33 +516,56 @@ export function StockTable({
       // price plus a percentage in a single track truncates the price, which is
       // the number the whole column exists for.
       //
-      // None of them sorts: the values are fetched per visible cell, so the
-      // table never holds the whole column and could only sort the part it has
-      // seen.
+      // They sort off `peekSignal` — the same day-cache the cells read — so
+      // sorting costs no request the cells were not going to make anyway. Only
+      // while `signalSortable`: below the cap `App` fetches the whole list, and
+      // above it the table would be sorting the handful of rows it has scrolled
+      // past, which is worse than not sorting at all. A row with no signal, or
+      // one that has not arrived, is `undefined` and lands at the bottom either
+      // way.
       helper.group({
         id: 'signal',
         header: 'Signal',
         columns: [
-          helper.display({
+          helper.accessor((r) => peekSignal(r.ticker)?.side, {
             id: 'sigSide',
             header: 'Side',
+            enableSorting: signalSortable,
+            sortUndefined: 'last',
+            // BUY before SELL, which is also what the labels do alphabetically.
+            sortingFn: 'text',
             cell: (ctx) => <SignalSide ticker={ctx.row.original.ticker} />,
           }),
-          helper.display({
+          helper.accessor((r) => peekSignal(r.ticker)?.price, {
             id: 'sigAt',
             header: 'At',
+            enableSorting: signalSortable,
+            sortUndefined: 'last',
+            sortingFn: numericSort,
             cell: (ctx) => <SignalAt ticker={ctx.row.original.ticker} />,
           }),
-          helper.display({
-            id: 'sigGap',
-            header: 'Gap',
-            cell: (ctx) => (
-              <SignalGap
-                ticker={ctx.row.original.ticker}
-                price={ctx.row.original.quote?.price}
-              />
-            ),
-          }),
+          helper.accessor(
+            // Spelled out rather than chained: a gap of exactly 0 is a value,
+            // and `signal && gap` would hand it to `??` as a falsy one.
+            (r) => {
+              const signal = peekSignal(r.ticker);
+              if (!signal) return undefined;
+              return signalGapPct(signal, r.quote?.price) ?? undefined;
+            },
+            {
+              id: 'sigGap',
+              header: 'Gap',
+              enableSorting: signalSortable,
+              sortUndefined: 'last',
+              sortingFn: numericSort,
+              cell: (ctx) => (
+                <SignalGap
+                  ticker={ctx.row.original.ticker}
+                  price={ctx.row.original.quote?.price}
+                />
+              ),
+            },
+          ),
         ],
       }),
       // The screen's own numbers, appended so they read as an extra section
@@ -608,7 +657,7 @@ export function StockTable({
           ]
         : []),
     ],
-    [quotesLoaded, screenResults],
+    [quotesLoaded, screenResults, signalSortable],
   );
 
   const table = useReactTable({
@@ -838,7 +887,7 @@ export function StockTable({
             value={activeSort?.id ?? 'symbol'}
             options={sortableColumns.map((c) => ({
               value: c.id,
-              label: String(c.columnDef.header),
+              label: SORT_LABEL[c.id] ?? String(c.columnDef.header),
             }))}
             // Keep the current direction when switching column — re-picking
             // "descending" after every change would be busywork.
@@ -904,6 +953,9 @@ export function StockTable({
                       'th',
                       RIGHT_ALIGNED.has(header.column.id) ? 'right' : '',
                       grouped ? 'th-group group-start group-end' : '',
+                      // The signal columns above the row cap: still a heading,
+                      // just not a button.
+                      header.column.getCanSort() ? '' : 'th-static',
                       // An ungrouped column has no label in the second row, so
                       // it takes both — sat on the same baseline as the ones
                       // that do, not floating in the middle of the band.
@@ -922,9 +974,9 @@ export function StockTable({
                     title={
                       header.column.getCanSort()
                         ? `Sort by ${String(header.column.columnDef.header)}`
-                        : // The signal columns are fetched per visible cell, so
-                          // there is no full column to sort.
-                          'UT Bot on HMA, daily bars'
+                        : // The group heading, and the signal columns while the
+                          // list is too long to have fetched all of them.
+                          `UT Bot on HMA, daily bars — sorts on lists of ${SIGNAL_FILTER_MAX} rows or fewer`
                     }
                   >
                     {flexRender(header.column.columnDef.header, header.getContext())}

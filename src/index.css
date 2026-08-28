@@ -912,6 +912,13 @@ body {
   padding-right: var(--gutter);
 }
 
+/* A column that cannot be sorted is a label, not a control — the signal
+   columns above the row cap. */
+.th-static,
+.th-static:hover {
+  cursor: default;
+}
+
 /* The heading over a set of columns — quieter and smaller than the column
    names under it, so the eye reads the leaves first and the grouping second. */
 .th-group {
