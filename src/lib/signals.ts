@@ -237,6 +237,17 @@ export const SIGNAL_GAP_BANDS: Record<string, [number, number]> = {
   '15': [15, Infinity],
 };
 
+/**
+ * How many rows may be judged on their signals at once.
+ *
+ * A signal is one chart request per symbol, so filtering or sorting on one has
+ * to fetch the whole list rather than the page on screen — see `useSignals`.
+ * Past this many rows that is a fetch storm, and the controls disable
+ * themselves rather than start one: narrow the list with a screen or the other
+ * filters first.
+ */
+export const SIGNAL_FILTER_MAX = 400;
+
 /** Filter presets: minimum `score`. */
 export const SIGNAL_SCORE_MIN: Record<string, number> = { '60': 60, '75': 75 };
 

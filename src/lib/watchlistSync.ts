@@ -1,4 +1,4 @@
-import { ownerId, supabase } from './supabaseClient';
+import { owner, supabase } from './supabaseClient';
 import type { Watchlist, WatchlistState } from './watchlist';
 
 /**
@@ -71,7 +71,7 @@ export async function pushList(list: Watchlist, position: number): Promise<void>
   const { error } = await supabase.from(TABLE).upsert(
     {
       id: list.id,
-      owner: ownerId(),
+      owner: owner(),
       name: list.name,
       symbols: list.symbols,
       position,

@@ -213,6 +213,23 @@ Set up by `0002_cron.sql` via pg_cron + pg_net. Times are UTC; NSE trades 03:45�
 
 Two jobs, not three: nothing ingests history.
 
+## Sign-in
+
+The app is behind a username and a four-digit PIN whenever Supabase is configured. Without `VITE_SUPABASE_URL` there is nothing to check a PIN against, so the gate is off and the app opens straight up.
+
+**Create an account.** Run [`supabase/migrations/0007_users.sql`](supabase/migrations/0007_users.sql) in the SQL Editor — it is two columns, `username` and `pin` — then add people from the same place:
+
+```sql
+insert into public.app_users (username, pin) values ('vihan', '4821');
+update public.app_users set pin = '1234' where username = 'vihan';
+```
+
+PINs are stored as typed, not hashed, and there is no lockout: anyone who can read the table can read every PIN, and nothing slows down a script working through all 10,000 four-digit combinations. What stops the browser being that reader is RLS with **no policies at all**, which makes `app_users` invisible to PostgREST — otherwise the publishable key inside the bundle would be enough to select the PINs out of it. The `login` function is `security definer` and is the only door.
+
+**What the gate is.** It keeps a visitor out of the *screen*. Market data is public and readable by `anon`, so none of that is protected — nor does it need to be.
+
+Watchlists *are* keyed on the account: `watchlists.owner` holds the signed-in username, which the client sends as the `x-owner` header on every request and the policies in [`0006_watchlists.sql`](supabase/migrations/0006_watchlists.sql) match rows against. Lists therefore follow the person, not the browser, and the local copy in `localStorage` is keyed per account too, so two people sharing a machine never see or push each other's lists. That header is self-asserted, though — anyone who edits it can name another owner — so this is separation between users, not security against them.
+
 ### Security model
 
 - Both tables have RLS enabled with **read-only** policies for `anon`. The browser can never write.
@@ -232,7 +249,9 @@ src/
     StockDetail.tsx          drawer: price, chart, range selector, fundamentals
     PriceChart.tsx           hand-rolled SVG area chart with crosshair
     ScreenBar.tsx            screen picker, run/stop, verdict counts, the clause
+    Login.tsx                the signed-out app: username + four-digit PIN
   lib/
+    auth.ts                  the session; the PIN itself is checked in Postgres
     csv.ts                   RFC-4180 parser — NSE quotes names containing commas
     listings.ts              NSE + BSE master lists, merged on ISIN
     format.ts                INR formatting, chunk(), mapPool() concurrency limiter
@@ -247,6 +266,8 @@ supabase/
   migrations/0002_cron.sql   pg_cron + pg_net schedules
   migrations/0004_drop_candles.sql  drops the old stored history
   migrations/0005_bse.sql    exchanges / yahoo_ticker / bse_code — required for BSE
+  migrations/0006_watchlists.sql  watchlists, owned by an id in localStorage
+  migrations/0007_users.sql  app_users + login(): username and a four-digit PIN
   functions/                 sync-securities, sync-quotes
 ```
 

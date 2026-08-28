@@ -1,5 +1,14 @@
 -- Watchlists: the first thing in this database the *user* writes.
 --
+-- UPDATE, after 0007_users.sql: `owner` now holds the signed-in **username**,
+-- not the random per-browser UUID this file was written around. The policies
+-- below are unchanged and did not need to be — they compare `owner` against the
+-- `x-owner` header whatever that header contains, and the client now puts the
+-- username in it (see `owner` in src/lib/supabaseClient.ts). So lists follow the
+-- person rather than the device, and the paragraphs below about "ownership
+-- without accounts" describe how this started, not how it works now. What is
+-- still true: the header is self-asserted, so this is separation, not security.
+--
 -- Everything else here is public market data ingested by an Edge Function with
 -- the service-role key, and anon is read-only on all of it (see 0001_init.sql).
 -- A watchlist is the opposite: it is private, it is small, and it is written

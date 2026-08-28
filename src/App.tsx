@@ -11,12 +11,14 @@ import { useScreen } from './hooks/useScreen';
 import { useSignals } from './hooks/useSignals';
 import { SCREENS } from './lib/screens';
 import {
+  SIGNAL_FILTER_MAX,
   matchesSignalFilter,
   peekSignal,
   signalFilterIsEmpty,
   type SignalFilter,
 } from './lib/signals';
 import { ANY, NUMERIC_FILTERS, matchesBands } from './lib/filters';
+import type { User } from './lib/auth';
 import { useActiveList } from './hooks/useWatchlist';
 import { toggleWatch } from './lib/watchlist';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
@@ -121,13 +123,8 @@ const SIGNAL_SCORE_OPTIONS = [
   { value: '75', label: '75+', hint: 'With the trend and confirmed — few rows pass this' },
 ];
 
-/**
- * Signals are one chart request per symbol, so filtering on them fetches the
- * whole list — see `useSignals`. Past this many rows that is a fetch storm, and
- * the controls disable themselves rather than start one: narrow the list with a
- * screen or the other filters first.
- */
-const SIGNAL_FILTER_MAX = 400;
+/** The signal columns, which sort off the same fetched cache the filters use. */
+const SIGNAL_SORT_IDS = new Set(['sigSide', 'sigAt', 'sigGap']);
 
 type BreadthKey = 'up' | 'down' | 'flat' | 'priced';
 
@@ -138,7 +135,18 @@ const BREADTH_MATCH: Record<BreadthKey, (change: number | null | undefined) => b
   priced: (c) => c != null,
 };
 
-export default function App() {
+/**
+ * `user` is null when sign-in is switched off (no Supabase project) — the app
+ * runs exactly as before in that case, minus the header's account controls.
+ * See src/main.tsx, which is where the gate itself lives.
+ */
+export default function App({
+  user = null,
+  onSignOut,
+}: {
+  user?: User | null;
+  onSignOut?: () => void;
+}) {
   const {
     securities,
     quotes,
@@ -332,17 +340,21 @@ export default function App() {
   const bandFilterOn = Object.values(bands).some((v) => v !== ANY);
   const signalFilterOn = !signalFilterIsEmpty(signal);
   const signalFilterAffordable = screened.length <= SIGNAL_FILTER_MAX;
+  // Sorting on a signal column needs every row's signal for the same reason
+  // filtering on one does: the cells fetch what is on screen, and an ordering
+  // built from that is an ordering of whatever the user happened to scroll past.
+  const signalSortOn = SIGNAL_SORT_IDS.has(sorting[0]?.id ?? '');
 
-  // A filter left on while the list widens past the cap would keep filtering on
-  // signals nothing is fetching any more, which reads as a table that has
-  // quietly lost rows.
+  // A filter or sort left on while the list widens past the cap would keep
+  // reading signals nothing is fetching any more, which reads as a table that
+  // has quietly lost rows or stopped ordering them.
   useEffect(() => {
-    if (!signalFilterAffordable && signalFilterOn) {
-      setSignal({ side: 'ALL', age: 'ALL', gap: 'ALL', score: 'ALL' });
-    }
-  }, [signalFilterAffordable, signalFilterOn]);
+    if (signalFilterAffordable) return;
+    if (signalFilterOn) setSignal({ side: 'ALL', age: 'ALL', gap: 'ALL', score: 'ALL' });
+    if (signalSortOn) setSorting([{ id: 'symbol', desc: false }]);
+  }, [signalFilterAffordable, signalFilterOn, signalSortOn]);
 
-  const signals = useSignals(screened, signalFilterOn && signalFilterAffordable);
+  const signals = useSignals(screened, (signalFilterOn || signalSortOn) && signalFilterAffordable);
 
   const runScreen = useCallback(() => {
     if (selectedScreen) {
@@ -525,7 +537,10 @@ export default function App() {
       );
     }
 
-    return out;
+    // A new array while sorting on a signal column, so the table re-sorts as
+    // the answers land — TanStack rebuilds its row model from `data` identity,
+    // and every other input to the order is unchanged by a signal arriving.
+    return signalSortOn ? [...out] : out;
   }, [
     screened,
     breadthFilter,
@@ -533,6 +548,7 @@ export default function App() {
     bands,
     screenRun.results,
     signalFilterOn,
+    signalSortOn,
     signal,
     signals.version,
   ]);
@@ -603,22 +619,19 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          {/* The same file the tab and the installed app use. It is
-              artwork rather than paths, so it is not inlined — see
-              scripts/icons.py, which builds every size from one source. */}
-          <span className="logo" aria-hidden>
-            <img src="/logo.png" width="34" height="34" alt="" />
+          {/* The lockup, masked in over the brand gradient by .brand-logo, which
+              also swaps it for the monogram on a small phone. The heading keeps
+              its text for anything that isn't looking at the pixels. */}
+          <h1 className="brand-logo">
+            <span className="sr-only">FiveAlpha</span>
+          </h1>
+          <span className="count num">
+            {loading
+              ? 'Loading…'
+              : watchlistView
+                ? `${active.name} · ${visible.length.toLocaleString('en-IN')} of ${active.symbols.length.toLocaleString('en-IN')} starred`
+                : `${listedOn} · ${visible.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} companies`}
           </span>
-          <div>
-            <h1>FiveAlpha</h1>
-            <span className="count num">
-              {loading
-                ? 'Loading…'
-                : watchlistView
-                  ? `${active.name} · ${visible.length.toLocaleString('en-IN')} of ${active.symbols.length.toLocaleString('en-IN')} starred`
-                  : `${listedOn} · ${visible.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} companies`}
-            </span>
-          </div>
         </div>
 
         <div className="spacer" />
@@ -665,6 +678,20 @@ export default function App() {
               ? 'Reload from DB'
               : 'Refresh prices'}
         </button>
+
+        {/* Rightmost, where an account control is looked for. Absent entirely
+            when sign-in is off, rather than showing a button that would sign
+            nobody out. */}
+        {user && (
+          <>
+            <span className="whoami" title={`Signed in as ${user.username}`}>
+              {user.username}
+            </span>
+            <button className="btn ghost" onClick={onSignOut} title="Sign out">
+              Sign out
+            </button>
+          </>
+        )}
       </header>
 
       <div className="subbar">
@@ -761,6 +788,7 @@ export default function App() {
         <div className="card">
           {loading ? (
             <div className="center-msg" style={{ flex: 1 }}>
+              <div className="brand-splash" aria-hidden />
               <div className="spinner" />
               <strong>Fetching the NSE and BSE equity lists…</strong>
               <span>
@@ -805,6 +833,7 @@ export default function App() {
               screenResults={screening ? screenRun.results : null}
               sorting={sorting}
               onSortingChange={setSorting}
+              signalSortable={signalFilterAffordable}
               selectedSymbol={selectedRow?.symbol ?? null}
               onSelect={setSelected}
             />

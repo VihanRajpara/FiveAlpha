@@ -1,8 +1,10 @@
 /* ==========================================================================
-   NSE Listed Shares — Google Finance / Material design language
-   Grey canvas, white elevated surfaces, 8–24px radii, Google blue primary,
-   Google's green/red for direction. Type: Manrope (a close free stand-in for
-   Google Sans) for display, Roboto for UI, Roboto Mono for codes.
+   SALPHA — Google Finance / Material structure.
+   Neutral graphite surfaces and an indigo accent taken from the cold end of
+   the logo's gradient. The mark keeps the full pink→indigo sweep and is the
+   one saturated thing on screen; the UI around it stays out of the way.
+   Green/red are the market's colours, not the brand's, and are left alone.
+   Type: Manrope (a free stand-in for Google Sans), Roboto, Roboto Mono.
    ========================================================================== */
 
 :root {
@@ -11,26 +13,30 @@
      no duplicated dark block to keep in sync. */
   color-scheme: light dark;
 
-  /* surfaces */
-  --canvas: light-dark(#f8f9fa, #202124);
-  --surface: light-dark(#ffffff, #292a2d);
-  --surface-2: light-dark(#f1f3f4, #35363a);
-  --surface-hover: light-dark(#f8f9fa, #303134);
+  /* surfaces — plain graphite. Any hue here and the whole page takes on a
+     cast; the mark is the only place colour is meant to come from. */
+  --canvas: light-dark(#f7f8f9, #16181b);
+  --surface: light-dark(#ffffff, #1e2125);
+  --surface-2: light-dark(#eef0f2, #292d32);
+  --surface-hover: light-dark(#f7f8f9, #24272c);
 
   /* outlines */
-  --outline: light-dark(#dadce0, #3c4043);
-  --outline-faint: light-dark(#e8eaed, #35363a);
+  --outline: light-dark(#d7dade, #363b41);
+  --outline-faint: light-dark(#e6e8eb, #292d32);
 
   /* content */
-  --on-surface: light-dark(#202124, #e8eaed);
-  --on-surface-variant: light-dark(#5f6368, #9aa0a6);
-  --on-surface-faint: #80868b;
+  --on-surface: light-dark(#16181c, #e6e8eb);
+  --on-surface-variant: light-dark(#565b63, #9aa0a8);
+  /* Was one value for both themes and cleared 4.5:1 in neither. It is real
+     text in ~25 places, so it splits like the rest of the palette. */
+  --on-surface-faint: light-dark(#63686f, #949aa3);
 
-  /* accent + direction */
-  --primary: light-dark(#1a73e8, #8ab4f8);
-  --primary-hover: light-dark(#1765cc, #a8c7fa);
-  --primary-container: light-dark(#e8f0fe, #1f3350);
-  --on-primary: light-dark(#ffffff, #202124);
+  /* accent — the indigo the logo's gradient ends on, which is the one stop of
+     it that reads as an interface colour rather than as decoration. */
+  --primary: light-dark(#4f60e8, #a4afff);
+  --primary-hover: light-dark(#3c4dd4, #bcc4ff);
+  --primary-container: light-dark(#f0f2fe, #262c4a);
+  --on-primary: light-dark(#ffffff, #10121f);
   --up: light-dark(#137333, #81c995);
   --up-container: light-dark(#e6f4ea, #1d3626);
   --down: light-dark(#c5221f, #f28b82);
@@ -38,18 +44,26 @@
 
   /* Material elevation. `light-dark()` returns a colour, not a whole shadow
      list, so the switchable part is the two shadow colours. */
-  --shadow-key: light-dark(rgba(60, 64, 67, 0.3), rgba(0, 0, 0, 0.45));
-  --shadow-ambient: light-dark(rgba(60, 64, 67, 0.15), rgba(0, 0, 0, 0.3));
+  --shadow-key: light-dark(rgba(22, 24, 28, 0.3), rgba(0, 0, 0, 0.5));
+  --shadow-ambient: light-dark(rgba(22, 24, 28, 0.14), rgba(0, 0, 0, 0.34));
   --elev-1: 0 1px 2px 0 var(--shadow-key), 0 1px 3px 1px var(--shadow-ambient);
   --elev-2: 0 1px 2px 0 var(--shadow-key), 0 2px 6px 2px var(--shadow-ambient);
   --elev-3: 0 4px 8px 3px var(--shadow-ambient), 0 1px 3px var(--shadow-key);
-  --scrim: light-dark(rgba(32, 33, 36, 0.5), rgba(0, 0, 0, 0.6));
+  --scrim: light-dark(rgba(22, 24, 28, 0.5), rgba(0, 0, 0, 0.65));
 
   --row-h: 48px;
   --gutter: 20px;
   /* The least the table may be squeezed to before the page scrolls instead —
      about eight rows plus the header, which is enough to still read as a table. */
   --table-min: 420px;
+
+  /* brand — the SALPHA gradient sampled off the artwork, deepened on the light
+     canvas so the pastel original still carries against white. Painted through
+     `mask-image`, so one alpha PNG per lockup serves both themes. */
+  --brand-gradient: linear-gradient(100deg,
+      light-dark(#d64c86, #fad0e7) 0%,
+      light-dark(#8b5cf6, #e0c6fb) 45%,
+      light-dark(#4f60e8, #a4afff) 100%);
 
   --font-display: 'Google Sans', 'Manrope', 'Product Sans', Roboto, Arial, sans-serif;
   --font-sans: 'Google Sans Text', Roboto, -apple-system, 'Segoe UI', Arial, sans-serif;
@@ -95,6 +109,18 @@ body {
 .num {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
+}
+
+/* Left in the accessibility tree, taken out of the picture. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Google's focus treatment: a visible ring, but only for keyboard users. */
@@ -155,40 +181,34 @@ body {
 
 .brand {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
 }
 
-.logo {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  /* The tile is part of the artwork, so this only sets the shadow it casts —
-     the radius matches the one baked into the PNG. */
-  border-radius: 8px;
-  box-shadow: var(--elev-1);
-  flex: none;
-}
-
-.logo img {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.brand h1 {
+/* The wordmark is artwork rather than type, so the heading's text is hidden and
+   the horizontal lockup is masked in over the brand gradient. Sizes below swap
+   `mask-image` and `aspect-ratio` together — the two are one measurement.
+   Files come from scripts/icons.py. */
+.brand-logo {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: 19px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.1;
-  white-space: nowrap;
+  height: 28px;
+  aspect-ratio: 4.433;
+  background: var(--brand-gradient);
+  -webkit-mask: url('/brand/lockup.png') left center / contain no-repeat;
+  mask: url('/brand/lockup.png') left center / contain no-repeat;
 }
 
 .brand .count {
   display: block;
+  /* The lockup sets the brand's width now, and this line is the longer of the
+     two — it clips rather than pushing the search bar off the row. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   font-weight: 400;
   color: var(--on-surface-variant);
@@ -890,6 +910,13 @@ body {
 
 .th.edge-end {
   padding-right: var(--gutter);
+}
+
+/* A column that cannot be sorted is a label, not a control — the signal
+   columns above the row cap. */
+.th-static,
+.th-static:hover {
+  cursor: default;
 }
 
 /* The heading over a set of columns — quieter and smaller than the column
@@ -2083,6 +2110,21 @@ body {
   margin: 0 auto;
 }
 
+/* The stacked lockup — the mark above the wordmark, painted through its own
+   alpha PNG. Used twice: while the lists are being fetched, and at the top of
+   the sign-in card. Only the width differs, so only the width is set per use. */
+.brand-splash {
+  aspect-ratio: 1.431;
+  background: var(--brand-gradient);
+  -webkit-mask: url('/brand/stacked.png') center / contain no-repeat;
+  mask: url('/brand/stacked.png') center / contain no-repeat;
+}
+
+.center-msg .brand-splash {
+  width: min(190px, 60%);
+  margin-bottom: 6px;
+}
+
 .center-msg strong {
   font-family: var(--font-display);
   color: var(--on-surface);
@@ -2096,6 +2138,244 @@ body {
   border-radius: 4px;
   padding: 2px 6px;
   font-size: 12px;
+}
+
+/* ---------- sign-in ---------- */
+
+/* The signed-out page: one card, centred, on the canvas with a single wash of
+   the brand gradient behind it. That wash is the only saturated thing here —
+   everything else is the same graphite and indigo as the app it opens into, so
+   the two do not read as different products. */
+.login-page {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 28px var(--gutter);
+  background: var(--canvas);
+}
+
+/* Fixed rather than absolute, so it adds nothing to the page's height and needs
+   no `overflow: hidden` to contain it — and `overflow: hidden` here is exactly
+   what would put the top of the card out of reach on a short screen. */
+.login-page::before {
+  content: '';
+  position: fixed;
+  top: -30vh;
+  left: 50%;
+  width: min(900px, 140vw);
+  aspect-ratio: 1;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: var(--brand-gradient);
+  filter: blur(110px);
+  opacity: light-dark(0.16, 0.2);
+  pointer-events: none;
+}
+
+.login-card {
+  position: relative;
+  z-index: 1;
+  /* Centred with `margin: auto` instead of the parent's `align-items`, which
+     centres by overflowing equally in both directions — on a landscape phone
+     that pushes the logo above the top of the window with no way to scroll to
+     it. This just stops centring and starts scrolling when it runs out of room. */
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: min(400px, 100%);
+  padding: 34px 30px 26px;
+  border: 1px solid var(--outline-faint);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--elev-3);
+  text-align: center;
+  animation: login-in 0.35s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card {
+    animation: none;
+  }
+}
+
+@keyframes login-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+.login-mark {
+  width: 132px;
+  margin: 0 auto 14px;
+}
+
+.login-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--on-surface);
+}
+
+.login-sub {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--on-surface-faint);
+}
+
+.login-field input {
+  width: 100%;
+  height: 46px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--on-surface);
+  font-family: inherit;
+  /* Not 14: Safari on iOS zooms the whole page in when a field under 16px takes
+     focus, and it does not zoom back out. */
+  font-size: 16px;
+  letter-spacing: normal;
+  text-transform: none;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.login-field input:focus {
+  outline: none;
+  background: var(--surface);
+  /* A ring rather than a border, so the field does not shift by a pixel when it
+     takes focus. */
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+/* Four characters that are a code, not a word: centred, spaced and monospaced
+   so the dots are countable at a glance. */
+.login-field-pin input {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 19px;
+  letter-spacing: 0.6em;
+  /* Letter-spacing trails the last dot as well, which pushes centred text half
+     a space to the left. This puts it back. */
+  text-indent: 0.3em;
+}
+
+.login-submit {
+  height: 46px;
+  margin-top: 14px;
+  border: none;
+  border-radius: 12px;
+  background: var(--brand-gradient);
+  /* Not white: the gradient is deep in light mode and pastel in dark, so the
+     label follows it — the same pairing `--primary` and `--on-primary` already
+     have everywhere else. */
+  color: var(--on-primary);
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: var(--elev-1);
+  transition: box-shadow 0.15s ease, filter 0.15s ease, translate 0.15s ease;
+}
+
+.login-submit:hover:not(:disabled) {
+  filter: saturate(1.1) brightness(1.05);
+  box-shadow: var(--elev-2);
+  translate: 0 -1px;
+}
+
+.login-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.login-error {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--down-container);
+  color: var(--down);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.login-foot {
+  margin: 18px 0 0;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--on-surface-faint);
+}
+
+/* Who is signed in, beside the button that ends it. Hidden on a phone, where
+   the header has no room for a name nobody needs reminding of. */
+.whoami {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--on-surface-variant);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .login-card {
+    padding: 28px 22px 22px;
+  }
+
+  .whoami {
+    display: none;
+  }
+}
+
+/* Landscape on a phone, or a short window: the card gives up its breathing room
+   rather than its bottom half. Keyed on height, not width — a wide window can
+   be just as short. */
+@media (max-height: 640px) {
+  .login-page {
+    padding: 16px var(--gutter);
+  }
+
+  .login-card {
+    gap: 8px;
+    padding: 22px 24px 18px;
+  }
+
+  .login-mark {
+    width: 96px;
+    margin-bottom: 8px;
+  }
+
+  .login-title {
+    font-size: 19px;
+  }
+
+  .login-sub {
+    margin-bottom: 6px;
+  }
+
+  /* Decoration, and the first thing that can go. */
+  .login-foot {
+    display: none;
+  }
 }
 
 .spinner {
@@ -2143,10 +2423,8 @@ body {
     min-width: 0;
   }
 
-  .brand h1 {
-    font-size: 17px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .brand-logo {
+    height: 24px;
   }
 
   .search {
@@ -2168,6 +2446,10 @@ body {
 
   .brand .count {
     font-size: 10px;
+  }
+
+  .center-msg .brand-splash {
+    width: min(150px, 50%);
   }
 
   .btn {
@@ -2452,6 +2734,15 @@ body {
 @media (max-width: 420px) {
   .facts {
     grid-template-columns: 1fr;
+  }
+
+  /* Below this the wordmark would set the width of the whole top row, so the
+     brand falls back to the monogram — the variant drawn for exactly this. */
+  .brand-logo {
+    height: 22px;
+    aspect-ratio: 1.989;
+    -webkit-mask-image: url('/brand/monogram.png');
+    mask-image: url('/brand/monogram.png');
   }
 
   .stack-name {
