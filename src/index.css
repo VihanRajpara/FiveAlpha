@@ -51,6 +51,14 @@
      about eight rows plus the header, which is enough to still read as a table. */
   --table-min: 420px;
 
+  /* brand — the SALPHA gradient sampled off the artwork, deepened on the light
+     canvas so the pastel original still carries against white. Painted through
+     `mask-image`, so one alpha PNG per lockup serves both themes. */
+  --brand-gradient: linear-gradient(100deg,
+      light-dark(#d64c86, #fad0e7) 0%,
+      light-dark(#8b5cf6, #e0c6fb) 45%,
+      light-dark(#4f60e8, #a4afff) 100%);
+
   --font-display: 'Google Sans', 'Manrope', 'Product Sans', Roboto, Arial, sans-serif;
   --font-sans: 'Google Sans Text', Roboto, -apple-system, 'Segoe UI', Arial, sans-serif;
   --font-mono: 'Roboto Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
@@ -95,6 +103,18 @@ body {
 .num {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
+}
+
+/* Left in the accessibility tree, taken out of the picture. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Google's focus treatment: a visible ring, but only for keyboard users. */
@@ -155,40 +175,34 @@ body {
 
 .brand {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
 }
 
-.logo {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  /* The tile is part of the artwork, so this only sets the shadow it casts —
-     the radius matches the one baked into the PNG. */
-  border-radius: 8px;
-  box-shadow: var(--elev-1);
-  flex: none;
-}
-
-.logo img {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.brand h1 {
+/* The wordmark is artwork rather than type, so the heading's text is hidden and
+   the horizontal lockup is masked in over the brand gradient. Sizes below swap
+   `mask-image` and `aspect-ratio` together — the two are one measurement.
+   Files come from scripts/icons.py. */
+.brand-logo {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: 19px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.1;
-  white-space: nowrap;
+  height: 28px;
+  aspect-ratio: 4.433;
+  background: var(--brand-gradient);
+  -webkit-mask: url('/brand/lockup.png') left center / contain no-repeat;
+  mask: url('/brand/lockup.png') left center / contain no-repeat;
 }
 
 .brand .count {
   display: block;
+  /* The lockup sets the brand's width now, and this line is the longer of the
+     two — it clips rather than pushing the search bar off the row. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   font-weight: 400;
   color: var(--on-surface-variant);
@@ -2083,6 +2097,17 @@ body {
   margin: 0 auto;
 }
 
+/* The stacked lockup: the one place with room to show the mark above the
+   wordmark, and the first thing on screen while the lists are fetched. */
+.center-msg .brand-splash {
+  width: min(190px, 60%);
+  aspect-ratio: 1.431;
+  margin-bottom: 6px;
+  background: var(--brand-gradient);
+  -webkit-mask: url('/brand/stacked.png') center / contain no-repeat;
+  mask: url('/brand/stacked.png') center / contain no-repeat;
+}
+
 .center-msg strong {
   font-family: var(--font-display);
   color: var(--on-surface);
@@ -2143,10 +2168,8 @@ body {
     min-width: 0;
   }
 
-  .brand h1 {
-    font-size: 17px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .brand-logo {
+    height: 24px;
   }
 
   .search {
@@ -2168,6 +2191,10 @@ body {
 
   .brand .count {
     font-size: 10px;
+  }
+
+  .center-msg .brand-splash {
+    width: min(150px, 50%);
   }
 
   .btn {
@@ -2452,6 +2479,15 @@ body {
 @media (max-width: 420px) {
   .facts {
     grid-template-columns: 1fr;
+  }
+
+  /* Below this the wordmark would set the width of the whole top row, so the
+     brand falls back to the monogram — the variant drawn for exactly this. */
+  .brand-logo {
+    height: 22px;
+    aspect-ratio: 1.989;
+    -webkit-mask-image: url('/brand/monogram.png');
+    mask-image: url('/brand/monogram.png');
   }
 
   .stack-name {

@@ -1,26 +1,52 @@
-"""Builds the icon set from the FiveAlpha artwork.
-
-`assets/logo-source.png` is the only input, and it can be the raw export at
-whatever size and framing it came in: this finds the mark, squares it, and
-resizes it onto a rounded tile. Drop a new file over it and rerun —
+"""Builds every rendered logo the app ships, from the artwork in `assets/`.
 
     python scripts/icons.py
+
+Two kinds of output:
+
+* `public/brand/*.png` — alpha-only masks of each lockup. The page paints them
+  with `--brand-gradient` through `mask-image`, so one file serves both themes
+  (the pastel artwork is unreadable on the light canvas as-is).
+* `public/icon-*.png`, favicon, apple-touch — the installed-app icon, built
+  from the SA monogram on its own black tile.
 
 Pillow rather than sharp, because sharp wants Node >=20 and this project is
 pinned to 18.
 """
 from PIL import Image, ImageDraw
 
-SOURCE = 'assets/logo-source.png'
-FILL = 0.80     # the mark's share of the tile — the usual app-icon inset
+SOURCE = 'assets/logo-monogram.png'  # the mark the shortcut/app icon carries
+FILL = 0.78     # the mark's share of the tile — the usual app-icon inset
 SATURATION = 28  # a pixel this colourful is the mark, not the paper or its shadow
 SS = 4          # supersample the corner mask, so the radius is not stair-stepped
 RADIUS = 0.235  # of the tile's width — the squircle iOS and Android both expect
-EDGE = (0xD8, 0xDF, 0xE9)
 MASKABLE = 0.86  # the mark's share of a maskable tile, inside the 80% safe circle
+
+FLOOR = 10      # a pixel this dark is the black paper, not the mark's edge
+MASK_W = 1024   # plenty for a 300px lockup on a 3x screen
 
 _squared = None
 
+
+# ---------- brand masks ----------
+
+def brandmask(src, dst):
+    """The artwork as a white-on-transparent PNG: the mark is bright and the
+    paper is black, so its own luminance is the alpha channel."""
+    art = Image.open(src).convert('L')
+    peak = art.getextrema()[1]
+    alpha = art.point(lambda v: 0 if v < FLOOR else min(255, round(v * 255 / peak)))
+    alpha = alpha.crop(alpha.getbbox())
+    if alpha.width > MASK_W:
+        alpha = alpha.resize((MASK_W, round(alpha.height * MASK_W / alpha.width)),
+                             Image.LANCZOS)
+    white = Image.new('L', alpha.size, 255)
+    Image.merge('RGBA', (white, white, white, alpha)).save(dst)
+    print(f'{dst}  {alpha.width}x{alpha.height}  aspect-ratio: '
+          f'{alpha.width / alpha.height:.3f}')
+
+
+# ---------- app icon ----------
 
 def squared():
     """The artwork, cropped to the mark and centred on a square of its own
@@ -68,11 +94,9 @@ def tile(size, rounded=True, scale=1.0):
         return img.convert('RGBA')
 
     out = img.convert('RGBA')
-    # A hairline edge, or the near-white tile has no shape of its own against a
-    # white page — which is exactly where this icon sits in the app's header.
-    ImageDraw.Draw(out).rounded_rectangle(
-        [0.5, 0.5, size - 1.5, size - 1.5], radius=RADIUS * size,
-        outline=EDGE, width=max(1, size // 128))
+    # No outline. The old near-white tile needed a hairline to have any shape
+    # against a white page; on this black tile the same line reads as a white
+    # ring, and at 16px it is a third of the icon.
     mask = Image.new('L', (size * SS,) * 2, 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, size * SS - 1, size * SS - 1],
                                            radius=RADIUS * size * SS, fill=255)
@@ -81,7 +105,11 @@ def tile(size, rounded=True, scale=1.0):
 
 
 if __name__ == '__main__':
-    tile(256).save('public/logo.png')            # the header's <img>
+    # Header at ≥481px, small-phone header, and the loading screen respectively.
+    brandmask('assets/logo-horizontal.png', 'public/brand/lockup.png')
+    brandmask('assets/logo-monogram.png', 'public/brand/monogram.png')
+    brandmask('assets/logo-stacked.png', 'public/brand/stacked.png')
+
     tile(180).save('public/apple-touch-icon.png')
     tile(192).save('public/icon-192.png')
     tile(512).save('public/icon-512.png')

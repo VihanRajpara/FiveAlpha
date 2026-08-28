@@ -603,22 +603,19 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          {/* The same file the tab and the installed app use. It is
-              artwork rather than paths, so it is not inlined — see
-              scripts/icons.py, which builds every size from one source. */}
-          <span className="logo" aria-hidden>
-            <img src="/logo.png" width="34" height="34" alt="" />
+          {/* The lockup, masked in over the brand gradient by .brand-logo, which
+              also swaps it for the monogram on a small phone. The heading keeps
+              its text for anything that isn't looking at the pixels. */}
+          <h1 className="brand-logo">
+            <span className="sr-only">FiveAlpha</span>
+          </h1>
+          <span className="count num">
+            {loading
+              ? 'Loading…'
+              : watchlistView
+                ? `${active.name} · ${visible.length.toLocaleString('en-IN')} of ${active.symbols.length.toLocaleString('en-IN')} starred`
+                : `${listedOn} · ${visible.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} companies`}
           </span>
-          <div>
-            <h1>FiveAlpha</h1>
-            <span className="count num">
-              {loading
-                ? 'Loading…'
-                : watchlistView
-                  ? `${active.name} · ${visible.length.toLocaleString('en-IN')} of ${active.symbols.length.toLocaleString('en-IN')} starred`
-                  : `${listedOn} · ${visible.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} companies`}
-            </span>
-          </div>
         </div>
 
         <div className="spacer" />
@@ -761,6 +758,7 @@ export default function App() {
         <div className="card">
           {loading ? (
             <div className="center-msg" style={{ flex: 1 }}>
+              <div className="brand-splash" aria-hidden />
               <div className="spinner" />
               <strong>Fetching the NSE and BSE equity lists…</strong>
               <span>
