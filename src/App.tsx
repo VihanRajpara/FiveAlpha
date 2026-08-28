@@ -18,6 +18,7 @@ import {
   type SignalFilter,
 } from './lib/signals';
 import { ANY, NUMERIC_FILTERS, matchesBands } from './lib/filters';
+import type { User } from './lib/auth';
 import { useActiveList } from './hooks/useWatchlist';
 import { toggleWatch } from './lib/watchlist';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
@@ -134,7 +135,18 @@ const BREADTH_MATCH: Record<BreadthKey, (change: number | null | undefined) => b
   priced: (c) => c != null,
 };
 
-export default function App() {
+/**
+ * `user` is null when sign-in is switched off (no Supabase project) — the app
+ * runs exactly as before in that case, minus the header's account controls.
+ * See src/main.tsx, which is where the gate itself lives.
+ */
+export default function App({
+  user = null,
+  onSignOut,
+}: {
+  user?: User | null;
+  onSignOut?: () => void;
+}) {
   const {
     securities,
     quotes,
@@ -666,6 +678,20 @@ export default function App() {
               ? 'Reload from DB'
               : 'Refresh prices'}
         </button>
+
+        {/* Rightmost, where an account control is looked for. Absent entirely
+            when sign-in is off, rather than showing a button that would sign
+            nobody out. */}
+        {user && (
+          <>
+            <span className="whoami" title={`Signed in as ${user.username}`}>
+              {user.username}
+            </span>
+            <button className="btn ghost" onClick={onSignOut} title="Sign out">
+              Sign out
+            </button>
+          </>
+        )}
       </header>
 
       <div className="subbar">

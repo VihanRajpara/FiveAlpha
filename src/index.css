@@ -2136,6 +2136,89 @@ body {
   font-size: 12px;
 }
 
+/* ---------- sign-in ---------- */
+
+/* Signed out there is no header, no table and nothing to scroll, so the card
+   sits in the middle of the shell rather than at the top of an empty page. */
+.login-page {
+  justify-content: center;
+}
+
+.login {
+  width: 100%;
+  gap: 12px;
+}
+
+/* One column at every width — the two fields are short enough that a phone and
+   a monitor want the same shape, and the cap is what stops the inputs stretching
+   to the card's full 560px. */
+.login-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  width: min(280px, 100%);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  color: var(--on-surface-variant);
+  text-align: left;
+}
+
+.login-field input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--outline-faint);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.login-field input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--elev-1);
+}
+
+/* Four characters that are a code rather than a word: spaced out and monospaced
+   so the dots are countable. */
+.login-field input[type='password'] {
+  font-family: var(--font-mono);
+  letter-spacing: 0.4em;
+}
+
+.login-submit {
+  width: min(280px, 100%);
+  margin-top: 4px;
+}
+
+.login-error {
+  color: var(--down);
+  font-size: 12.5px;
+}
+
+/* Who is signed in, beside the button that ends it. Hidden on a phone, where
+   the header has no room for a name nobody needs reminding of. */
+.whoami {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--on-surface-variant);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .whoami {
+    display: none;
+  }
+}
+
 .spinner {
   width: 28px;
   height: 28px;
