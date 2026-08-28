@@ -45,7 +45,7 @@ export function useTheme() {
   useEffect(() => {
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute('content', resolved === 'dark' ? '#202124' : '#ffffff');
+      ?.setAttribute('content', resolved === 'dark' ? '#1e2125' : '#ffffff');
   }, [resolved]);
 
   return { mode, setMode, resolved };

@@ -1,8 +1,10 @@
 /* ==========================================================================
-   NSE Listed Shares — Google Finance / Material design language
-   Grey canvas, white elevated surfaces, 8–24px radii, Google blue primary,
-   Google's green/red for direction. Type: Manrope (a close free stand-in for
-   Google Sans) for display, Roboto for UI, Roboto Mono for codes.
+   SALPHA — Google Finance / Material structure.
+   Neutral graphite surfaces and an indigo accent taken from the cold end of
+   the logo's gradient. The mark keeps the full pink→indigo sweep and is the
+   one saturated thing on screen; the UI around it stays out of the way.
+   Green/red are the market's colours, not the brand's, and are left alone.
+   Type: Manrope (a free stand-in for Google Sans), Roboto, Roboto Mono.
    ========================================================================== */
 
 :root {
@@ -11,26 +13,30 @@
      no duplicated dark block to keep in sync. */
   color-scheme: light dark;
 
-  /* surfaces */
-  --canvas: light-dark(#f8f9fa, #202124);
-  --surface: light-dark(#ffffff, #292a2d);
-  --surface-2: light-dark(#f1f3f4, #35363a);
-  --surface-hover: light-dark(#f8f9fa, #303134);
+  /* surfaces — plain graphite. Any hue here and the whole page takes on a
+     cast; the mark is the only place colour is meant to come from. */
+  --canvas: light-dark(#f7f8f9, #16181b);
+  --surface: light-dark(#ffffff, #1e2125);
+  --surface-2: light-dark(#eef0f2, #292d32);
+  --surface-hover: light-dark(#f7f8f9, #24272c);
 
   /* outlines */
-  --outline: light-dark(#dadce0, #3c4043);
-  --outline-faint: light-dark(#e8eaed, #35363a);
+  --outline: light-dark(#d7dade, #363b41);
+  --outline-faint: light-dark(#e6e8eb, #292d32);
 
   /* content */
-  --on-surface: light-dark(#202124, #e8eaed);
-  --on-surface-variant: light-dark(#5f6368, #9aa0a6);
-  --on-surface-faint: #80868b;
+  --on-surface: light-dark(#16181c, #e6e8eb);
+  --on-surface-variant: light-dark(#565b63, #9aa0a8);
+  /* Was one value for both themes and cleared 4.5:1 in neither. It is real
+     text in ~25 places, so it splits like the rest of the palette. */
+  --on-surface-faint: light-dark(#63686f, #949aa3);
 
-  /* accent + direction */
-  --primary: light-dark(#1a73e8, #8ab4f8);
-  --primary-hover: light-dark(#1765cc, #a8c7fa);
-  --primary-container: light-dark(#e8f0fe, #1f3350);
-  --on-primary: light-dark(#ffffff, #202124);
+  /* accent — the indigo the logo's gradient ends on, which is the one stop of
+     it that reads as an interface colour rather than as decoration. */
+  --primary: light-dark(#4f60e8, #a4afff);
+  --primary-hover: light-dark(#3c4dd4, #bcc4ff);
+  --primary-container: light-dark(#f0f2fe, #262c4a);
+  --on-primary: light-dark(#ffffff, #10121f);
   --up: light-dark(#137333, #81c995);
   --up-container: light-dark(#e6f4ea, #1d3626);
   --down: light-dark(#c5221f, #f28b82);
@@ -38,12 +44,12 @@
 
   /* Material elevation. `light-dark()` returns a colour, not a whole shadow
      list, so the switchable part is the two shadow colours. */
-  --shadow-key: light-dark(rgba(60, 64, 67, 0.3), rgba(0, 0, 0, 0.45));
-  --shadow-ambient: light-dark(rgba(60, 64, 67, 0.15), rgba(0, 0, 0, 0.3));
+  --shadow-key: light-dark(rgba(22, 24, 28, 0.3), rgba(0, 0, 0, 0.5));
+  --shadow-ambient: light-dark(rgba(22, 24, 28, 0.14), rgba(0, 0, 0, 0.34));
   --elev-1: 0 1px 2px 0 var(--shadow-key), 0 1px 3px 1px var(--shadow-ambient);
   --elev-2: 0 1px 2px 0 var(--shadow-key), 0 2px 6px 2px var(--shadow-ambient);
   --elev-3: 0 4px 8px 3px var(--shadow-ambient), 0 1px 3px var(--shadow-key);
-  --scrim: light-dark(rgba(32, 33, 36, 0.5), rgba(0, 0, 0, 0.6));
+  --scrim: light-dark(rgba(22, 24, 28, 0.5), rgba(0, 0, 0, 0.65));
 
   --row-h: 48px;
   --gutter: 20px;
