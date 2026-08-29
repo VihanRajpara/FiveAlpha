@@ -15,9 +15,11 @@ import {
   fetchWithTimeout,
   json,
   mergeListings,
+  normaliseSmeHeader,
   NSE_HEADERS,
   parseBseScrips,
   parseNseSecurities,
+  SME_LIST_URL,
   type BseScrip,
 } from '../_shared/upstream.ts';
 
@@ -70,10 +72,20 @@ Deno.serve(async (req) => {
     // Fetched together and settled independently: BSE is the flakier upstream,
     // and losing it should cost the BSE-only rows, not the whole sync.
     const [nseResult, bseResult] = await Promise.allSettled([
+      // Main board and Emerge together, and both required: a partial NSE list
+      // would make ~565 live SME rows look delisted to the pass below. Failing
+      // the whole sync writes nothing, which is the safe outcome.
       (async () => {
-        const res = await fetchWithTimeout(EQUITY_LIST_URL, { headers: NSE_HEADERS }, 30_000);
-        if (!res.ok) throw new Error(`NSE responded ${res.status}`);
-        return parseNseSecurities(await res.text(), now);
+        const get = async (url: string) => {
+          const res = await fetchWithTimeout(url, { headers: NSE_HEADERS }, 30_000);
+          if (!res.ok) throw new Error(`NSE responded ${res.status} for ${url}`);
+          return await res.text();
+        };
+        const [main, sme] = await Promise.all([get(EQUITY_LIST_URL), get(SME_LIST_URL)]);
+        return [
+          ...parseNseSecurities(main, now),
+          ...parseNseSecurities(normaliseSmeHeader(sme), now),
+        ];
       })(),
       (async (): Promise<BseScrip[]> => {
         const res = await fetchWithTimeout(BSE_LIST_URL, { headers: BSE_HEADERS }, BSE_TIMEOUT_MS);

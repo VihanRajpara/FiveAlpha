@@ -3,13 +3,19 @@ const MONTHS: Record<string, string> = {
   JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12',
 };
 
-/** NSE publishes listing dates as `06-OCT-2008`; normalise to `2008-10-06`. */
+/**
+ * NSE publishes listing dates as `06-OCT-2008`; normalise to `2008-10-06`.
+ *
+ * The Emerge (SME) list uses a two-digit year — `08-Jul-25`. Emerge opened in
+ * 2012, so `20` is the only sane century here.
+ */
 export function parseNseDate(value: string): string | null {
-  const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec(value.trim());
+  const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{2}|\d{4})$/.exec(value.trim());
   if (!m) return null;
   const month = MONTHS[m[2].toUpperCase()];
   if (!month) return null;
-  return `${m[3]}-${month}-${m[1].padStart(2, '0')}`;
+  const year = m[3].length === 2 ? `20${m[3]}` : m[3];
+  return `${year}-${month}-${m[1].padStart(2, '0')}`;
 }
 
 export function toNumber(value: string | number | null | undefined): number | null {

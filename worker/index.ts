@@ -56,10 +56,12 @@ const UPSTREAMS: Record<string, Upstream> = {
   },
   '/api/nse': {
     origin: 'https://nsearchives.nseindia.com',
-    // The equity master list, the F&O market-lots file (derivatives
-    // eligibility), and the index constituent lists (cap bands). Still an
-    // explicit allowlist — this must not become an open proxy to NSE.
-    allow: /^\/content\/(equities\/EQUITY_L|fo\/fo_mktlots|indices\/ind_[a-z0-9]+list)\.csv$/,
+    // The equity master list, the Emerge (SME) master list, the F&O market-lots
+    // file (derivatives eligibility), and the index constituent lists (cap
+    // bands). Still an explicit allowlist — this must not become an open proxy
+    // to NSE.
+    allow:
+      /^\/(content\/(equities\/EQUITY_L|fo\/fo_mktlots|indices\/ind_[a-z0-9]+list)|emerge\/corporates\/content\/SME_EQUITY_L)\.csv$/,
     headers: {
       'User-Agent': BROWSER_UA,
       // NSE only serves the archives to requests that look like they came from its site.

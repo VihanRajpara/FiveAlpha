@@ -31,6 +31,12 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const EQUITY_LIST_URL = 'https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv';
+/**
+ * NSE Emerge (SME) — a separate CSV of ~565 companies that EQUITY_L.csv does not
+ * contain. Underscored column names, a two-digit listing year, no MARKET LOT.
+ */
+const SME_LIST_URL =
+  'https://nsearchives.nseindia.com/emerge/corporates/content/SME_EQUITY_L.csv';
 /** BSE's scrip master — the feed behind its own "List of Securities" page. */
 const BSE_LIST_URL =
   'https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w' +
@@ -363,11 +369,14 @@ function parseCsvObjects(text) {
 
 const MONTHS = { JAN:'01',FEB:'02',MAR:'03',APR:'04',MAY:'05',JUN:'06',JUL:'07',AUG:'08',SEP:'09',OCT:'10',NOV:'11',DEC:'12' };
 
+/** Emerge's SME list uses a two-digit year (`08-Jul-25`); the main board uses four. */
 function parseNseDate(value) {
-  const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec(value.trim());
+  const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{2}|\d{4})$/.exec(value.trim());
   if (!m) return null;
   const month = MONTHS[m[2].toUpperCase()];
-  return month ? `${m[3]}-${month}-${m[1].padStart(2, '0')}` : null;
+  if (!month) return null;
+  const year = m[3].length === 2 ? `20${m[3]}` : m[3];
+  return `${year}-${month}-${m[1].padStart(2, '0')}`;
 }
 
 function toNumber(value) {
@@ -445,11 +454,22 @@ function mergeListings(nse, bse, now) {
 // tasks
 // ---------------------------------------------------------------------------
 
-async function fetchNseRows(now) {
-  const res = await fetchWithTimeout(EQUITY_LIST_URL, { headers: NSE_HEADERS });
-  if (!res.ok) throw new Error(`NSE responded ${res.status}`);
+/** Emerge's header is underscored: `NAME_OF_COMPANY` → `NAME OF COMPANY`. */
+const normaliseSmeHeader = (csv) => csv.replace(/^[^\n]*/, (h) => h.replace(/_/g, ' '));
 
-  return parseCsvObjects(await res.text())
+async function fetchNseRows(now) {
+  const get = async (url) => {
+    const res = await fetchWithTimeout(url, { headers: NSE_HEADERS });
+    if (!res.ok) throw new Error(`NSE responded ${res.status} for ${url}`);
+    return res.text();
+  };
+  const [main, sme] = await Promise.all([get(EQUITY_LIST_URL), get(SME_LIST_URL)]);
+
+  return parseNseCsv(main, now).concat(parseNseCsv(normaliseSmeHeader(sme), now));
+}
+
+function parseNseCsv(csv, now) {
+  return parseCsvObjects(csv)
     .map((r) => ({
       symbol: r['SYMBOL'] ?? '',
       name: r['NAME OF COMPANY'] ?? '',
@@ -489,7 +509,7 @@ async function fetchBseScrips() {
 }
 
 async function syncSecurities() {
-  process.stdout.write('securities: fetching NSE EQUITY_L.csv and BSE scrip master … ');
+  process.stdout.write('securities: fetching NSE main board + Emerge and the BSE scrip master … ');
   const now = new Date().toISOString();
 
   // Settled independently: BSE is the flakier upstream, and losing it should
@@ -528,15 +548,109 @@ async function syncSecurities() {
   return rows.length;
 }
 
+// ---------------------------------------------------------------------------
+// NSE's own end-of-day bhavcopy — the Emerge price source.
+//
+// Yahoo stopped updating NSE Emerge in July 2024. Measured 2026-08-29 over 565
+// SME rows: 261 had no price and 303 carried one frozen at 2024-07-24, rendered
+// as if it were today's. EMKAYTOOLS showed Yahoo's Rs 883.95 against an actual
+// close of Rs 94.20. No ticker form fixes it — the numeric `506042.BO` aliases
+// are frozen at 2024-07-23 too.
+//
+// `sec_bhavdata_full` is one ~390 kB CSV of every NSE cash series for a session
+// (EQ, BE, SM, ST, SZ) with the official close and previous close. End-of-day
+// only, which is why the main board stays on Yahoo: that is live intraday, and
+// better for any symbol Yahoo actually covers.
+//
+// Mirrors fetchNseBhavcopy in supabase/functions/_shared/upstream.ts.
+// ---------------------------------------------------------------------------
+
+const SME_SERIES = new Set(['SM', 'ST', 'SZ']);
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+function bhavcopyUrl(day) {
+  const dd = String(day.getUTCDate()).padStart(2, '0');
+  const mm = String(day.getUTCMonth() + 1).padStart(2, '0');
+  return `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${dd}${mm}${day.getUTCFullYear()}.csv`;
+}
+
+/**
+ * Recent closes for `series`, newest session winning, or null.
+ *
+ * Walks back a day at a time because there is no "latest" endpoint: a weekend,
+ * a holiday and a file not yet published all answer 404 alike, so the only way
+ * to find a session is to ask for it.
+ *
+ * More than one session because a bhavcopy lists only what *traded* that day and
+ * Emerge is thin. Measured 2026-08-29 over 565 SME rows: one session priced 449,
+ * five priced 539, ten priced 549. Five is where the curve flattens. Each quote
+ * keeps its own session's timestamp, so a fill from four days back is stored as
+ * four days old rather than as today's.
+ */
+async function fetchNseBhavcopy(series, sessions = 5, lookbackDays = 12) {
+  // IST rather than UTC: before 05:30 UTC the two disagree about what "today"
+  // is, and asking for tomorrow's file wastes the first attempt every night.
+  const today = new Date(Date.now() + IST_OFFSET_MS);
+
+  const quotes = new Map();
+  let latest = '';
+  let found = 0;
+
+  for (let back = 0; back <= lookbackDays && found < sessions; back++) {
+    const day = new Date(today);
+    day.setUTCDate(day.getUTCDate() - back);
+
+    const res = await fetchWithTimeout(bhavcopyUrl(day), { headers: NSE_HEADERS }, 30_000);
+    if (res.status === 404) continue;
+    if (!res.ok) throw new Error(`NSE bhavcopy responded ${res.status}`);
+
+    let matched = 0;
+    for (const row of parseCsvObjects(await res.text())) {
+      if (!series.has(row['SERIES'] ?? '')) continue;
+
+      const symbol = row['SYMBOL'] ?? '';
+      const price = toNumber(row['CLOSE_PRICE']);
+      // A close of 0 is not a price, and would read as a real quote downstream.
+      if (symbol === '' || price === null || price <= 0) continue;
+
+      const iso = parseNseDate(row['DATE1'] ?? '');
+      if (!iso) continue;
+
+      matched++;
+      if (latest === '') latest = iso;
+      // Sessions walk newest first, so the first answer for a symbol is its most
+      // recent close and every later one is older.
+      if (quotes.has(symbol)) continue;
+
+      quotes.set(symbol, {
+        price,
+        previousClose: toNumber(row['PREV_CLOSE']),
+        priceTime: new Date(`${iso}T15:30:00+05:30`).toISOString(),
+      });
+    }
+
+    // A 200 carrying nothing for these series is a file we cannot use.
+    if (matched > 0) found++;
+  }
+
+  return quotes.size > 0 ? { quotes, date: latest, sessions: found } : null;
+}
+
 async function syncQuotes() {
   // `*` rather than naming yahoo_ticker: that would 400 outright on a database
   // without migration 0005, where falling back to SYMBOL.NS is exactly right
   // because every row there is an NSE listing.
-  const targets = (await selectAll('securities', '*', '&order=symbol')).map((r) => ({
+  const securities = await selectAll('securities', '*', '&order=symbol');
+  const targets = securities.map((r) => ({
     symbol: r.symbol,
     ticker: r.yahoo_ticker || toNseTicker(r.symbol),
   }));
   if (targets.length === 0) throw new Error('securities is empty — run `securities` first');
+
+  // Emerge is priced from the exchange, not Yahoo — see fetchNseBhavcopy.
+  const smeSymbols = new Set(
+    securities.filter((r) => SME_SERIES.has(r.series)).map((r) => r.symbol),
+  );
 
   const batches = chunk(targets, QUOTE_BATCH_SIZE);
   console.log(`quotes: ${targets.length} symbols → ${batches.length} batches (concurrency ${CONCURRENCY})`);
@@ -590,7 +704,38 @@ async function syncQuotes() {
     }
   });
 
-  const rows = results.flat();
+  // Emerge overlays Yahoo rather than merging with it: Yahoo's SME prices are
+  // frozen at 2024-07-24, so its answer for these rows is not stale-but-usable,
+  // it is wrong. `market_cap_cr` goes to null with it — Yahoo derived that from
+  // the same stale price, and the bhavcopy has no share count to replace it.
+  const rows = results.flat().filter((r) => !smeSymbols.has(r.symbol));
+  const bhavcopy = smeSymbols.size > 0 ? await fetchNseBhavcopy(SME_SERIES) : null;
+
+  if (bhavcopy) {
+    let matched = 0;
+    for (const symbol of smeSymbols) {
+      const q = bhavcopy.quotes.get(symbol) ?? null;
+      if (q) matched++;
+      // An explicit null, not a skip: skipping would leave the Yahoo price
+      // already in the table, which for these rows is the 2024 figure this pass
+      // exists to remove. An Emerge row is exchange-sourced or it is blank.
+      rows.push({
+        symbol,
+        price: q?.price ?? null,
+        previous_close: q?.previousClose ?? null,
+        market_cap_cr: null,
+        price_time: q?.priceTime ?? null,
+        updated_at: now,
+      });
+    }
+    console.log(
+      `\nquotes: NSE Emerge from ${bhavcopy.sessions} bhavcopy sessions to ${bhavcopy.date} — ` +
+        `${matched}/${smeSymbols.size} priced, ${smeSymbols.size - matched} blanked (no recent trade)`,
+    );
+  } else if (smeSymbols.size > 0) {
+    console.warn(`\n  ! no NSE bhavcopy in the lookback window — ${smeSymbols.size} Emerge rows keep their stored price`);
+  }
+
   for (const part of chunk(rows, 500)) await upsert('quotes', part, 'symbol');
 
   // Two different numbers, and only the second is what the table shows as LTP.

@@ -13,11 +13,19 @@ import {
   assertAuthorized,
   chunk,
   CORS_HEADERS,
+  fetchNseBhavcopy,
   json,
   mapPool,
   toNseTicker,
 } from '../_shared/upstream.ts';
 import { fetchYahooQuoteBatch, QUOTE_BATCH_SIZE } from '../_shared/yahoo.ts';
+
+/**
+ * The NSE Emerge settlement series, priced from the exchange's bhavcopy rather
+ * than from Yahoo — see `fetchNseBhavcopy`. Yahoo's Emerge data stopped moving
+ * in July 2024, so for these rows it is not a slower source, it is a wrong one.
+ */
+const SME_SERIES = new Set(['SM', 'ST', 'SZ']);
 
 /**
  * Fewer in flight than the old spark pass used, and deliberately: each request
@@ -54,6 +62,7 @@ Deno.serve(async (req) => {
     // that hasn't run migration 0005, where falling back to `SYMBOL.NS` is
     // exactly right because every row there is an NSE listing.
     const targets: { symbol: string; ticker: string }[] = [];
+    const smeSymbols = new Set<string>();
     for (let page = 0; ; page++) {
       const from = page * 1000;
       const { data, error } = await supabase
@@ -62,7 +71,14 @@ Deno.serve(async (req) => {
         .order('symbol')
         .range(from, from + 999);
       if (error) return json({ error: error.message, stage: 'read-symbols' }, 500);
-      const batch = (data ?? []) as { symbol: string; yahoo_ticker?: string | null }[];
+      const batch = (data ?? []) as {
+        symbol: string;
+        series?: string | null;
+        yahoo_ticker?: string | null;
+      }[];
+      for (const r of batch) {
+        if (SME_SERIES.has(r.series ?? '')) smeSymbols.add(r.symbol);
+      }
       targets.push(
         ...batch.map((r) => ({ symbol: r.symbol, ticker: r.yahoo_ticker || toNseTicker(r.symbol) })),
       );
@@ -128,7 +144,52 @@ Deno.serve(async (req) => {
       },
     );
 
-    const rows = batches.flat();
+    // -----------------------------------------------------------------------
+    // Emerge, from the exchange.
+    //
+    // An overlay rather than a merge: where the bhavcopy has an SME symbol its
+    // close *replaces* whatever Yahoo said, because Yahoo's answer for these is
+    // a 2024 price and a fresher wrong number is still wrong. `market_cap_cr`
+    // goes to null for the same reason — Yahoo derived it from that stale price,
+    // and the bhavcopy carries no share count to recompute it from.
+    //
+    // An SME symbol the exchange has no recent close for is written as an
+    // explicit null rather than skipped. Skipping would leave the Yahoo price
+    // already in the table — which for these rows is the 2024 figure this whole
+    // pass exists to get rid of. The invariant is worth more than the number:
+    // an Emerge row is exchange-sourced or it is blank.
+    // -----------------------------------------------------------------------
+    const rows = batches.flat().filter((r) => !smeSymbols.has(r.symbol));
+    let bhavcopyDate: string | null = null;
+    let bhavcopyError: string | null = null;
+    let smePriced = 0;
+
+    if (smeSymbols.size > 0) {
+      try {
+        const bhavcopy = await fetchNseBhavcopy(SME_SERIES);
+        if (bhavcopy) {
+          bhavcopyDate = bhavcopy.date;
+          for (const symbol of smeSymbols) {
+            const quote = bhavcopy.quotes.get(symbol) ?? null;
+            if (quote) smePriced++;
+            rows.push({
+              symbol,
+              price: quote?.price ?? null,
+              previous_close: quote?.previousClose ?? null,
+              market_cap_cr: null,
+              price_time: quote?.priceTime ?? null,
+              updated_at: now,
+            });
+          }
+        } else {
+          bhavcopyError = 'no bhavcopy found in the lookback window';
+        }
+      } catch (err) {
+        // Surfaced, not thrown: the Yahoo pass already priced the other ~5,200
+        // rows and losing Emerge should not cost them their refresh.
+        bhavcopyError = err instanceof Error ? err.message : String(err);
+      }
+    }
 
     for (let i = 0; i < rows.length; i += 500) {
       const { error } = await supabase
@@ -143,6 +204,10 @@ Deno.serve(async (req) => {
       priced: rows.length,
       requests: Math.ceil(targets.length / QUOTE_BATCH_SIZE),
       failedBatches,
+      sme: smeSymbols.size,
+      smePriced,
+      bhavcopyDate,
+      bhavcopyError,
     });
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : String(err) }, 500);
