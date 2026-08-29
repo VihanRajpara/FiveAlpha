@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "check:signals": "node scripts/check-signals.mjs",
+    "check:tickers": "node scripts/check-unknown-tickers.mjs",
     "deploy": "npm run build && wrangler deploy",
     "seed": "node scripts/seed.mjs all",
     "seed:securities": "node scripts/seed.mjs securities",

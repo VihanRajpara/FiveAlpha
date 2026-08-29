@@ -1,4 +1,5 @@
 import type { Candle, ChartRange } from '../types';
+import { dayCache } from './dayCache';
 
 /**
  * Chart history, fetched on demand rather than stored.
@@ -35,6 +36,33 @@ interface ChartResponse {
     error?: { description?: string } | null;
   };
 }
+
+/**
+ * Tickers Yahoo has already answered "I don't carry that" for.
+ *
+ * NSE Emerge (series SM/ST/SZ) is on the master list and largely absent from
+ * Yahoo, so every pass that touches the whole universe — the screen's scan, the
+ * market-cap batch, the signal column on any row scrolled into view — was
+ * re-discovering the same few hundred dead tickers, one 404 at a time, on every
+ * run and every reload. The answer is stable and free to remember, so it is
+ * remembered here and every Yahoo fetcher checks it first.
+ *
+ * Kept a week rather than the usual day: a symbol Yahoo does not carry does not
+ * start being carried overnight, and the expiry is what bounds the cost of
+ * being wrong — a ticker wrongly marked is asked again within the week rather
+ * than never.
+ */
+const unknownStore = dayCache<1>(
+  'unknown-tickers',
+  { encode: () => 1, decode: (raw) => (raw === 1 ? 1 : undefined) },
+  7,
+);
+
+/** Has Yahoo already said it has no such symbol? */
+export const isUnknownTicker = (ticker: string): boolean => unknownStore.has(ticker);
+
+/** Record a "no such symbol" — a 404, or an absence from a batch response. */
+export const markUnknownTicker = (ticker: string): void => unknownStore.set(ticker, 1);
 
 /**
  * One GET, retried once if the connection itself fails.
@@ -105,12 +133,20 @@ export async function fetchYahooBars(
   interval: string,
   signal?: AbortSignal,
 ): Promise<Candle[]> {
+  // Asked and answered — throw the same error the request would have, for free.
+  if (isUnknownTicker(ticker)) throw new Error(`Yahoo has no symbol ${ticker}`);
+
   const url = `/api/yahoo/v8/finance/chart/${encodeURIComponent(
     ticker,
   )}?range=${range}&interval=${interval}`;
 
   const res = await fetchYahoo(url, signal);
-  if (!res.ok) throw new Error(`Yahoo returned ${res.status} for ${ticker}`);
+  if (!res.ok) {
+    // 404 is Yahoo's "no such symbol", and the only status worth remembering:
+    // a 429 or a 5xx is about this request, not about the ticker.
+    if (res.status === 404) markUnknownTicker(ticker);
+    throw new Error(`Yahoo returned ${res.status} for ${ticker}`);
+  }
 
   const payload = (await res.json()) as ChartResponse;
   const result = payload.chart?.result?.[0];
@@ -175,26 +211,37 @@ export async function fetchYahooSparkBars(
   signal?: AbortSignal,
 ): Promise<Map<string, Candle[]>> {
   const out = new Map<string, Candle[]>();
-  if (tickers.length === 0) return out;
+  // Dead tickers do not just cost their own slot: a batch of nothing but known
+  // dead ones is a whole request spent to be told 404.
+  const live = tickers.filter((t) => !isUnknownTicker(t));
+  if (live.length === 0) return out;
 
   // The whole joined string is encoded, commas included — Yahoo decodes them
   // back, and it is the only way `ARE&M.NS` survives the query string.
-  const symbols = encodeURIComponent(tickers.join(','));
+  const symbols = encodeURIComponent(live.join(','));
   const url = `/api/yahoo/v8/finance/spark?symbols=${symbols}&range=${range}&interval=${interval}`;
 
   const res = await fetchYahoo(url, signal);
-  if (res.status === 404) return out;
+  // Yahoo 404s the whole request only when it recognises nothing in it, so this
+  // is an answer about every symbol asked for rather than a failure.
+  if (res.status === 404) {
+    for (const ticker of live) markUnknownTicker(ticker);
+    return out;
+  }
   if (!res.ok) throw new Error(`Yahoo returned ${res.status} for a batch of ${tickers.length}`);
 
   const payload = (await res.json()) as Record<string, SparkSeries | null>;
 
   // Iterate the request, not the response: the response is keyed by ticker and
   // is missing an entry for anything Yahoo doesn't carry.
-  for (const ticker of tickers) {
+  for (const ticker of live) {
     const series = payload[ticker];
     const timestamps = series?.timestamp;
     const closes = series?.close;
-    if (!timestamps || !closes) continue;
+    if (!timestamps || !closes) {
+      markUnknownTicker(ticker);
+      continue;
+    }
 
     const bars: Candle[] = [];
     for (let i = 0; i < timestamps.length; i++) {
