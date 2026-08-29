@@ -1,4 +1,5 @@
 import { chunk, mapPool } from './format';
+import { isUnknownTicker, markUnknownTicker } from './yahooCandles';
 
 /**
  * Market cap for a whole universe, two hundred symbols per request.
@@ -71,7 +72,10 @@ export async function fetchMarketCaps(
     if (cache.has(ticker)) {
       const hit = cache.get(ticker);
       if (typeof hit === 'number') out.set(ticker, hit);
-    } else if (!wanted.includes(ticker)) {
+    } else if (!isUnknownTicker(ticker) && !wanted.includes(ticker)) {
+      // A symbol Yahoo has already denied knowing has no market cap either, and
+      // unlike `cache` that answer survives a reload — which is the difference
+      // between paying for the ~565 SME rows once and paying every session.
       wanted.push(ticker);
     }
   }
@@ -95,8 +99,13 @@ export async function fetchMarketCaps(
         if (cap !== null) out.set(quote.symbol, cap);
       }
 
-      // Symbols Yahoo silently dropped — the same behaviour `spark` has.
-      for (const ticker of batch) if (!cache.has(ticker)) cache.set(ticker, null);
+      // Symbols Yahoo silently dropped — the same behaviour `spark` has, and
+      // the same meaning: no such symbol, so tell everything else that asks.
+      for (const ticker of batch) {
+        if (cache.has(ticker)) continue;
+        cache.set(ticker, null);
+        markUnknownTicker(ticker);
+      }
     } catch (err) {
       if (signal?.aborted) return;
       // Deliberately swallowed. Nothing is cached, so a later run retries, and

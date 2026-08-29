@@ -454,16 +454,23 @@ export function useScreen(): ScreenRun {
           let universe = rows;
 
           if (capLegs.length > 0) {
+            // Only the rows the database has no figure for. In Supabase mode
+            // `sync-quotes` stores a market cap alongside every price — it
+            // arrives in the same Yahoo response, so it costs nothing to keep —
+            // and this stage is usually left with nothing to ask about at all.
+            // Direct mode has no store behind it and still pays the ~27
+            // requests.
             const caps = await fetchMarketCaps(
-              rows.map((row) => row.ticker),
+              rows.filter((row) => row.quote?.marketCapCr == null).map((row) => row.ticker),
               signal,
             );
             if (signal.aborted) return;
 
             universe = [];
             for (const row of rows) {
-              const cap = caps.get(row.ticker);
-              const metrics: Partial<ScreenMetrics> = cap === undefined ? {} : { marketCapCr: cap };
+              const cap = row.quote?.marketCapCr ?? caps.get(row.ticker);
+              const metrics: Partial<ScreenMetrics> =
+                cap === undefined || cap === null ? {} : { marketCapCr: cap };
 
               if (judge(capLegs, metrics).verdict === 'fail') {
                 store(row.symbol, metrics, judge(def.legs, metrics));
@@ -472,7 +479,11 @@ export function useScreen(): ScreenRun {
 
               // Carried into every later stage so the figure is on the row
               // whatever decides it, and so the scrape does not have to re-ask.
-              if (cap !== undefined) seeds.set(row.symbol, metrics);
+              // The stored ROCE rides along for the same reason — it is what
+              // lets stage 3 skip a paced request per row.
+              const roce = row.quote?.rocePct;
+              if (roce !== undefined && roce !== null) metrics.rocePct = roce;
+              if (Object.keys(metrics).length > 0) seeds.set(row.symbol, metrics);
               universe.push(row);
             }
           }
@@ -660,6 +671,26 @@ export function useScreen(): ScreenRun {
             const existing = draft.current.get(row.symbol)!;
             const metrics = { ...existing.metrics };
             let fundamentalsUrl: string | undefined;
+
+            // Already answered by `sync-fundamentals`, which scrapes the same
+            // page on a rolling schedule and stores the result. This is the
+            // expensive stage — 1.2s a row, because that is screener.in's
+            // measured rate limit — so a row that arrives with a figure on it
+            // is the difference between a two-minute stage and no stage at all.
+            if (metrics.rocePct !== undefined && metrics.rocePct !== null) {
+              fundamentalsUrl = row.quote?.fundamentalsUrl ?? undefined;
+              const seeded = judge(def.legs, metrics);
+              draft.current.set(row.symbol, {
+                symbol: row.symbol,
+                verdict: seeded.verdict,
+                metrics,
+                decidedBy: seeded.decidedBy,
+                fundamentalsUrl,
+              });
+              stage.fundamental.done++;
+              tick();
+              return;
+            }
 
             try {
               const fundamentals = await fetchFundamentals(row, signal);

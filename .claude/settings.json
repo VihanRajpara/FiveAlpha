@@ -64,5 +64,8 @@
       "PowerShell(node \"C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Code-Space-NSE\\\\de26a749-1eb7-4dcd-a4f8-14481cb5795c\\\\scratchpad\\\\pacing.test.mjs\")",
       "PowerShell($p = \\(Get-NetTCPConnection -LocalPort 5188 -State Listen -ErrorAction SilentlyContinue\\).OwningProcess | Select-Object -Unique; foreach \\($x in $p\\) { Stop-Process -Id $x -Force }; Set-Location \"d:\\\\Code Space\\\\NSE\"; npm run build)"
     ]
+  },
+  "enabledPlugins": {
+    "supabase@claude-plugins-official": true
   }
 }

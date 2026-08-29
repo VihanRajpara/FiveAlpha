@@ -19,6 +19,17 @@ import { parseNseDate, toNumber } from './format';
 const EQUITY_LIST_URL = '/api/nse/content/equities/EQUITY_L.csv';
 
 /**
+ * NSE Emerge — the SME board, published as a separate CSV that EQUITY_L.csv
+ * does not overlap. Without it ~565 live companies (series SM / ST / SZ) are
+ * missing from the app altogether. Its header is underscored and it carries no
+ * MARKET LOT column, which `normaliseSmeHeader` below reconciles.
+ */
+const SME_LIST_URL = '/api/nse/emerge/corporates/content/SME_EQUITY_L.csv';
+
+export const normaliseSmeHeader = (csv: string) =>
+  csv.replace(/^[^\n]*/, (header) => header.replace(/_/g, ' '));
+
+/**
  * BSE's scrip master. `segment=Equity&status=Active` is what the exchange's own
  * "List of Securities" page requests, and it returns every live equity scrip
  * (~5,100) in one 1.8 MB response. The empty Group/Scripcode/industry params are
@@ -78,12 +89,20 @@ export function toBseTicker(scripId: string): string {
 }
 
 export async function fetchNseSecurities(): Promise<Security[]> {
-  const res = await fetch(EQUITY_LIST_URL);
-  if (!res.ok) {
-    throw new Error(`NSE returned ${res.status} for the equity list. Is the dev proxy running?`);
-  }
+  const get = async (url: string) => {
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`NSE returned ${res.status} for ${url}. Is the dev proxy running?`);
+    }
+    return res.text();
+  };
 
-  return parseCsvObjects(await res.text())
+  const [main, sme] = await Promise.all([get(EQUITY_LIST_URL), get(SME_LIST_URL)]);
+  return parseNseCsv(main).concat(parseNseCsv(normaliseSmeHeader(sme)));
+}
+
+export function parseNseCsv(csv: string): Security[] {
+  return parseCsvObjects(csv)
     .map((row) => {
       const symbol = row['SYMBOL'] ?? '';
       return {
@@ -211,6 +230,10 @@ const SERIES_MEANING: Record<string, string> = {
   EQ: 'NSE rolling settlement',
   BE: 'NSE trade-to-trade — delivery compulsory',
   BZ: 'NSE trade-to-trade, under surveillance',
+  // NSE Emerge, the SME board.
+  SM: 'NSE Emerge — SME platform',
+  ST: 'NSE Emerge — SME, trade-to-trade',
+  SZ: 'NSE Emerge — SME, under surveillance',
   // BSE settlement groups.
   A: 'BSE Group A — rolling settlement, the most actively traded',
   B: 'BSE Group B — rolling settlement',
@@ -228,8 +251,8 @@ export function describeSeries(code: string): string {
   return SERIES_MEANING[code] ?? `BSE settlement group ${code}`;
 }
 
-/** NSE's three come first; BSE's groups follow alphabetically. */
-const NSE_SERIES_ORDER = ['EQ', 'BE', 'BZ'];
+/** NSE's main board first, then Emerge; BSE's groups follow alphabetically. */
+const NSE_SERIES_ORDER = ['EQ', 'BE', 'BZ', 'SM', 'ST', 'SZ'];
 
 export function compareSeries(a: string, b: string): number {
   const ia = NSE_SERIES_ORDER.indexOf(a);
