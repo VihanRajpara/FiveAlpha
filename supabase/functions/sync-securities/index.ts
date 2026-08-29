@@ -24,6 +24,40 @@ import {
 /** BSE's scrip master is ~1.8 MB, so it needs more headroom than the NSE CSV. */
 const BSE_TIMEOUT_MS = 45_000;
 
+/**
+ * Which stored symbols the exchanges have stopped listing — and whether to
+ * believe the answer.
+ *
+ * A pure function with its own check (`scripts/check-metrics.mjs`) because it
+ * is the only thing in this project that deletes rows, and the failure it
+ * guards against is silent: both upstreams answering 200 with a *truncated*
+ * body. The merge would look perfectly successful and propose deleting
+ * thousands of live companies.
+ *
+ * Real delistings arrive a handful at a time, so anything above a few percent
+ * of the table is a bad response rather than a bad day on the exchange. The
+ * floor of 50 keeps the ceiling workable on a small or freshly seeded table,
+ * where 5% would be a couple of rows.
+ */
+export function planDelistings(
+  stored: string[],
+  live: Set<string>,
+): { gone: string[]; skipped: string | null } {
+  const gone = stored.filter((symbol) => !live.has(symbol));
+  const ceiling = Math.max(50, Math.floor(stored.length * 0.05));
+
+  if (gone.length > ceiling) {
+    return {
+      gone: [],
+      skipped:
+        `${gone.length} rows looked delisted, over the ${ceiling} ceiling — ` +
+        'treating that as a truncated upstream response rather than a mass delisting',
+    };
+  }
+
+  return { gone, skipped: null };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
 
@@ -91,6 +125,59 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ---------------------------------------------------------------------
+    // Companies the exchanges have stopped listing.
+    //
+    // The upsert above only ever adds and updates, so a delisted company stayed
+    // in the table for good — carrying whatever price it had on the day it was
+    // last quoted, indistinguishable in the UI from a live one that simply
+    // hadn't traded. Measured 2026-08-29: 157 such rows, all of them absent
+    // from both exchanges' current lists, the oldest frozen since the first
+    // seed on 2026-08-10.
+    //
+    // `quotes` and `metrics` both reference `securities(symbol) on delete
+    // cascade`, so they clean up with it. Watchlists deliberately do not — they
+    // store a plain `text[]` with no foreign key, so a delisted holding stays
+    // in the user's list and simply stops resolving to a row, which is the
+    // honest outcome and not this function's business to erase.
+    // ---------------------------------------------------------------------
+    let delisted = 0;
+    let deleteSkipped: string | null = null;
+
+    if (bseError) {
+      // Every row the merge produced claims `{NSE}` when BSE is unreachable, so
+      // "not in the merged list" would describe all ~2,800 BSE-only companies.
+      deleteSkipped = 'BSE list unavailable — cannot tell a delisting from a failed fetch';
+    } else {
+      const live = new Set(rows.map((r) => r.symbol));
+
+      const stored: string[] = [];
+      for (let page = 0; ; page++) {
+        const from = page * 1000;
+        const { data, error } = await supabase
+          .from('securities')
+          .select('symbol')
+          .order('symbol')
+          .range(from, from + 999);
+        if (error) return json({ error: error.message, stage: 'read-existing' }, 500);
+        const batch = (data ?? []) as { symbol: string }[];
+        stored.push(...batch.map((r) => r.symbol));
+        if (batch.length < 1000) break;
+      }
+
+      const { gone, skipped } = planDelistings(stored, live);
+      deleteSkipped = skipped;
+
+      for (let i = 0; i < gone.length; i += 200) {
+        const { error } = await supabase
+          .from('securities')
+          .delete()
+          .in('symbol', gone.slice(i, i + 200));
+        if (error) return json({ error: error.message, stage: 'delete-delisted' }, 500);
+      }
+      delisted = gone.length;
+    }
+
     const onBse = rows.filter((r) => r.exchanges.includes('BSE')).length;
 
     return json({
@@ -99,6 +186,8 @@ Deno.serve(async (req) => {
       nse: rows.filter((r) => r.exchanges.includes('NSE')).length,
       bse: onBse,
       bseOnly: rows.filter((r) => !r.exchanges.includes('NSE')).length,
+      delisted,
+      deleteSkipped,
       // Surfaced rather than thrown: the sync still updated every NSE row.
       bseError,
     });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createColumnHelper,
   flexRender,
@@ -74,26 +74,35 @@ const ROW_HEIGHT: Record<Layout, number> = { wide: 48, medium: 48, mobile: 64 };
 const NONE: Set<string> = new Set();
 
 /**
- * Wide while screening: the four screen columns arrive and the two weakest
- * identity columns leave, so the table still fits without side-scrolling. On a
- * row that already passed a screen, why it passed beats what it is.
+ * Wide: RSI, ROCE and market cap are permanent columns now that the server
+ * precomputes them, so the two weakest identity columns leave to pay for the
+ * width. Unconditional where this used to apply only while screening — the
+ * columns it was making room for no longer come and go.
  */
-const WIDE_HIDDEN_SCREENING = new Set(['segment', 'listingDate']);
-
-/** `medium` keeps Symbol · Company · LTP · Chg% · Side · Gap. */
-const MEDIUM_HIDDEN = new Set(['index', 'segment', 'listingDate', 'sigAt']);
+const WIDE_HIDDEN = new Set(['segment', 'listingDate']);
 
 /**
- * …and while screening adds the two screen legs that decide most rows,
- * dropping ROCE, market cap and the signal's gap to pay for them. The side and
- * its date stay: a screen shortlist with no verdict on it is half an answer.
+ * `medium` keeps Symbol · Company · LTP · Chg% · RSI · Side · Gap.
+ *
+ * RSI survives the cut and the other two metrics do not: it is three characters
+ * and the one of the three that is read by scanning down the column. ROCE and
+ * market cap are both wider and both questions asked about one row at a time,
+ * so they belong in the drawer at this width.
  */
-const MEDIUM_HIDDEN_SCREENING = new Set([
-  ...MEDIUM_HIDDEN,
-  'sigGap',
+const MEDIUM_HIDDEN = new Set([
+  'index',
+  'segment',
+  'listingDate',
+  'sigAt',
   'rocePct',
   'marketCapCr',
 ]);
+
+/**
+ * …and a screen adds `vs 10Y high`, paid for with the signal's gap. The side
+ * and its date stay: a screen shortlist with no verdict on it is half an answer.
+ */
+const MEDIUM_HIDDEN_SCREENING = new Set([...MEDIUM_HIDDEN, 'sigGap']);
 
 const PAGE_SIZES = [25, 50, 100, 250];
 
@@ -464,6 +473,28 @@ export function StockTable({
     setPagination((p) => (p.pageIndex === 0 ? p : { ...p, pageIndex: 0 }));
   }, [rows.length, sorting]);
 
+  /**
+   * RSI, ROCE and market cap for a row — a running screen's figure first, the
+   * stored one behind it.
+   *
+   * These three used to come only from `screenResults`, which is why they read
+   * as broken: a screen answers RSI for the rows it scans and ROCE only for the
+   * handful that survive every technical leg, so the two columns were an em dash
+   * on ~95% of the table and empty entirely until someone clicked Run. They are
+   * now precomputed for the whole universe and arrive with the quote (see
+   * supabase/functions/sync-technicals and sync-fundamentals), so the stored
+   * value is the normal case and the screen's is the exception.
+   *
+   * The screen still wins where it has one: a run recomputes against live
+   * intra-day prices, and the column should not disagree with the verdict
+   * sitting next to it.
+   */
+  const metricOf = useCallback(
+    (row: SecurityWithQuote, key: 'monthlyRsi14' | 'rocePct' | 'marketCapCr') =>
+      screenResults?.get(row.symbol)?.metrics[key] ?? row.quote?.[key] ?? undefined,
+    [screenResults],
+  );
+
   const columns = useMemo(
     () => [
       // Rendered from the virtual row position, not row.index — row.index is the
@@ -603,61 +634,61 @@ export function StockTable({
                 );
               },
             }),
-            helper.accessor((r) => screenResults.get(r.symbol)?.metrics.monthlyRsi14 ?? undefined, {
-              id: 'monthlyRsi14',
-              header: 'RSI(M)',
-              sortUndefined: 'last',
-              sortingFn: numericSort,
-              cell: (ctx) => {
-                const result = screenResults.get(ctx.row.original.symbol);
-                return (
-                  <ScreenCell
-                    value={result?.metrics.monthlyRsi14}
-                    screened={result !== undefined}
-                    format={(v) => v.toFixed(1)}
-                  />
-                );
-              },
-            }),
-            helper.accessor((r) => screenResults.get(r.symbol)?.metrics.rocePct ?? undefined, {
-              id: 'rocePct',
-              header: 'ROCE',
-              sortUndefined: 'last',
-              sortingFn: numericSort,
-              cell: (ctx) => {
-                const result = screenResults.get(ctx.row.original.symbol);
-                return (
-                  <ScreenCell
-                    value={result?.metrics.rocePct}
-                    // Only rows that cleared the price and momentum legs are
-                    // ever scraped, so an em dash here usually means "never
-                    // asked", not "screener.in had nothing".
-                    screened={result?.metrics.rocePct !== undefined}
-                    format={(v) => `${v.toFixed(1)}%`}
-                  />
-                );
-              },
-            }),
-            helper.accessor((r) => screenResults.get(r.symbol)?.metrics.marketCapCr ?? undefined, {
-              id: 'marketCapCr',
-              header: 'M.Cap ₹Cr',
-              sortUndefined: 'last',
-              sortingFn: numericSort,
-              cell: (ctx) => {
-                const result = screenResults.get(ctx.row.original.symbol);
-                return (
-                  <ScreenCell
-                    value={result?.metrics.marketCapCr}
-                    screened={result?.metrics.marketCapCr !== undefined}
-                    format={formatCrore}
-                  />
-                );
-              },
-            }),
           ]
         : []),
+      // RSI, ROCE and market cap, which are columns of the dataset rather than
+      // by-products of a run — see the note on `metricOf` above. Outside the
+      // conditional above for that reason: they have a value on every row from
+      // the moment the table loads.
+      helper.accessor((r) => metricOf(r, 'monthlyRsi14'), {
+        id: 'monthlyRsi14',
+        header: 'RSI(M)',
+        sortUndefined: 'last',
+        sortingFn: numericSort,
+        cell: (ctx) => (
+          <ScreenCell
+            value={metricOf(ctx.row.original, 'monthlyRsi14')}
+            // The server computes this for every symbol it can, so a dash here
+            // is "Yahoo has no history for this scrip" — a real answer, not a
+            // row the run has yet to reach. Only shimmer while the load is
+            // still in flight.
+            screened={quotesLoaded}
+            format={(v) => v.toFixed(1)}
+          />
+        ),
+      }),
+      helper.accessor((r) => metricOf(r, 'rocePct'), {
+        id: 'rocePct',
+        header: 'ROCE',
+        sortUndefined: 'last',
+        sortingFn: numericSort,
+        cell: (ctx) => (
+          <ScreenCell
+            value={metricOf(ctx.row.original, 'rocePct')}
+            // A dash means screener.in carries no figure for the company, or
+            // the rolling scrape has not reached it yet — see
+            // supabase/functions/sync-fundamentals, which fills the universe
+            // over its first couple of days and then rotates.
+            screened={quotesLoaded}
+            format={(v) => `${v.toFixed(1)}%`}
+          />
+        ),
+      }),
+      helper.accessor((r) => metricOf(r, 'marketCapCr'), {
+        id: 'marketCapCr',
+        header: 'M.Cap ₹Cr',
+        sortUndefined: 'last',
+        sortingFn: numericSort,
+        cell: (ctx) => (
+          <ScreenCell
+            value={metricOf(ctx.row.original, 'marketCapCr')}
+            screened={quotesLoaded}
+            format={formatCrore}
+          />
+        ),
+      }),
     ],
-    [quotesLoaded, screenResults, signalSortable],
+    [metricOf, quotesLoaded, screenResults, signalSortable],
   );
 
   const table = useReactTable({
@@ -727,8 +758,8 @@ export function StockTable({
       ? screenResults
         ? MEDIUM_HIDDEN_SCREENING
         : MEDIUM_HIDDEN
-      : layout === 'wide' && screenResults
-        ? WIDE_HIDDEN_SCREENING
+      : layout === 'wide'
+        ? WIDE_HIDDEN
         : NONE;
   const isVisible = (id: string) => !hidden.has(id);
 

@@ -48,7 +48,20 @@ export interface QuoteTarget {
   ticker: string;
 }
 
-/** Latest traded price for a symbol. */
+/**
+ * What is known about a symbol without running a screen.
+ *
+ * The price fields are the original purpose. The four below them are figures the
+ * server precomputes — market cap arrives in the same Yahoo response as the
+ * price, while RSI and ROCE are written by their own scheduled functions (see
+ * supabase/functions/sync-technicals and sync-fundamentals).
+ *
+ * They live here rather than in a parallel map because they are per-symbol data
+ * keyed exactly like a quote, arriving in the same read, consumed by the same
+ * components. A second map threaded through the same call sites would be the
+ * same data with more plumbing. `null` means "the server has no figure", which
+ * is distinct from a screen's `undefined` — "nobody has asked yet".
+ */
 export interface Quote {
   symbol: string;
   price: number | null;
@@ -56,6 +69,14 @@ export interface Quote {
   change: number | null;
   changePercent: number | null;
   updatedAt: string | null;
+  /** Rs crore. Null in direct mode until the batch quote answers. */
+  marketCapCr?: number | null;
+  /** Wilder RSI(14) on monthly closes, precomputed nightly. */
+  monthlyRsi14?: number | null;
+  /** Latest annual return on capital employed, percent. */
+  rocePct?: number | null;
+  /** The screener.in page `rocePct` came from, so the figure stays checkable. */
+  fundamentalsUrl?: string | null;
 }
 
 /** One historical bar. Yahoo's chart endpoint can return nulls inside the arrays. */

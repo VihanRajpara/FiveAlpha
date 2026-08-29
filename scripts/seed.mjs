@@ -35,8 +35,33 @@ const EQUITY_LIST_URL = 'https://nsearchives.nseindia.com/content/equities/EQUIT
 const BSE_LIST_URL =
   'https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w' +
   '?Group=&Scripcode=&industry=&segment=Equity&status=Active';
-const SPARK_BATCH_SIZE = 20; // Yahoo 400s above this
+/**
+ * Symbols per quote request, and how many at once.
+ *
+ * This used to be Yahoo's `spark` endpoint at 20 a request. spark is a *chart*
+ * endpoint: it answers out of intraday bars, which has two consequences that
+ * both showed up in the seeded table.
+ *
+ *   · A scrip that printed no 5-minute bar gets **no price at all** — 508 of
+ *     5,229 rows.
+ *   · A scrip whose last bar traded at 14:55 gets *that* bar, so the stored
+ *     price is a mid-session quote rather than the session's official close,
+ *     and `price_time` reads 14:55 on a day that closed at 15:30.
+ *
+ * `/v7/finance/quote` carries `regularMarketPrice`, `regularMarketPreviousClose`
+ * and `regularMarketTime` — the official figures, not the last bar that
+ * happened to trade — plus `marketCap`, and takes 200 symbols a request. The
+ * whole universe is 27 requests and about three seconds.
+ *
+ * Kept in step with supabase/functions/_shared/yahoo.ts, which does the same
+ * thing for the scheduled sync. The two must not drift: whichever ran last is
+ * what the table holds.
+ */
+const QUOTE_BATCH_SIZE = 200;
 const CONCURRENCY = 6; // Yahoo refuses connections past ~8
+
+/** Yahoo answers in rupees; the app is written in Rs crore throughout. */
+const CRORE = 1e7;
 
 const NSE_HEADERS = {
   'User-Agent': BROWSER_UA,
@@ -132,6 +157,86 @@ async function fetchWithTimeout(url, init = {}, ms = 30_000) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Yahoo's batch quote credential.
+//
+// `/v8/finance/spark` and `/v8/finance/chart` are open — a User-Agent is enough.
+// `/v7/finance/quote` is not: unauthenticated it answers **401 Invalid Crumb**.
+// The cookie/crumb pair is obtained the way Yahoo's own site does, and is the
+// price of the endpoint that carries official closes and market cap.
+//
+// Mirrors worker/yahooQuote.ts and supabase/functions/_shared/yahoo.ts.
+// ---------------------------------------------------------------------------
+
+let credential = null;
+
+async function acquireCredential() {
+  // 404s, and is supposed to: the Set-Cookie header is the point, not the body.
+  const seed = await fetchWithTimeout('https://fc.yahoo.com', {
+    headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html' },
+    redirect: 'follow',
+  });
+
+  const raw = seed.headers.getSetCookie?.() ?? [seed.headers.get('set-cookie') ?? ''];
+  // Only `name=value` matters to the server that set it; Path/Expires are
+  // instructions to a browser we are not.
+  const cookie = raw
+    .filter(Boolean)
+    .map((line) => line.split(';', 1)[0].trim())
+    .filter(Boolean)
+    .join('; ');
+  if (!cookie) throw new Error('Yahoo set no cookie');
+
+  const res = await fetchWithTimeout('https://query1.finance.yahoo.com/v1/test/getcrumb', {
+    headers: { 'User-Agent': BROWSER_UA, Accept: 'text/plain', Cookie: cookie },
+  });
+  const crumb = (await res.text()).trim();
+
+  // A refused attempt answers with an HTML page rather than a token, which would
+  // otherwise be sent along as a crumb and 401 forever.
+  if (!crumb || crumb.length > 32 || crumb.includes('<')) {
+    throw new Error(`Yahoo returned no crumb (${res.status})`);
+  }
+  return { cookie, crumb };
+}
+
+async function credentials(fresh = false) {
+  if (fresh || !credential) {
+    // Never remember a failure: the next caller should retry rather than
+    // inherit a rejected promise for the rest of the run.
+    credential = acquireCredential().catch((err) => {
+      credential = null;
+      throw err;
+    });
+  }
+  return credential;
+}
+
+/** One batch of up to QUOTE_BATCH_SIZE tickers, retried once on a stale crumb. */
+async function fetchQuoteBatch(tickers) {
+  const query = encodeURIComponent(tickers.join(','));
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const auth = await credentials(attempt > 0);
+    const res = await fetchWithTimeout(
+      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${query}` +
+        `&crumb=${encodeURIComponent(auth.crumb)}`,
+      { headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json', Cookie: auth.cookie } },
+      20_000,
+    );
+
+    // The two ways a stale pair shows up. A crumb does expire, and the
+    // alternative is a dead endpoint for the rest of the run.
+    if ((res.status === 401 || res.status === 403) && attempt === 0) continue;
+    if (!res.ok) throw new Error(`Yahoo quote returned ${res.status}`);
+
+    const payload = await res.json();
+    return payload.quoteResponse?.result ?? [];
+  }
+
+  throw new Error('Yahoo refused the crumb twice');
+}
+
 const restHeaders = {
   apikey: SECRET_KEY,
   Authorization: `Bearer ${SECRET_KEY}`,
@@ -145,7 +250,10 @@ const restHeaders = {
  * seed we drop the column, warn once, and retry — so an older database still
  * gets its prices, just without the finer timestamp.
  */
-const OPTIONAL_COLUMNS = { price_time: '0003_price_time.sql' };
+const OPTIONAL_COLUMNS = {
+  price_time: '0003_price_time.sql',
+  market_cap_cr: '0008_metrics.sql',
+};
 const warnedColumns = new Set();
 
 /**
@@ -430,7 +538,7 @@ async function syncQuotes() {
   }));
   if (targets.length === 0) throw new Error('securities is empty — run `securities` first');
 
-  const batches = chunk(targets, SPARK_BATCH_SIZE);
+  const batches = chunk(targets, QUOTE_BATCH_SIZE);
   console.log(`quotes: ${targets.length} symbols → ${batches.length} batches (concurrency ${CONCURRENCY})`);
 
   const now = new Date().toISOString();
@@ -438,44 +546,47 @@ async function syncQuotes() {
   let done = 0;
 
   const results = await mapPool(batches, CONCURRENCY, async (batch) => {
-    const query = batch.map((t) => t.ticker).join(',');
-    // interval=5m, not 1d: a daily bar is stamped with the session OPEN (09:15
-    // IST), which would date an current price to hours ago. Same price, usable
-    // timestamp.
-    const url = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(query)}&range=1d&interval=5m`;
     try {
-      const res = await fetchWithTimeout(url, { headers: { 'User-Agent': BROWSER_UA } }, 20_000);
-      if (!res.ok) { failed++; return []; }
-      const payload = await res.json();
-      // Yahoo silently drops unknown tickers, so map over the request batch.
-      // Rows are keyed back to `symbol`, the securities primary key.
+      const quotes = await fetchQuoteBatch(batch.map((t) => t.ticker));
+
+      // Yahoo keys its answer by ticker and drops what it does not carry, so
+      // index the response and walk the *request*. Rows are keyed back to
+      // `symbol`, the securities primary key — the ticker is only ever the
+      // vendor's name for the row.
+      const byTicker = new Map();
+      for (const q of quotes) if (q.symbol) byTicker.set(q.symbol, q);
+
       return batch.map(({ symbol, ticker }) => {
-        const e = payload[ticker];
-        const closeArr = e?.close ?? [];
-        const stamps = e?.timestamp ?? [];
+        const q = byTicker.get(ticker);
+        const num = (v) => (typeof v === 'number' ? v : null);
+        // `regularMarketTime` is the vendor's stamp on the price itself. Unlike
+        // the old spark path this is the *official* last trade, so a session
+        // that closed at 15:30 reads 15:30 rather than whichever 5-minute bar
+        // happened to be the last one with a trade in it.
+        //
+        // `> 0` rather than a null check: Yahoo returns a literal **0** for a
+        // handful of dormant scrips, and epoch 0 is a valid number — it stored
+        // as `1970-01-01`, which reads as a real timestamp everywhere
+        // downstream rather than as the "unknown" it actually means.
+        const stamp = num(q?.regularMarketTime);
+        const cap = num(q?.marketCap);
 
-        // Walk back to the last bar that actually traded and read the price and
-        // its timestamp from the SAME index. Reading the last close but the last
-        // timestamp independently would date a stale price to now whenever the
-        // final bars are null (thin trading, halts).
-        let i = closeArr.length - 1;
-        while (i >= 0 && typeof closeArr[i] !== 'number') i--;
-
-        const stamp = i >= 0 && typeof stamps[i] === 'number' ? stamps[i] : null;
         return {
           symbol,
-          price: i >= 0 ? closeArr[i] : null,
-          previous_close: e?.chartPreviousClose ?? e?.previousClose ?? null,
-          price_time: stamp ? new Date(stamp * 1000).toISOString() : null,
+          price: num(q?.regularMarketPrice),
+          previous_close: num(q?.regularMarketPreviousClose),
+          market_cap_cr: cap === null ? null : cap / CRORE,
+          price_time: stamp !== null && stamp > 0 ? new Date(stamp * 1000).toISOString() : null,
           updated_at: now,
         };
       }).filter((r) => r.price !== null || r.previous_close !== null);
-    } catch {
+    } catch (err) {
       failed++;
+      console.warn(`\n  ! quote batch of ${batch.length} failed: ${err.message}`);
       return [];
     } finally {
       done++;
-      if (done % 20 === 0) process.stdout.write(`  …${done}/${batches.length} batches\r`);
+      process.stdout.write(`  …${done}/${batches.length} batches\r`);
     }
   });
 

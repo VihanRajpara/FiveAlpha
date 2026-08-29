@@ -1,47 +1,58 @@
 import type { DataSource, Quote, Security } from '../types';
 import { chunk, mapPool } from './format';
 import { fetchBseScrips, fetchNseSecurities, mergeListings } from './listings';
-import { SPARK_BATCH_SIZE, fetchYahooCandles } from './yahooCandles';
-
-const SPARK_CONCURRENCY = 6;
+import { fetchYahooCandles } from './yahooCandles';
 
 /**
- * 5-minute bars, not daily. A daily bar carries the *session open* as its
- * timestamp (09:15 IST), so at 3pm it would date a five-minute-old price to six
- * hours ago and permanently trip the staleness warning. 5m bars are stamped
- * within five minutes of the actual print. The price itself is identical either
- * way — this only buys timestamp resolution.
+ * Symbols per request, and how many requests at once.
+ *
+ * This used to be Yahoo's `spark` endpoint at 20 tickers a request — 262 calls
+ * to price the 5,229-row universe. `/v7/finance/quote` takes 200 at a time, so
+ * the same pass is 27 calls, and four in flight is already 800 symbols being
+ * priced at once. See worker/yahooQuote.ts for the credential this costs.
+ *
+ * The batch size is Yahoo's practical ceiling — the URL is what runs out first —
+ * and `QUOTE_BATCH_SIZE` in worker/yahooQuote.ts rejects anything above it, so
+ * the two drifting apart is a 400 rather than a silent truncation.
  */
-const SPARK_INTERVAL = '5m';
+const QUOTE_BATCH_SIZE = 200;
+const QUOTE_CONCURRENCY = 4;
 
-interface SparkEntry {
+/** Yahoo answers in rupees; the app is written in Rs crore throughout. */
+const CRORE = 1e7;
+
+interface QuoteEntry {
   symbol?: string;
-  close?: (number | null)[] | null;
-  chartPreviousClose?: number | null;
-  previousClose?: number | null;
-  timestamp?: number[] | null;
+  regularMarketPrice?: number | null;
+  regularMarketPreviousClose?: number | null;
+  /** Epoch seconds of the last trade — the vendor's own print time. */
+  regularMarketTime?: number | null;
+  marketCap?: number | null;
 }
 
-function buildQuote(symbol: string, entry: SparkEntry | null | undefined): Quote {
-  const closeArr = entry?.close ?? [];
-  const stamps = entry?.timestamp ?? [];
+interface QuoteResponse {
+  quoteResponse?: { result?: QuoteEntry[] };
+}
 
-  // Walk back to the last bar that actually traded, and take BOTH the price and
-  // its timestamp from that same index. Taking the last close but the last
-  // timestamp independently would report a stale price as fresh whenever the
-  // final bars are null (thin trading, halts).
-  let i = closeArr.length - 1;
-  while (i >= 0 && typeof closeArr[i] !== 'number') i--;
-
-  const price = i >= 0 ? (closeArr[i] as number) : null;
-  const stamp = i >= 0 && typeof stamps[i] === 'number' ? stamps[i] : null;
-
-  const previousClose = entry?.chartPreviousClose ?? entry?.previousClose ?? null;
+function buildQuote(symbol: string, entry: QuoteEntry | undefined): Quote {
+  const price = typeof entry?.regularMarketPrice === 'number' ? entry.regularMarketPrice : null;
+  const previousClose =
+    typeof entry?.regularMarketPreviousClose === 'number'
+      ? entry.regularMarketPreviousClose
+      : null;
 
   const change = price !== null && previousClose !== null ? price - previousClose : null;
   const changePercent =
     change !== null && previousClose !== null && previousClose !== 0
       ? (change / previousClose) * 100
+      : null;
+
+  // `> 0`, not just "is a number": Yahoo returns a literal 0 for a handful of
+  // dormant scrips, and epoch 0 renders as 1 January 1970 — a real-looking
+  // timestamp standing in for "the vendor doesn't know".
+  const stamp =
+    typeof entry?.regularMarketTime === 'number' && entry.regularMarketTime > 0
+      ? entry.regularMarketTime
       : null;
 
   return {
@@ -51,6 +62,12 @@ function buildQuote(symbol: string, entry: SparkEntry | null | undefined): Quote
     change,
     changePercent,
     updatedAt: stamp !== null ? new Date(stamp * 1000).toISOString() : null,
+    marketCapCr: typeof entry?.marketCap === 'number' ? entry.marketCap / CRORE : null,
+    // Direct mode has no database behind it, so these stay unknown until a
+    // screen run computes them. Supabase mode reads them precomputed.
+    monthlyRsi14: null,
+    rocePct: null,
+    fundamentalsUrl: null,
   };
 }
 
@@ -80,32 +97,47 @@ export const directSource: DataSource = {
     return mergeListings(nseResult.value, bseResult.value);
   },
 
+  /**
+   * Prices for the whole universe through the batch quote proxy.
+   *
+   * Moved off `spark` for two reasons, and the second is the one that shows in
+   * the table. spark is a *chart* endpoint: it answers out of intraday bars, so
+   * a thinly traded scrip that printed no 5-minute bar came back with no price
+   * at all — 508 of 5,229 rows on 2026-08-29, mostly BSE-only. `/v7` carries the
+   * last trade whether or not a bar exists: measured over the whole universe the
+   * same day it priced 5,088 rows, recovering 367 of those 508. The other reason
+   * is simply that it takes ten times as many tickers per request — 27 of them
+   * cover the market, in 2.8 seconds.
+   */
   async fetchQuotes(targets, onBatch): Promise<Quote[]> {
-    const batches = chunk(targets, SPARK_BATCH_SIZE);
+    const batches = chunk(targets, QUOTE_BATCH_SIZE);
 
-    const results = await mapPool(batches, SPARK_CONCURRENCY, async (batch) => {
+    const results = await mapPool(batches, QUOTE_CONCURRENCY, async (batch) => {
       const query = batch.map((t) => t.ticker).join(',');
-      const url = `/api/yahoo/v8/finance/spark?symbols=${encodeURIComponent(query)}&range=1d&interval=${SPARK_INTERVAL}`;
 
       try {
-        const res = await fetch(url);
+        const res = await fetch(`/api/yquote?symbols=${encodeURIComponent(query)}`);
         if (!res.ok) return [];
 
-        const payload = (await res.json()) as Record<string, SparkEntry | null>;
+        const payload = (await res.json()) as QuoteResponse;
 
-        // Yahoo keys the response by ticker and silently drops unknown symbols,
-        // so map over the request batch rather than over the response. Quotes
-        // are keyed back to `symbol`, which is what the table joins on.
-        const quotes = batch.map((t) => buildQuote(t.symbol, payload[t.ticker]));
+        // Yahoo keys its answer by ticker and drops what it does not carry, so
+        // index the response and walk the *request*. Quotes are keyed back to
+        // `symbol`, which is what the table joins on — the ticker is only ever
+        // the vendor's name for the row.
+        const byTicker = new Map<string, QuoteEntry>();
+        for (const entry of payload.quoteResponse?.result ?? []) {
+          if (entry.symbol) byTicker.set(entry.symbol, entry);
+        }
 
-        // Publish here, inside the worker, so rows and the progress bar fill in
-        // as each batch lands. Calling onBatch after `await mapPool` instead
-        // would hold every update back until all ~260 requests had finished —
-        // a minute or more of an apparently frozen table in the browser.
+        const quotes = batch.map((t) => buildQuote(t.symbol, byTicker.get(t.ticker)));
+
+        // Published here, inside the worker, so rows and the progress bar fill
+        // in as each batch lands rather than all at once at the end.
         if (quotes.length > 0) onBatch?.(quotes);
         return quotes;
       } catch {
-        // A failed chunk shouldn't sink the other ~259 — those rows stay blank.
+        // A failed chunk shouldn't sink the others — those rows stay blank.
         return [];
       }
     });

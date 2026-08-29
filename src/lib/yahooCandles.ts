@@ -37,6 +37,44 @@ interface ChartResponse {
 }
 
 /**
+ * One GET, retried once if the connection itself fails.
+ *
+ * Both bar fetchers below go through this, and so therefore does everything
+ * that reads bars — the chart drawer, `useSignal`, and the screen's scan and
+ * confirm passes. It is the one place all of them meet, which is why the retry
+ * lives here rather than in any of them.
+ *
+ * What it is for: a transient `socket hang up` from the dev proxy. Yahoo itself
+ * is not the problem — measured 2026-08-29, 562 requests through the Vite proxy
+ * at the app's own concurrency came back with no connection failures at all,
+ * and 24-way direct requests likewise. These arrive in ones and twos, minutes
+ * apart, which is the signature of a dropped connection rather than of load.
+ * Left alone each one costs real data: a failed scan batch falls back to twenty
+ * individual requests, and a failed signal leaves that row blank until it is
+ * scrolled out of view and back.
+ *
+ * **Only a thrown fetch is retried**, which is the narrow case where a retry is
+ * both safe and useful:
+ *   · An HTTP status is an *answer*. A 404 means Yahoo does not carry the
+ *     symbol — asking twice gets the same 404 and doubles the cost of every
+ *     dead ticker, of which the BSE list has hundreds.
+ *   · An abort must propagate untouched. Retrying one would keep a request
+ *     alive after the run that owns it has been cancelled.
+ */
+async function fetchYahoo(url: string, signal?: AbortSignal): Promise<Response> {
+  try {
+    return await fetch(url, { signal });
+  } catch (err) {
+    if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) throw err;
+    // One short pause, then one more try. A longer backoff would be worse than
+    // useless here: the screen's stages are already racing each other, and a
+    // stalled row holds a slot in the pool that a fresh one could use.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return await fetch(url, { signal });
+  }
+}
+
+/**
  * Yahoo's bar timestamps are the *start* of the period in exchange-local time,
  * so an NSE bar opening 1 September lands on epoch `2016-08-31T18:30:00Z`.
  * Slicing that in UTC dates every Indian bar a day early and, at monthly
@@ -71,7 +109,7 @@ export async function fetchYahooBars(
     ticker,
   )}?range=${range}&interval=${interval}`;
 
-  const res = await fetch(url, { signal });
+  const res = await fetchYahoo(url, signal);
   if (!res.ok) throw new Error(`Yahoo returned ${res.status} for ${ticker}`);
 
   const payload = (await res.json()) as ChartResponse;
@@ -144,7 +182,7 @@ export async function fetchYahooSparkBars(
   const symbols = encodeURIComponent(tickers.join(','));
   const url = `/api/yahoo/v8/finance/spark?symbols=${symbols}&range=${range}&interval=${interval}`;
 
-  const res = await fetch(url, { signal });
+  const res = await fetchYahoo(url, signal);
   if (res.status === 404) return out;
   if (!res.ok) throw new Error(`Yahoo returned ${res.status} for a batch of ${tickers.length}`);
 
