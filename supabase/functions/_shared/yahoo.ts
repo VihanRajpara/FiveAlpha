@@ -1,126 +1,13 @@
-// Yahoo access that needs more than a User-Agent, plus the technicals computed
-// from it. Split out from upstream.ts, which is the exchange-listings module.
+// Yahoo's spark endpoint and the monthly RSI computed from it.
+//
+// This is all that remains of the Yahoo integration. Prices, market cap and
+// ROCE now come from Upstox; what keeps this file alive is one thing Upstox
+// cannot do: **there is no batch endpoint for historical candles.** Ten years
+// of monthly closes for the whole universe is 20 tickers a request here against
+// one instrument a request there — 292 calls versus 5,831 — so sync-technicals
+// stays on spark. See plan.md section 6.
 
 import { BROWSER_UA, fetchWithTimeout } from './upstream.ts';
-
-// ---------------------------------------------------------------------------
-// /v7/finance/quote — the batch quote endpoint.
-//
-// This replaces `spark` as the price source, and it is the single change that
-// answers both "the refresh is slow" and "some stocks never show a price":
-//
-// Both measured over the live 5,229-row universe, 2026-08-29, at four requests
-// in flight:
-//
-//   · **Batch size.** 200 symbols per request against spark's 20 — 27 requests
-//     instead of 262, and the whole universe answered in **2.8 seconds**.
-//   · **Coverage.** spark is a *chart* endpoint: it answers out of intraday
-//     bars, so a thinly traded BSE scrip that printed no 5-minute bar comes back
-//     empty. `/v7/finance/quote` carries the last trade regardless. It priced
-//     **5,088** of the 5,229 rows against the spark-filled table's 4,721 — 367
-//     companies that had no price at all, almost all of them BSE-only.
-//   · **Market cap** arrives in the same response, so the screen's separate
-//     cap pass costs nothing to keep fed.
-//
-// The price of all that is a credential: an unauthenticated call answers 401
-// Invalid Crumb. The cookie/crumb dance below mirrors worker/yahooQuote.ts,
-// which does the same for the browser. It is unofficial, so callers treat a
-// failure as "no figures this pass" rather than as a fatal error.
-// ---------------------------------------------------------------------------
-
-/** Yahoo accepts more, but URL length is the real constraint past this. */
-export const QUOTE_BATCH_SIZE = 200;
-
-interface Credential {
-  cookie: string;
-  crumb: string;
-}
-
-/** Held for the life of the isolate; a crumb outlives one invocation easily. */
-let credential: Promise<Credential> | null = null;
-
-function cookiesFrom(response: Response): string {
-  const headers = response.headers as Headers & { getSetCookie?: () => string[] };
-  const raw = headers.getSetCookie?.() ?? [response.headers.get('set-cookie') ?? ''];
-  // Only `name=value` matters to the server that set it; Path/Expires and the
-  // rest are instructions to a browser we are not.
-  return raw
-    .filter(Boolean)
-    .map((line) => line.split(';', 1)[0].trim())
-    .filter(Boolean)
-    .join('; ');
-}
-
-async function acquire(): Promise<Credential> {
-  // 404s, and is supposed to: the Set-Cookie header is the point, not the body.
-  const seed = await fetchWithTimeout('https://fc.yahoo.com', {
-    headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html' },
-    redirect: 'follow',
-  });
-  const cookie = cookiesFrom(seed);
-  if (!cookie) throw new Error('Yahoo set no cookie');
-
-  const res = await fetchWithTimeout('https://query1.finance.yahoo.com/v1/test/getcrumb', {
-    headers: { 'User-Agent': BROWSER_UA, Accept: 'text/plain', Cookie: cookie },
-  });
-  const crumb = (await res.text()).trim();
-
-  // A refused attempt answers with an HTML page rather than a token, which would
-  // otherwise be passed along as a crumb and 401 forever.
-  if (!crumb || crumb.length > 32 || crumb.includes('<')) {
-    throw new Error(`Yahoo returned no crumb (${res.status})`);
-  }
-  return { cookie, crumb };
-}
-
-function credentials(fresh = false): Promise<Credential> {
-  if (fresh || !credential) {
-    credential = acquire().catch((err) => {
-      // Never remember a failure: the next caller should retry rather than
-      // inherit a rejected promise for the life of the isolate.
-      credential = null;
-      throw err;
-    });
-  }
-  return credential;
-}
-
-export interface YahooQuote {
-  symbol?: string;
-  regularMarketPrice?: number | null;
-  regularMarketPreviousClose?: number | null;
-  /** Epoch seconds of the last trade. */
-  regularMarketTime?: number | null;
-  marketCap?: number | null;
-}
-
-/**
- * One batch of up to `QUOTE_BATCH_SIZE` tickers.
- *
- * Retried once with a fresh credential on 401/403: a crumb does expire, and the
- * alternative is a dead endpoint for the rest of the invocation.
- */
-export async function fetchYahooQuoteBatch(tickers: string[]): Promise<YahooQuote[]> {
-  if (tickers.length === 0) return [];
-  const query = encodeURIComponent(tickers.join(','));
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const auth = await credentials(attempt > 0);
-    const res = await fetchWithTimeout(
-      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${query}` +
-        `&crumb=${encodeURIComponent(auth.crumb)}`,
-      { headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json', Cookie: auth.cookie } },
-    );
-
-    if ((res.status === 401 || res.status === 403) && attempt === 0) continue;
-    if (!res.ok) throw new Error(`Yahoo quote returned ${res.status}`);
-
-    const payload = (await res.json()) as { quoteResponse?: { result?: YahooQuote[] } };
-    return payload.quoteResponse?.result ?? [];
-  }
-
-  throw new Error('Yahoo refused the crumb twice');
-}
 
 // ---------------------------------------------------------------------------
 // Monthly closes and Wilder RSI.

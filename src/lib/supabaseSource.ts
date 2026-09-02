@@ -52,11 +52,10 @@ interface Row {
   /** Null before migration 0003. */
   price_time?: string | null;
   updated_at: string | null;
-  /** All four null before migration 0008. */
+  /** All three null before migration 0008. */
   market_cap_cr?: number | null;
   monthly_rsi14?: number | null;
   roce_pct?: number | null;
-  fundamentals_url?: string | null;
 }
 
 function toSecurity(r: Row): Security {
@@ -94,7 +93,11 @@ function toQuote(r: Row): Quote {
     marketCapCr: r.market_cap_cr ?? null,
     monthlyRsi14: r.monthly_rsi14 ?? null,
     rocePct: r.roce_pct ?? null,
-    fundamentalsUrl: r.fundamentals_url ?? null,
+    // Not stored. The server-side screener.in scrape is gone (migration 0010
+    // dropped its column, which had been null on every row since), so the
+    // drawer's link comes from the live client scrape in lib/fundamentals.ts
+    // or not at all — same as direct mode.
+    fundamentalsUrl: null,
   };
 }
 

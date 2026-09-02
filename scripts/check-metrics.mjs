@@ -142,38 +142,55 @@ assert.deepEqual(
 );
 
 // ---------------------------------------------------------------------------
-// 3. An empty ratio is unknown, not zero.
+// 3. An empty figure is unknown, not zero.
+//
+// This used to guard screener.in's ratio strip, which served a 200 with every
+// value blank for companies filing no consolidated statements. That scrape is
+// gone — ROCE now comes from Upstox as JSON — but the trap it guarded is not
+// about HTML at all: `Number('')` is **0**, and on a `> 10` leg a zero is a
+// definite *fail* where the truth is that nothing is known. So the assertion
+// follows the logic to its new home rather than being deleted with the old one.
 // ---------------------------------------------------------------------------
 
-// Lifted from the Deno function for the same reason as the RSI above.
-const parseTopRatios = await liftFunction(
-  'supabase/functions/sync-fundamentals/index.ts',
-  'function parseTopRatios(',
-  'parseTopRatios',
+const parsePercent = await liftFunction(
+  'supabase/functions/_shared/upstox.ts',
+  'function parsePercent(',
+  'parsePercent',
 );
 
-const withFigures = `
-  <ul id="top-ratios">
-    <li><span class="name">Market Cap</span><span class="value">₹ <span class="number">1,800,557</span> Cr.</span></li>
-    <li><span class="name">ROCE</span><span class="value"><span class="number">10.3</span> %</span></li>
-  </ul>`;
+assert.equal(parsePercent('10.39%'), 10.39, 'a percentage string parses');
+assert.equal(parsePercent('10.3'), 10.3, 'with or without the sign');
+assert.equal(parsePercent('-4.２'.replace('２', '2')), -4.2, 'negatives survive');
 
-const ratios = parseTopRatios(withFigures);
-assert.equal(ratios.get('ROCE')[0], 10.3, 'ROCE parses');
-assert.equal(ratios.get('Market Cap')[0], 1800557, 'and the comma-grouped market cap');
+// The four shapes that must never read as a number.
+assert.equal(parsePercent(''), null, 'an empty string is unknown, not zero');
+assert.equal(parsePercent('%'), null, 'and so is a bare unit');
+assert.equal(parsePercent(null), null, 'and an absent field');
+assert.equal(parsePercent(undefined), null, 'and a missing one');
 
-// The shape screener.in serves for a company with no consolidated statements:
-// a 200, the strip fully rendered, every value empty. Read as zero this is a
-// definite ROCE *fail*; read as absent it is correctly unknown.
-const blank = `
-  <ul id="top-ratios">
-    <li><span class="name">Market Cap</span><span class="value">₹ <span class="number"></span> Cr.</span></li>
-    <li><span class="name">ROCE</span><span class="value"><span class="number"></span> %</span></li>
-  </ul>`;
+for (const blank of ['', '%', null, undefined]) {
+  assert.notEqual(parsePercent(blank), 0, `${JSON.stringify(blank)} must never read as zero`);
+}
 
-const empty = parseTopRatios(blank);
-assert.deepEqual(empty.get('ROCE'), [], 'an empty ratio yields no number at all');
-assert.notEqual(empty.get('ROCE')?.[0], 0, 'and must never read as zero');
+// The same lesson one endpoint over, and it cost a real bug before it was
+// caught: Upstox answers a market cap of **0** for every BSE debt scrip in the
+// table — 08ABB, 08ADD and ~150 others that were never equities. Written as a
+// figure, that is a company worth nothing, which passes a `>= 0` cap band and
+// sorts to the top of a smallest-first list.
+const toMarketCapCr = await liftFunction(
+  'supabase/functions/_shared/upstox.ts',
+  'function toMarketCapCr(',
+  'toMarketCapCr',
+);
+
+assert.equal(toMarketCapCr({ value: 848079.71, unit: 'crore' }), 848079.71, 'a real cap passes');
+assert.equal(toMarketCapCr({ value: 0, unit: 'crore' }), null, 'zero is unknown, not worthless');
+assert.equal(toMarketCapCr({ value: -5, unit: 'crore' }), null, 'and so is a negative');
+assert.equal(toMarketCapCr(null), null, 'an absent cell yields nothing');
+assert.equal(toMarketCapCr({}), null, 'and so does an empty one');
+// The unit is stated in the payload; trusting it blindly would be a 1e7 error.
+assert.equal(toMarketCapCr({ value: 8.4e12, unit: 'inr' }), null, 'a unit switch is refused');
+assert.equal(toMarketCapCr({ value: 100 }), 100, 'an unstated unit defaults to crore');
 
 // ---------------------------------------------------------------------------
 // 4. A dropped connection is retried; an answer and an abort are not.
@@ -304,3 +321,82 @@ assert.equal(
 );
 
 console.log('check-metrics: all assertions passed');
+
+// ---------------------------------------------------------------------------
+// The Upstox instrument key.
+//
+// `npm run typecheck` excludes supabase/, so nothing else in this repo compiles
+// the Edge Functions at all — which makes this the only place a mistake in them
+// is caught before a deploy. Two things are worth pinning:
+//
+//   1. The derivation itself. `instrument_key` is `SEGMENT|ISIN`, verified
+//      against all 9,700 rows of the published NSE master, and that invariant
+//      is the only reason sync-quotes can skip both a new column and a 35 MB
+//      instrument dump per invocation. If Upstox ever changes the format this
+//      assertion is what says so.
+//   2. That a malformed ISIN yields null rather than a key. `securities.isin`
+//      defaults to the empty string and BSE ships placeholder rows whose ISIN
+//      is the literal "NA" — a key built from either would be a live request
+//      for an instrument that cannot exist, on every row, on every pass.
+// ---------------------------------------------------------------------------
+
+const toInstrumentKey = await liftFunction(
+  'supabase/functions/_shared/upstox.ts',
+  'export function toInstrumentKey(',
+  'toInstrumentKey',
+);
+
+assert.equal(
+  toInstrumentKey('INE002A01018', ['NSE']),
+  'NSE_EQ|INE002A01018',
+  'an NSE row keys off NSE_EQ',
+);
+assert.equal(
+  toInstrumentKey('INE639B01023', ['BSE']),
+  'BSE_EQ|INE639B01023',
+  'a BSE-only row keys off BSE_EQ',
+);
+// mergeListings keeps everything NSE for a dual-listed company because it is
+// the more liquid book, and the instrument key has to agree with that choice.
+assert.equal(
+  toInstrumentKey('INE002A01018', ['NSE', 'BSE']),
+  'NSE_EQ|INE002A01018',
+  'a dual-listed company prices off NSE',
+);
+
+assert.equal(toInstrumentKey('', ['NSE']), null, 'the empty default ISIN yields no key');
+assert.equal(toInstrumentKey('NA', ['BSE']), null, "BSE's \"NA\" placeholder yields no key");
+assert.equal(toInstrumentKey('INE002A0101', ['NSE']), null, '11 characters is not an ISIN');
+assert.equal(toInstrumentKey('INE002A010188', ['NSE']), null, 'nor is 13');
+assert.equal(
+  toInstrumentKey('  INE002A01018  ', ['NSE']),
+  'NSE_EQ|INE002A01018',
+  'surrounding whitespace is trimmed rather than making the key unusable',
+);
+assert.equal(toInstrumentKey('INE002A01018', null), 'BSE_EQ|INE002A01018', 'no exchanges means not NSE');
+
+// ---------------------------------------------------------------------------
+// The Edge Functions at least parse.
+//
+// Same reason as above: tsc never sees supabase/, so a syntax error in a sync
+// function currently surfaces as a failed deploy rather than as a failed check.
+// This does not type-check them — the esm.sh imports make that impossible here
+// — but it does catch the class of mistake that costs a round trip.
+// ---------------------------------------------------------------------------
+
+for (const path of [
+  'supabase/functions/_shared/upstox.ts',
+  'supabase/functions/_shared/upstream.ts',
+  'supabase/functions/_shared/yahoo.ts',
+  'supabase/functions/sync-quotes/index.ts',
+  'supabase/functions/sync-securities/index.ts',
+  'supabase/functions/sync-fundamentals/index.ts',
+  'supabase/functions/sync-technicals/index.ts',
+]) {
+  const source = readFileSync(path, 'utf8');
+  await transform(source, { loader: 'ts', format: 'esm' }).catch((err) => {
+    assert.fail(`${path} does not parse: ${err.message}`);
+  });
+}
+
+console.log('check-metrics: Upstox instrument key + Edge Function parse checks passed');
