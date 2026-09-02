@@ -42,32 +42,13 @@ const BSE_LIST_URL =
   'https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w' +
   '?Group=&Scripcode=&industry=&segment=Equity&status=Active';
 /**
- * Symbols per quote request, and how many at once.
+ * Batches in flight.
  *
- * This used to be Yahoo's `spark` endpoint at 20 a request. spark is a *chart*
- * endpoint: it answers out of intraday bars, which has two consequences that
- * both showed up in the seeded table.
- *
- *   · A scrip that printed no 5-minute bar gets **no price at all** — 508 of
- *     5,229 rows.
- *   · A scrip whose last bar traded at 14:55 gets *that* bar, so the stored
- *     price is a mid-session quote rather than the session's official close,
- *     and `price_time` reads 14:55 on a day that closed at 15:30.
- *
- * `/v7/finance/quote` carries `regularMarketPrice`, `regularMarketPreviousClose`
- * and `regularMarketTime` — the official figures, not the last bar that
- * happened to trade — plus `marketCap`, and takes 200 symbols a request. The
- * whole universe is 27 requests and about three seconds.
- *
- * Kept in step with supabase/functions/_shared/yahoo.ts, which does the same
- * thing for the scheduled sync. The two must not drift: whichever ran last is
- * what the table holds.
+ * The Upstox limit is 50 requests a second and the whole universe is twelve
+ * requests, so this stopped being what governs the wall clock — it is here only
+ * to keep a full pass off a single serial chain.
  */
-const QUOTE_BATCH_SIZE = 200;
-const CONCURRENCY = 6; // Yahoo refuses connections past ~8
-
-/** Yahoo answers in rupees; the app is written in Rs crore throughout. */
-const CRORE = 1e7;
+const CONCURRENCY = 6;
 
 const NSE_HEADERS = {
   'User-Agent': BROWSER_UA,
@@ -164,83 +145,77 @@ async function fetchWithTimeout(url, init = {}, ms = 30_000) {
 }
 
 // ---------------------------------------------------------------------------
-// Yahoo's batch quote credential.
+// Upstox market data.
 //
-// `/v8/finance/spark` and `/v8/finance/chart` are open — a User-Agent is enough.
-// `/v7/finance/quote` is not: unauthenticated it answers **401 Invalid Crumb**.
-// The cookie/crumb pair is obtained the way Yahoo's own site does, and is the
-// price of the endpoint that carries official closes and market cap.
+// One credential, read from .env: an Analytics Token, read-only and valid for a
+// year. This replaced a Yahoo cookie/crumb handshake that was duplicated in
+// three places in this repo and 401d without warning, and an NSE bhavcopy
+// walk-back that existed only because Yahoo's Emerge prices froze in July 2024.
 //
-// Mirrors worker/yahooQuote.ts and supabase/functions/_shared/yahoo.ts.
+// Measured 2026-08-31 against the live 5,831-row table: 5,680 rows priced in
+// 1.0s over 12 requests, including 560 of the 565 Emerge rows the bhavcopy used
+// to cover at end-of-day.
 // ---------------------------------------------------------------------------
 
-let credential = null;
+const UPSTOX_TOKEN = (process.env.UPSTOX_ACCESS_TOKEN || '').trim();
 
-async function acquireCredential() {
-  // 404s, and is supposed to: the Set-Cookie header is the point, not the body.
-  const seed = await fetchWithTimeout('https://fc.yahoo.com', {
-    headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html' },
-    redirect: 'follow',
-  });
+/** 500 accepted, 501 answers 400 (UDAPI100042). Measured, not assumed. */
+const QUOTE_BATCH_SIZE = 500;
 
-  const raw = seed.headers.getSetCookie?.() ?? [seed.headers.get('set-cookie') ?? ''];
-  // Only `name=value` matters to the server that set it; Path/Expires are
-  // instructions to a browser we are not.
-  const cookie = raw
-    .filter(Boolean)
-    .map((line) => line.split(';', 1)[0].trim())
-    .filter(Boolean)
-    .join('; ');
-  if (!cookie) throw new Error('Yahoo set no cookie');
-
-  const res = await fetchWithTimeout('https://query1.finance.yahoo.com/v1/test/getcrumb', {
-    headers: { 'User-Agent': BROWSER_UA, Accept: 'text/plain', Cookie: cookie },
-  });
-  const crumb = (await res.text()).trim();
-
-  // A refused attempt answers with an HTML page rather than a token, which would
-  // otherwise be sent along as a crumb and 401 forever.
-  if (!crumb || crumb.length > 32 || crumb.includes('<')) {
-    throw new Error(`Yahoo returned no crumb (${res.status})`);
-  }
-  return { cookie, crumb };
+/**
+ * `NSE_EQ|INE002A01018` — segment, pipe, ISIN.
+ *
+ * Verified against the published NSE master: `instrument_key` equals
+ * `segment + '|' + isin` for 9,700 of 9,700 rows. Mirrors `toInstrumentKey` in
+ * supabase/functions/_shared/upstox.ts, which is what the deployed sync uses.
+ */
+function toInstrumentKey(isin, exchanges) {
+  const trimmed = (isin ?? '').trim();
+  if (!isUsableIsin(trimmed)) return null;
+  return `${(exchanges ?? []).includes('NSE') ? 'NSE_EQ' : 'BSE_EQ'}|${trimmed}`;
 }
 
-async function credentials(fresh = false) {
-  if (fresh || !credential) {
-    // Never remember a failure: the next caller should retry rather than
-    // inherit a rejected promise for the rest of the run.
-    credential = acquireCredential().catch((err) => {
-      credential = null;
-      throw err;
+/**
+ * One batch of at most QUOTE_BATCH_SIZE keys, keyed by instrument key.
+ *
+ * `/market-quote/quotes` rather than the leaner `/v3/market-quote/ltp` for one
+ * field: LTP carries no timestamp, and `quotes.price_time` means "when the
+ * vendor says this printed". Stamping `now` on a closed market is exactly the
+ * staleness the Emerge work existed to remove.
+ */
+async function fetchQuoteBatch(keys) {
+  const out = new Map();
+  if (keys.length === 0) return out;
+
+  const query = encodeURIComponent(keys.join(','));
+  const res = await fetchWithTimeout(
+    `https://api.upstox.com/v2/market-quote/quotes?instrument_key=${query}`,
+    { headers: { Accept: 'application/json', Authorization: `Bearer ${UPSTOX_TOKEN}` } },
+  );
+  if (!res.ok) throw new Error(`Upstox quotes returned ${res.status}`);
+
+  const payload = await res.json();
+
+  // Keyed by `SEGMENT:trading_symbol`, not by the key that was asked for, so
+  // index on `instrument_token` — the only field that echoes the request.
+  for (const entry of Object.values(payload.data ?? {})) {
+    const key = entry?.instrument_token;
+    if (!key) continue;
+
+    const price = typeof entry.last_price === 'number' ? entry.last_price : null;
+    const change = typeof entry.net_change === 'number' ? entry.net_change : null;
+    const stamp = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
+
+    out.set(key, {
+      // A literal 0 is not a price; dormant scrips report one.
+      price: price !== null && price > 0 ? price : null,
+      previousClose:
+        price !== null && change !== null && price - change > 0 ? price - change : null,
+      priceTime: Number.isFinite(stamp) && stamp > 0 ? new Date(stamp).toISOString() : null,
     });
   }
-  return credential;
-}
 
-/** One batch of up to QUOTE_BATCH_SIZE tickers, retried once on a stale crumb. */
-async function fetchQuoteBatch(tickers) {
-  const query = encodeURIComponent(tickers.join(','));
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const auth = await credentials(attempt > 0);
-    const res = await fetchWithTimeout(
-      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${query}` +
-        `&crumb=${encodeURIComponent(auth.crumb)}`,
-      { headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json', Cookie: auth.cookie } },
-      20_000,
-    );
-
-    // The two ways a stale pair shows up. A crumb does expire, and the
-    // alternative is a dead endpoint for the rest of the run.
-    if ((res.status === 401 || res.status === 403) && attempt === 0) continue;
-    if (!res.ok) throw new Error(`Yahoo quote returned ${res.status}`);
-
-    const payload = await res.json();
-    return payload.quoteResponse?.result ?? [];
-  }
-
-  throw new Error('Yahoo refused the crumb twice');
+  return out;
 }
 
 const restHeaders = {
@@ -258,7 +233,6 @@ const restHeaders = {
  */
 const OPTIONAL_COLUMNS = {
   price_time: '0003_price_time.sql',
-  market_cap_cr: '0008_metrics.sql',
 };
 const warnedColumns = new Set();
 
@@ -548,112 +522,34 @@ async function syncSecurities() {
   return rows.length;
 }
 
-// ---------------------------------------------------------------------------
-// NSE's own end-of-day bhavcopy — the Emerge price source.
-//
-// Yahoo stopped updating NSE Emerge in July 2024. Measured 2026-08-29 over 565
-// SME rows: 261 had no price and 303 carried one frozen at 2024-07-24, rendered
-// as if it were today's. EMKAYTOOLS showed Yahoo's Rs 883.95 against an actual
-// close of Rs 94.20. No ticker form fixes it — the numeric `506042.BO` aliases
-// are frozen at 2024-07-23 too.
-//
-// `sec_bhavdata_full` is one ~390 kB CSV of every NSE cash series for a session
-// (EQ, BE, SM, ST, SZ) with the official close and previous close. End-of-day
-// only, which is why the main board stays on Yahoo: that is live intraday, and
-// better for any symbol Yahoo actually covers.
-//
-// Mirrors fetchNseBhavcopy in supabase/functions/_shared/upstream.ts.
-// ---------------------------------------------------------------------------
-
+/** The NSE Emerge settlement series. Upstox quotes these like any other. */
 const SME_SERIES = new Set(['SM', 'ST', 'SZ']);
-const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-
-function bhavcopyUrl(day) {
-  const dd = String(day.getUTCDate()).padStart(2, '0');
-  const mm = String(day.getUTCMonth() + 1).padStart(2, '0');
-  return `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${dd}${mm}${day.getUTCFullYear()}.csv`;
-}
-
-/**
- * Recent closes for `series`, newest session winning, or null.
- *
- * Walks back a day at a time because there is no "latest" endpoint: a weekend,
- * a holiday and a file not yet published all answer 404 alike, so the only way
- * to find a session is to ask for it.
- *
- * More than one session because a bhavcopy lists only what *traded* that day and
- * Emerge is thin. Measured 2026-08-29 over 565 SME rows: one session priced 449,
- * five priced 539, ten priced 549. Five is where the curve flattens. Each quote
- * keeps its own session's timestamp, so a fill from four days back is stored as
- * four days old rather than as today's.
- */
-async function fetchNseBhavcopy(series, sessions = 5, lookbackDays = 12) {
-  // IST rather than UTC: before 05:30 UTC the two disagree about what "today"
-  // is, and asking for tomorrow's file wastes the first attempt every night.
-  const today = new Date(Date.now() + IST_OFFSET_MS);
-
-  const quotes = new Map();
-  let latest = '';
-  let found = 0;
-
-  for (let back = 0; back <= lookbackDays && found < sessions; back++) {
-    const day = new Date(today);
-    day.setUTCDate(day.getUTCDate() - back);
-
-    const res = await fetchWithTimeout(bhavcopyUrl(day), { headers: NSE_HEADERS }, 30_000);
-    if (res.status === 404) continue;
-    if (!res.ok) throw new Error(`NSE bhavcopy responded ${res.status}`);
-
-    let matched = 0;
-    for (const row of parseCsvObjects(await res.text())) {
-      if (!series.has(row['SERIES'] ?? '')) continue;
-
-      const symbol = row['SYMBOL'] ?? '';
-      const price = toNumber(row['CLOSE_PRICE']);
-      // A close of 0 is not a price, and would read as a real quote downstream.
-      if (symbol === '' || price === null || price <= 0) continue;
-
-      const iso = parseNseDate(row['DATE1'] ?? '');
-      if (!iso) continue;
-
-      matched++;
-      if (latest === '') latest = iso;
-      // Sessions walk newest first, so the first answer for a symbol is its most
-      // recent close and every later one is older.
-      if (quotes.has(symbol)) continue;
-
-      quotes.set(symbol, {
-        price,
-        previousClose: toNumber(row['PREV_CLOSE']),
-        priceTime: new Date(`${iso}T15:30:00+05:30`).toISOString(),
-      });
-    }
-
-    // A 200 carrying nothing for these series is a file we cannot use.
-    if (matched > 0) found++;
-  }
-
-  return quotes.size > 0 ? { quotes, date: latest, sessions: found } : null;
-}
 
 async function syncQuotes() {
-  // `*` rather than naming yahoo_ticker: that would 400 outright on a database
-  // without migration 0005, where falling back to SYMBOL.NS is exactly right
-  // because every row there is an NSE listing.
+  if (!UPSTOX_TOKEN) {
+    throw new Error(
+      'UPSTOX_ACCESS_TOKEN is not set in .env — quotes have no other source.\n' +
+        '  Generate one: Upstox -> Apps -> My Apps -> Analytics -> Generate Token.',
+    );
+  }
+
+  // `*` rather than naming columns: that would 400 outright on a database
+  // without migration 0005, and every row on such a database is an NSE listing.
   const securities = await selectAll('securities', '*', '&order=symbol');
+  if (securities.length === 0) throw new Error('securities is empty — run `securities` first');
+
   const targets = securities.map((r) => ({
     symbol: r.symbol,
-    ticker: r.yahoo_ticker || toNseTicker(r.symbol),
+    key: toInstrumentKey(r.isin, r.exchanges),
+    isSme: SME_SERIES.has(r.series),
   }));
-  if (targets.length === 0) throw new Error('securities is empty — run `securities` first');
+  const keyed = targets.filter((t) => t.key !== null);
 
-  // Emerge is priced from the exchange, not Yahoo — see fetchNseBhavcopy.
-  const smeSymbols = new Set(
-    securities.filter((r) => SME_SERIES.has(r.series)).map((r) => r.symbol),
+  const batches = chunk(keyed, QUOTE_BATCH_SIZE);
+  console.log(
+    `quotes: ${keyed.length} instruments → ${batches.length} batches of ${QUOTE_BATCH_SIZE}` +
+      (targets.length - keyed.length > 0 ? ` (${targets.length - keyed.length} have no usable ISIN)` : ''),
   );
-
-  const batches = chunk(targets, QUOTE_BATCH_SIZE);
-  console.log(`quotes: ${targets.length} symbols → ${batches.length} batches (concurrency ${CONCURRENCY})`);
 
   const now = new Date().toISOString();
   let failed = 0;
@@ -661,39 +557,27 @@ async function syncQuotes() {
 
   const results = await mapPool(batches, CONCURRENCY, async (batch) => {
     try {
-      const quotes = await fetchQuoteBatch(batch.map((t) => t.ticker));
+      const quotes = await fetchQuoteBatch(batch.map((t) => t.key));
 
-      // Yahoo keys its answer by ticker and drops what it does not carry, so
-      // index the response and walk the *request*. Rows are keyed back to
-      // `symbol`, the securities primary key — the ticker is only ever the
-      // vendor's name for the row.
-      const byTicker = new Map();
-      for (const q of quotes) if (q.symbol) byTicker.set(q.symbol, q);
-
-      return batch.map(({ symbol, ticker }) => {
-        const q = byTicker.get(ticker);
-        const num = (v) => (typeof v === 'number' ? v : null);
-        // `regularMarketTime` is the vendor's stamp on the price itself. Unlike
-        // the old spark path this is the *official* last trade, so a session
-        // that closed at 15:30 reads 15:30 rather than whichever 5-minute bar
-        // happened to be the last one with a trade in it.
-        //
-        // `> 0` rather than a null check: Yahoo returns a literal **0** for a
-        // handful of dormant scrips, and epoch 0 is a valid number — it stored
-        // as `1970-01-01`, which reads as a real timestamp everywhere
-        // downstream rather than as the "unknown" it actually means.
-        const stamp = num(q?.regularMarketTime);
-        const cap = num(q?.marketCap);
-
-        return {
-          symbol,
-          price: num(q?.regularMarketPrice),
-          previous_close: num(q?.regularMarketPreviousClose),
-          market_cap_cr: cap === null ? null : cap / CRORE,
-          price_time: stamp !== null && stamp > 0 ? new Date(stamp * 1000).toISOString() : null,
-          updated_at: now,
-        };
-      }).filter((r) => r.price !== null || r.previous_close !== null);
+      // Walk the *request*, not the response: an instrument Upstox does not
+      // carry is simply absent from it. Rows are keyed back to `symbol`, the
+      // securities primary key — the instrument key is only the vendor's name
+      // for the row.
+      return batch
+        .map(({ symbol, key }) => {
+          const q = quotes.get(key);
+          if (!q) return null;
+          return {
+            symbol,
+            price: q.price,
+            previous_close: q.previousClose,
+            price_time: q.priceTime,
+            updated_at: now,
+          };
+        })
+        // A row with neither figure is one nothing is known about. Writing it
+        // would overwrite a good older price with a null.
+        .filter((r) => r !== null && (r.price !== null || r.previous_close !== null));
     } catch (err) {
       failed++;
       console.warn(`\n  ! quote batch of ${batch.length} failed: ${err.message}`);
@@ -704,54 +588,26 @@ async function syncQuotes() {
     }
   });
 
-  // Emerge overlays Yahoo rather than merging with it: Yahoo's SME prices are
-  // frozen at 2024-07-24, so its answer for these rows is not stale-but-usable,
-  // it is wrong. `market_cap_cr` goes to null with it — Yahoo derived that from
-  // the same stale price, and the bhavcopy has no share count to replace it.
-  const rows = results.flat().filter((r) => !smeSymbols.has(r.symbol));
-  const bhavcopy = smeSymbols.size > 0 ? await fetchNseBhavcopy(SME_SERIES) : null;
+  const rows = results.flat();
 
-  if (bhavcopy) {
-    let matched = 0;
-    for (const symbol of smeSymbols) {
-      const q = bhavcopy.quotes.get(symbol) ?? null;
-      if (q) matched++;
-      // An explicit null, not a skip: skipping would leave the Yahoo price
-      // already in the table, which for these rows is the 2024 figure this pass
-      // exists to remove. An Emerge row is exchange-sourced or it is blank.
-      rows.push({
-        symbol,
-        price: q?.price ?? null,
-        previous_close: q?.previousClose ?? null,
-        market_cap_cr: null,
-        price_time: q?.priceTime ?? null,
-        updated_at: now,
-      });
-    }
-    console.log(
-      `\nquotes: NSE Emerge from ${bhavcopy.sessions} bhavcopy sessions to ${bhavcopy.date} — ` +
-        `${matched}/${smeSymbols.size} priced, ${smeSymbols.size - matched} blanked (no recent trade)`,
-    );
-  } else if (smeSymbols.size > 0) {
-    console.warn(`\n  ! no NSE bhavcopy in the lookback window — ${smeSymbols.size} Emerge rows keep their stored price`);
+  // Every batch failing is a broken credential, not a market where nothing
+  // traded. Writing that emptiness over a good table would be the worse error.
+  if (batches.length > 0 && failed === batches.length) {
+    throw new Error('every Upstox batch failed — nothing written. Check UPSTOX_ACCESS_TOKEN.');
   }
 
-  for (const part of chunk(rows, 500)) await upsert('quotes', part, 'symbol');
+  // `market_cap_cr` is absent from every row rather than written as null: it is
+  // filled per-ISIN by the sync-fundamentals Edge Function, and a column that
+  // appears in no row is never in the SET list, so whatever is stored survives.
+  await upsert('quotes', rows, 'symbol');
 
-  // Two different numbers, and only the second is what the table shows as LTP.
-  // A row is kept when it has a price *or* a previous close, so "rows written"
-  // overstates coverage: a scrip that did not trade today still yields a
-  // previous close. That is the whole reason the UI has to distinguish "no
-  // price yet" from "no price" — several hundred rows land in the latter.
-  const withPrice = rows.filter((r) => r.price !== null).length;
-  const pct = (n) => `${((n / targets.length) * 100).toFixed(2)}%`;
+  const priced = new Set(rows.map((r) => r.symbol));
+  const sme = targets.filter((t) => t.isSme);
   console.log(
-    `quotes: wrote ${rows.length}/${targets.length} (${pct(rows.length)}) — ` +
-      `with a last traded price ${withPrice} (${pct(withPrice)}), ` +
-      `previous close only ${rows.length - withPrice}; ` +
-      `failed batches ${failed}/${batches.length}`,
+    `\nquotes: ${rows.length}/${targets.length} priced` +
+      `, SME ${sme.filter((t) => priced.has(t.symbol)).length}/${sme.length}` +
+      `, ${failed} failed batches`,
   );
-  return rows.length;
 }
 
 // ---------------------------------------------------------------------------

@@ -62,7 +62,15 @@
       "PowerShell($pids = \\(Get-NetTCPConnection -LocalPort 5176 -State Listen -ErrorAction SilentlyContinue\\).OwningProcess | Select-Object -Unique; foreach \\($p in $pids\\) { \"stopping $p\"; Stop-Process -Id $p -Force })",
       "PowerShell($sp = \"C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Code-Space-NSE\\\\de26a749-1eb7-4dcd-a4f8-14481cb5795c\\\\scratchpad\"; Set-Location \"d:\\\\Code Space\\\\NSE\"; Start-Process -FilePath \"cmd.exe\" -ArgumentList \"/c npm run dev -- --port 5188 --strictPort > `\"$sp\\\\vite2.log`\" 2>&1\" -WindowStyle Hidden; Start-Sleep -Seconds 7; Get-Content \"$sp\\\\vite2.log\" | Select-Object -Last 5; node \"$sp\\\\capprobe.mjs\" 5188)",
       "PowerShell(node \"C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Code-Space-NSE\\\\de26a749-1eb7-4dcd-a4f8-14481cb5795c\\\\scratchpad\\\\pacing.test.mjs\")",
-      "PowerShell($p = \\(Get-NetTCPConnection -LocalPort 5188 -State Listen -ErrorAction SilentlyContinue\\).OwningProcess | Select-Object -Unique; foreach \\($x in $p\\) { Stop-Process -Id $x -Force }; Set-Location \"d:\\\\Code Space\\\\NSE\"; npm run build)"
+      "PowerShell($p = \\(Get-NetTCPConnection -LocalPort 5188 -State Listen -ErrorAction SilentlyContinue\\).OwningProcess | Select-Object -Unique; foreach \\($x in $p\\) { Stop-Process -Id $x -Force }; Set-Location \"d:\\\\Code Space\\\\NSE\"; npm run build)",
+      "mcp__plugin_supabase_supabase__list_tables",
+      "mcp__plugin_supabase_supabase__execute_sql",
+      "mcp__plugin_supabase_supabase__list_edge_functions",
+      "mcp__plugin_supabase_supabase__apply_migration",
+      "mcp__plugin_supabase_supabase__get_advisors",
+      "PowerShell($c = Get-Command supabase -ErrorAction SilentlyContinue; if \\($c\\) { $c.Source; supabase --version } else { \"not installed\" }; ls \"d:\\\\Code Space\\\\NSE\\\\supabase\\\\.temp\" -Force -ErrorAction SilentlyContinue | Select-Object Name)",
+      "mcp__plugin_supabase_supabase__deploy_edge_function",
+      "mcp__plugin_supabase_supabase__get_edge_function"
     ]
   },
   "enabledPlugins": {

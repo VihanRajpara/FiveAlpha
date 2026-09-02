@@ -1,48 +1,57 @@
-// Refreshes public.quotes for every symbol via Yahoo's batch quote endpoint.
+// Refreshes public.quotes for every symbol, from Upstox and nothing else.
 //
-// Was 262 spark requests at 20 tickers each; is now 27 at 200. See the header of
-// _shared/yahoo.ts for why the endpoint changed — the short version is that
-// spark answers out of intraday *chart bars*, so every thinly traded scrip that
-// did not print a 5-minute bar came back with no price at all. 508 of the 5,229
-// rows in the table were unpriced for that reason on 2026-08-29; /v7 priced
-// 5,088 of them in 2.8 seconds, leaving 141.
+// One source, one request shape, 500 instruments at a time. Measured against
+// the live 5,831-row table on 2026-08-31: **5,680 rows priced in 1.0s over 12
+// requests**, every one of them carrying the exchange's own print time.
 //
-// Market cap now rides along, because /v7 returns it in the same response.
+// What this replaced, and why none of it is coming back:
+//
+//   · **Yahoo /v7** priced 5,088 rows behind an undocumented cookie+crumb
+//     handshake that 401s without warning, and left ~150 unpriced. It also
+//     supplied `market_cap_cr` — that moves to sync-fundamentals, which is
+//     already per-ISIN and where a figure that changes with the price but is
+//     read as a two-orders-of-magnitude band actually belongs.
+//   · **The NSE bhavcopy walk-back** existed solely because Yahoo's Emerge
+//     prices froze in July 2024. It downloaded ~390 KB per session and walked
+//     back up to twelve days to price 539 of 565 SME rows at an end-of-day
+//     close up to four days old. Upstox prices **560 of 565 live**.
+//
+// Without `UPSTOX_ACCESS_TOKEN` this function writes nothing and says so. That
+// is deliberate: a silent fallback to a worse source is how a table fills with
+// figures nobody can account for.
 import {
   adminClient,
   assertAuthorized,
-  chunk,
   CORS_HEADERS,
-  fetchNseBhavcopy,
   json,
-  mapPool,
-  toNseTicker,
 } from '../_shared/upstream.ts';
-import { fetchYahooQuoteBatch, QUOTE_BATCH_SIZE } from '../_shared/yahoo.ts';
+import {
+  fetchUpstoxQuotes,
+  hasUpstox,
+  QUOTE_BATCH_SIZE,
+  toInstrumentKey,
+} from '../_shared/upstox.ts';
 
 /**
- * The NSE Emerge settlement series, priced from the exchange's bhavcopy rather
- * than from Yahoo — see `fetchNseBhavcopy`. Yahoo's Emerge data stopped moving
- * in July 2024, so for these rows it is not a slower source, it is a wrong one.
+ * The NSE Emerge settlement series.
+ *
+ * Kept only to report on them separately. They are no longer a special case in
+ * the pricing itself — Upstox quotes an Emerge instrument through the same
+ * endpoint as RELIANCE, which is the entire point of the change.
  */
 const SME_SERIES = new Set(['SM', 'ST', 'SZ']);
 
-/**
- * Fewer in flight than the old spark pass used, and deliberately: each request
- * now carries ten times the payload, so eight of these is 1,600 symbols being
- * priced at once. The whole universe is 27 requests — concurrency stopped being
- * what governs the wall clock.
- */
-const CONCURRENCY = 4;
-
-/** Yahoo answers in rupees; the app is written in Rs crore throughout. */
-const CRORE = 1e7;
+interface Target {
+  symbol: string;
+  /** Null where the ISIN is missing or malformed. Those rows cannot be priced. */
+  instrumentKey: string | null;
+  isSme: boolean;
+}
 
 interface QuoteRow {
   symbol: string;
   price: number | null;
   previous_close: number | null;
-  market_cap_cr: number | null;
   /** Vendor timestamp of the price itself — requires migration 0003. */
   price_time: string | null;
   updated_at: string;
@@ -54,15 +63,30 @@ Deno.serve(async (req) => {
   const denied = assertAuthorized(req);
   if (denied) return denied;
 
+  if (!hasUpstox()) {
+    return json(
+      {
+        error: 'UPSTOX_ACCESS_TOKEN is not set on this function',
+        hint:
+          'Generate an Analytics Token (Upstox -> Apps -> My Apps -> Analytics), then ' +
+          '`supabase secrets set UPSTOX_ACCESS_TOKEN=...`. This function has no second source.',
+      },
+      503,
+    );
+  }
+
   try {
     const supabase = adminClient();
 
-    // PostgREST caps responses at 1000 rows, so page through the symbol list.
-    // `*` rather than naming yahoo_ticker: that would 400 outright on a database
-    // that hasn't run migration 0005, where falling back to `SYMBOL.NS` is
-    // exactly right because every row there is an NSE listing.
-    const targets: { symbol: string; ticker: string }[] = [];
-    const smeSymbols = new Set<string>();
+    // -----------------------------------------------------------------------
+    // The universe.
+    //
+    // PostgREST caps responses at 1000 rows, so page through it. `*` rather
+    // than naming columns: that would 400 outright on a database that has not
+    // run migration 0005, and every row on such a database is an NSE listing
+    // anyway.
+    // -----------------------------------------------------------------------
+    const targets: Target[] = [];
     for (let page = 0; ; page++) {
       const from = page * 1000;
       const { data, error } = await supabase
@@ -71,17 +95,21 @@ Deno.serve(async (req) => {
         .order('symbol')
         .range(from, from + 999);
       if (error) return json({ error: error.message, stage: 'read-symbols' }, 500);
+
       const batch = (data ?? []) as {
         symbol: string;
         series?: string | null;
-        yahoo_ticker?: string | null;
+        isin?: string | null;
+        exchanges?: string[] | null;
       }[];
+
       for (const r of batch) {
-        if (SME_SERIES.has(r.series ?? '')) smeSymbols.add(r.symbol);
+        targets.push({
+          symbol: r.symbol,
+          instrumentKey: toInstrumentKey(r.isin ?? '', r.exchanges ?? null),
+          isSme: SME_SERIES.has(r.series ?? ''),
+        });
       }
-      targets.push(
-        ...batch.map((r) => ({ symbol: r.symbol, ticker: r.yahoo_ticker || toNseTicker(r.symbol) })),
-      );
       if (batch.length < 1000) break;
     }
 
@@ -89,108 +117,53 @@ Deno.serve(async (req) => {
       return json({ error: 'securities is empty — run sync-securities first' }, 409);
     }
 
-    const now = new Date().toISOString();
-    let failedBatches = 0;
-
-    const batches = await mapPool(
-      chunk(targets, QUOTE_BATCH_SIZE),
-      CONCURRENCY,
-      async (batch): Promise<QuoteRow[]> => {
-        try {
-          const quotes = await fetchYahooQuoteBatch(batch.map((t) => t.ticker));
-
-          // Yahoo keys its answer by ticker and drops what it does not carry, so
-          // index it and then walk the *request*. Rows are keyed back to
-          // `symbol`, which is the securities primary key and what the table
-          // joins on — the ticker is only ever the vendor's name for the row.
-          const byTicker = new Map<string, typeof quotes[number]>();
-          for (const q of quotes) if (q.symbol) byTicker.set(q.symbol, q);
-
-          return batch
-            .map(({ symbol, ticker }) => {
-              const q = byTicker.get(ticker);
-              const price = typeof q?.regularMarketPrice === 'number' ? q.regularMarketPrice : null;
-              const prev =
-                typeof q?.regularMarketPreviousClose === 'number'
-                  ? q.regularMarketPreviousClose
-                  : null;
-              const cap = typeof q?.marketCap === 'number' ? q.marketCap / CRORE : null;
-              // `> 0`, not just "is a number": Yahoo returns a literal 0 for a
-              // handful of dormant scrips, and epoch 0 stores as 1970-01-01 —
-              // which reads as a real timestamp everywhere downstream rather
-              // than as the "unknown" it actually means.
-              const stamp =
-                typeof q?.regularMarketTime === 'number' && q.regularMarketTime > 0
-                  ? q.regularMarketTime
-                  : null;
-
-              return {
-                symbol,
-                price,
-                previous_close: prev,
-                market_cap_cr: cap,
-                price_time: stamp !== null ? new Date(stamp * 1000).toISOString() : null,
-                updated_at: now,
-              };
-            })
-            // A row with neither figure is one Yahoo has nothing for. Writing it
-            // would only overwrite a good older price with a null.
-            .filter((r) => r.price !== null || r.previous_close !== null);
-        } catch (err) {
-          failedBatches++;
-          console.warn(`Quote batch of ${batch.length} failed`, err);
-          return [];
-        }
-      },
-    );
-
     // -----------------------------------------------------------------------
-    // Emerge, from the exchange.
-    //
-    // An overlay rather than a merge: where the bhavcopy has an SME symbol its
-    // close *replaces* whatever Yahoo said, because Yahoo's answer for these is
-    // a 2024 price and a fresher wrong number is still wrong. `market_cap_cr`
-    // goes to null for the same reason — Yahoo derived it from that stale price,
-    // and the bhavcopy carries no share count to recompute it from.
-    //
-    // An SME symbol the exchange has no recent close for is written as an
-    // explicit null rather than skipped. Skipping would leave the Yahoo price
-    // already in the table — which for these rows is the 2024 figure this whole
-    // pass exists to get rid of. The invariant is worth more than the number:
-    // an Emerge row is exchange-sourced or it is blank.
+    // Price everything.
     // -----------------------------------------------------------------------
-    const rows = batches.flat().filter((r) => !smeSymbols.has(r.symbol));
-    let bhavcopyDate: string | null = null;
-    let bhavcopyError: string | null = null;
-    let smePriced = 0;
+    const keyed = targets.filter((t) => t.instrumentKey !== null);
+    const upstox = await fetchUpstoxQuotes(keyed.map((t) => t.instrumentKey!));
 
-    if (smeSymbols.size > 0) {
-      try {
-        const bhavcopy = await fetchNseBhavcopy(SME_SERIES);
-        if (bhavcopy) {
-          bhavcopyDate = bhavcopy.date;
-          for (const symbol of smeSymbols) {
-            const quote = bhavcopy.quotes.get(symbol) ?? null;
-            if (quote) smePriced++;
-            rows.push({
-              symbol,
-              price: quote?.price ?? null,
-              previous_close: quote?.previousClose ?? null,
-              market_cap_cr: null,
-              price_time: quote?.priceTime ?? null,
-              updated_at: now,
-            });
-          }
-        } else {
-          bhavcopyError = 'no bhavcopy found in the lookback window';
-        }
-      } catch (err) {
-        // Surfaced, not thrown: the Yahoo pass already priced the other ~5,200
-        // rows and losing Emerge should not cost them their refresh.
-        bhavcopyError = err instanceof Error ? err.message : String(err);
-      }
+    // A pass where every batch failed is a broken credential or a dead API, not
+    // a market where nothing traded. Writing its emptiness over a good table
+    // would turn one bad five-minute window into a blank screen.
+    if (upstox.requests > 0 && upstox.failedBatches === upstox.requests) {
+      return json(
+        {
+          error: 'every Upstox batch failed — nothing written',
+          requests: upstox.requests,
+          hint: 'Most likely an expired or revoked Analytics Token. Run `npm run check:upstox`.',
+        },
+        502,
+      );
     }
 
+    const now = new Date().toISOString();
+    const rows: QuoteRow[] = [];
+
+    // Walk the *request*, not the response: an instrument Upstox does not carry
+    // is simply absent from the payload, and rows are keyed back to `symbol`,
+    // which is what the table joins on — the instrument key is only ever the
+    // vendor's name for the row.
+    for (const target of keyed) {
+      const quote = upstox.quotes.get(target.instrumentKey!);
+      if (!quote) continue;
+      // A row with neither figure is one nothing traded in and nothing is known
+      // about. Writing it would overwrite a good older price with a null.
+      if (quote.price === null && quote.previousClose === null) continue;
+
+      rows.push({
+        symbol: target.symbol,
+        price: quote.price,
+        previous_close: quote.previousClose,
+        price_time: quote.priceTime,
+        updated_at: now,
+      });
+    }
+
+    // `market_cap_cr` is deliberately absent from every row above rather than
+    // written as null. PostgREST builds one statement from the shape of the
+    // payload, so a column that appears in no row is never in the SET list and
+    // whatever sync-fundamentals last wrote survives this pass untouched.
     for (let i = 0; i < rows.length; i += 500) {
       const { error } = await supabase
         .from('quotes')
@@ -198,16 +171,24 @@ Deno.serve(async (req) => {
       if (error) return json({ error: error.message, stage: 'upsert' }, 500);
     }
 
+    const priced = new Set(rows.map((r) => r.symbol));
+    const smeTargets = targets.filter((t) => t.isSme);
+
     return json({
       ok: true,
       requested: targets.length,
       priced: rows.length,
-      requests: Math.ceil(targets.length / QUOTE_BATCH_SIZE),
-      failedBatches,
-      sme: smeSymbols.size,
-      smePriced,
-      bhavcopyDate,
-      bhavcopyError,
+      requests: upstox.requests,
+      failedBatches: upstox.failedBatches,
+      batchSize: QUOTE_BATCH_SIZE,
+      // Rows Upstox has no instrument for, and rows whose ISIN will not form a
+      // key. Both are unpriceable rather than unlucky, and both are worth
+      // watching: a jump here means the master list and the table have drifted.
+      unpriceable: {
+        noIsin: targets.length - keyed.length,
+        notCarried: keyed.length - rows.length,
+      },
+      sme: { total: smeTargets.length, priced: smeTargets.filter((t) => priced.has(t.symbol)).length },
     });
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : String(err) }, 500);
