@@ -26,6 +26,8 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { resolveUpstoxToken } from './upstox-token.mjs';
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const BROWSER_UA =
@@ -157,7 +159,10 @@ async function fetchWithTimeout(url, init = {}, ms = 30_000) {
 // to cover at end-of-day.
 // ---------------------------------------------------------------------------
 
-const UPSTOX_TOKEN = (process.env.UPSTOX_ACCESS_TOKEN || '').trim();
+// Resolved from the database at the top of syncQuotes rather than read here:
+// the token lives in private.sync_config now, and `seed securities` must not
+// pay for a lookup it never uses. See scripts/upstox-token.mjs.
+let UPSTOX_TOKEN = '';
 
 /** 500 accepted, 501 answers 400 (UDAPI100042). Measured, not assumed. */
 const QUOTE_BATCH_SIZE = 500;
@@ -526,9 +531,11 @@ async function syncSecurities() {
 const SME_SERIES = new Set(['SM', 'ST', 'SZ']);
 
 async function syncQuotes() {
+  UPSTOX_TOKEN = await resolveUpstoxToken();
   if (!UPSTOX_TOKEN) {
     throw new Error(
-      'UPSTOX_ACCESS_TOKEN is not set in .env — quotes have no other source.\n' +
+      'No Upstox token - quotes have no other source.\n' +
+        "  Store one: select public.upstox_token_set('<token>');\n" +
         '  Generate one: Upstox -> Apps -> My Apps -> Analytics -> Generate Token.',
     );
   }

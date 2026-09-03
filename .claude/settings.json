@@ -70,7 +70,9 @@
       "mcp__plugin_supabase_supabase__get_advisors",
       "PowerShell($c = Get-Command supabase -ErrorAction SilentlyContinue; if \\($c\\) { $c.Source; supabase --version } else { \"not installed\" }; ls \"d:\\\\Code Space\\\\NSE\\\\supabase\\\\.temp\" -Force -ErrorAction SilentlyContinue | Select-Object Name)",
       "mcp__plugin_supabase_supabase__deploy_edge_function",
-      "mcp__plugin_supabase_supabase__get_edge_function"
+      "mcp__plugin_supabase_supabase__get_edge_function",
+      "WebFetch(domain:github.com)",
+      "WebSearch"
     ]
   },
   "enabledPlugins": {

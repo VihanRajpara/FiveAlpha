@@ -1,9 +1,16 @@
 // Upstox market data. Deno runtime (Supabase Edge Functions).
 //
-// One credential, read from the environment: an Analytics Token, which is
-// read-only and valid for a year. The OAuth token this API more commonly issues
-// expires at 3:30 AM IST daily and has no refresh, which no cron survives —
-// see plan.md, "The one thing that decides everything".
+// One credential, in one of two shapes. An **Analytics Token** is read-only and
+// valid for a year, and is what this is written for. The **OAuth token** the API
+// more commonly issues expires at 3:30 AM IST daily and has no refresh — see
+// plan.md, "The one thing that decides everything".
+//
+// The env var is only the fallback. The live value is `private.sync_config.
+// upstox_token`, loaded per invocation by each caller and pushed in here with
+// `setUpstoxToken` (migration 0011). That indirection exists for exactly one
+// reason: a module-level `const Deno.env.get(...)` makes rotating the credential
+// a `secrets set` plus a redeploy, which is a build every morning on the daily
+// token. From the database it is one statement and the next invocation has it.
 //
 // **Everything here treats an absent or refused token as "no figures this
 // pass", never as an error.** The Yahoo path this sits in front of still works,
@@ -11,9 +18,25 @@
 // zero-setup mode the app is built around. Callers check `hasUpstox()` and fall
 // back; nothing below throws on a bad credential.
 
+import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import { chunk, fetchWithTimeout, mapPool } from './upstream.ts';
 
-const TOKEN = (Deno.env.get('UPSTOX_ACCESS_TOKEN') ?? '').trim();
+let TOKEN = (Deno.env.get('UPSTOX_ACCESS_TOKEN') ?? '').trim();
+
+/**
+ * Reads the stored token and makes it the one this invocation uses.
+ *
+ * Failure of any kind — the RPC missing on a database that has not run 0011, an
+ * empty column, a permission error — leaves the env-var value in place rather
+ * than clearing it. An existing `supabase secrets set` deployment keeps working
+ * unchanged, which is what makes this migration safe to apply before the
+ * database has a token in it.
+ */
+export async function loadUpstoxToken(supabase: SupabaseClient): Promise<void> {
+  const { data } = await supabase.rpc('upstox_token_get');
+  const stored = typeof data === 'string' ? data.trim() : '';
+  if (stored) TOKEN = stored;
+}
 
 /** Whether a token is configured at all. Not whether it still works. */
 export const hasUpstox = (): boolean => TOKEN.length > 0;

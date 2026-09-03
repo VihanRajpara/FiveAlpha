@@ -47,16 +47,19 @@ interface ChartResponse {
  * run and every reload. The answer is stable and free to remember, so it is
  * remembered here and every Yahoo fetcher checks it first.
  *
- * Kept a week rather than the usual day: a symbol Yahoo does not carry does not
- * start being carried overnight, and the expiry is what bounds the cost of
- * being wrong — a ticker wrongly marked is asked again within the week rather
- * than never.
+ * Kept a day, like every other store. It was a week, on the reasoning that a
+ * symbol Yahoo does not carry does not start being carried overnight — true,
+ * and the expiry was never really about that. It bounds the cost of being
+ * *wrong*: a ticker marked unknown because of a bad night is asked again at the
+ * next IST midnight instead of being written off for a week.
+ *
+ * The re-ask is cheap. These are 404s on a batch endpoint, discovered once at
+ * the start of a run, not a paced scrape.
  */
-const unknownStore = dayCache<1>(
-  'unknown-tickers',
-  { encode: () => 1, decode: (raw) => (raw === 1 ? 1 : undefined) },
-  7,
-);
+const unknownStore = dayCache<1>('unknown-tickers', {
+  encode: () => 1,
+  decode: (raw) => (raw === 1 ? 1 : undefined),
+});
 
 /** Has Yahoo already said it has no such symbol? */
 export const isUnknownTicker = (ticker: string): boolean => unknownStore.has(ticker);

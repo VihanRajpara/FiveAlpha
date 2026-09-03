@@ -45,12 +45,18 @@ const FLUSH_DELAY_MS = 3000;
 const MS_PER_DAY = 86_400_000;
 
 /**
+ * Built once. `new Intl.DateTimeFormat` is among the more expensive things you
+ * can construct in a loop, and `today()` is now called on every read as well as
+ * every write — some tens of thousands of times during a whole-market run.
+ */
+const IST_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' });
+
+/**
  * Today in IST as a day number. An integer rather than `yyyy-mm-dd` because it
  * is stored against every entry and subtracted from on every read.
  */
 function today(): number {
-  const ist = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
-  return Math.floor(Date.parse(`${ist}T00:00:00Z`) / MS_PER_DAY);
+  return Math.floor(Date.parse(`${IST_DAY.format(new Date())}T00:00:00Z`) / MS_PER_DAY);
 }
 
 export interface Codec<T> {
@@ -88,9 +94,9 @@ export function dayCache<T>(name: string, codec: Codec<T>, maxAgeDays = 1): DayC
    * Read on first use rather than at import: parsing a few hundred kilobytes of
    * JSON belongs to the first screen run, not to the app's first paint.
    *
-   * Expiry is applied here and nowhere else. A tab left open across midnight
-   * therefore keeps yesterday's answers until it is reloaded, which is the same
-   * staleness any long-lived in-memory cache has and not worth a timer.
+   * Expiry is applied here *and* on every read — see `live`. Dropping it here
+   * too is not redundant: it keeps a day's worth of dead entries from being
+   * parsed and decoded into a Map nobody will read from.
    */
   function load(): Map<string, Entry<T>> {
     if (entries) return entries;
@@ -164,9 +170,38 @@ export function dayCache<T>(name: string, codec: Codec<T>, maxAgeDays = 1): DayC
     });
   }
 
+  /**
+   * Whether an entry is still inside its window, measured **now**.
+   *
+   * Checked per read rather than only at load, because the screen is left open
+   * for days at a time: without this, a tab that was loaded yesterday goes on
+   * serving yesterday's signals through IST midnight until someone reloads it,
+   * which is the one moment of the day the answers are guaranteed to have
+   * changed. A stale entry is dropped rather than merely hidden, so the store
+   * a long-lived tab flushes does not carry a week of dead weight into the 5 MB
+   * quota.
+   *
+   * No timer: the stamps are absolute IST day numbers, so this stays correct
+   * across a laptop that was asleep at midnight, which a scheduled clear is
+   * exactly the wrong shape for.
+   */
+  function live(key: string): Entry<T> | undefined {
+    const map = load();
+    const entry = map.get(key);
+    if (!entry) return undefined;
+    if (today() - entry.stamp < maxAgeDays) return entry;
+
+    map.delete(key);
+    // Not `schedule()`: expiry is not new information worth a rewrite of its
+    // own. The deletion rides along with the next real write, or is re-applied
+    // at the next load if there never is one.
+    dirty = true;
+    return undefined;
+  }
+
   return {
-    has: (key) => load().has(key),
-    get: (key) => load().get(key)?.value,
+    has: (key) => live(key) !== undefined,
+    get: (key) => live(key)?.value,
     set: (key, value) => {
       load().set(key, { stamp: today(), value });
       schedule();
