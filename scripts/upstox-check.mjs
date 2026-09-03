@@ -17,6 +17,8 @@ import { gunzipSync } from 'node:zlib';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { resolveUpstoxToken } from './upstox-token.mjs';
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 // ---------------------------------------------------------------------------
@@ -43,18 +45,22 @@ function loadEnvFile(name) {
 
 loadEnvFile('.env');
 
-const TOKEN = process.env.UPSTOX_ACCESS_TOKEN;
+// The database first, .env only as a fallback — so this checks the token the
+// Edge Functions actually use, which is the whole point of a check script.
+const TOKEN = await resolveUpstoxToken();
 
 if (!TOKEN) {
   console.error(`
-Missing UPSTOX_ACCESS_TOKEN. Add it to ${resolve(ROOT, '.env')}:
+No Upstox token, in ${resolve(ROOT, '.env')} or in private.sync_config.
 
-  UPSTOX_ACCESS_TOKEN=<your Analytics Token>
+Store one where the deployed functions will see it:
+
+  select public.upstox_token_set('<your Analytics Token>');
 
 Get it from: Upstox -> Apps -> My Apps -> Analytics tab -> Generate Token.
 One year, read-only, one per account. No OAuth app and no static IP needed --
 the API Key / Secret / Redirect URI fields in .env belong to the daily-login
-path this project deliberately does not take, and stay blank.
+path, which lives in .github/workflows/upstox-token.yml if you need it.
 `);
   process.exit(1);
 }

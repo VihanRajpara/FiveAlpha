@@ -23,7 +23,12 @@ import {
   json,
   mapPool,
 } from '../_shared/upstream.ts';
-import { fetchUpstoxProfile, fetchUpstoxRoce, hasUpstox } from '../_shared/upstox.ts';
+import {
+  fetchUpstoxProfile,
+  fetchUpstoxRoce,
+  hasUpstox,
+  loadUpstoxToken,
+} from '../_shared/upstox.ts';
 
 /**
  * Rows per invocation.
@@ -55,20 +60,25 @@ Deno.serve(async (req) => {
   const denied = assertAuthorized(req);
   if (denied) return denied;
 
-  if (!hasUpstox()) {
-    return json(
-      {
-        error: 'UPSTOX_ACCESS_TOKEN is not set on this function',
-        hint:
-          'Generate an Analytics Token (Upstox -> Apps -> My Apps -> Analytics), then ' +
-          '`supabase secrets set UPSTOX_ACCESS_TOKEN=...`.',
-      },
-      503,
-    );
-  }
-
   try {
     const supabase = adminClient();
+
+    // The stored token wins over the env var, so rotating it is a statement
+    // rather than a redeploy. See migration 0011.
+    await loadUpstoxToken(supabase);
+
+    if (!hasUpstox()) {
+      return json(
+        {
+          error: 'no Upstox token is configured',
+          hint:
+            'Generate an Analytics Token (Upstox -> Apps -> My Apps -> Analytics), then ' +
+            "`select public.upstox_token_set('...')`.",
+        },
+        503,
+      );
+    }
+
     const slice = Number(new URL(req.url).searchParams.get('limit')) || DEFAULT_SLICE;
 
     // -----------------------------------------------------------------------

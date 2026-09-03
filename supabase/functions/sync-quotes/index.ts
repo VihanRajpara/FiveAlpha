@@ -28,6 +28,7 @@ import {
 import {
   fetchUpstoxQuotes,
   hasUpstox,
+  loadUpstoxToken,
   QUOTE_BATCH_SIZE,
   toInstrumentKey,
 } from '../_shared/upstox.ts';
@@ -63,20 +64,24 @@ Deno.serve(async (req) => {
   const denied = assertAuthorized(req);
   if (denied) return denied;
 
-  if (!hasUpstox()) {
-    return json(
-      {
-        error: 'UPSTOX_ACCESS_TOKEN is not set on this function',
-        hint:
-          'Generate an Analytics Token (Upstox -> Apps -> My Apps -> Analytics), then ' +
-          '`supabase secrets set UPSTOX_ACCESS_TOKEN=...`. This function has no second source.',
-      },
-      503,
-    );
-  }
-
   try {
     const supabase = adminClient();
+
+    // The stored token wins over the env var, so rotating it is a statement
+    // rather than a redeploy. See migration 0011.
+    await loadUpstoxToken(supabase);
+
+    if (!hasUpstox()) {
+      return json(
+        {
+          error: 'no Upstox token is configured',
+          hint:
+            'Generate an Analytics Token (Upstox -> Apps -> My Apps -> Analytics), then ' +
+            "`select public.upstox_token_set('...')`. This function has no second source.",
+        },
+        503,
+      );
+    }
 
     // -----------------------------------------------------------------------
     // The universe.
@@ -131,7 +136,9 @@ Deno.serve(async (req) => {
         {
           error: 'every Upstox batch failed — nothing written',
           requests: upstox.requests,
-          hint: 'Most likely an expired or revoked Analytics Token. Run `npm run check:upstox`.',
+          hint:
+            'Most likely an expired or revoked token. Check `upstox_token_at` in ' +
+            'private.sync_config, then `select public.upstox_token_set(...)` with a fresh one.',
         },
         502,
       );

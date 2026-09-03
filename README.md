@@ -187,10 +187,31 @@ npx supabase link --project-ref <your-ref>
 # Shared secret so nobody who finds your function URLs can drive traffic on your project
 npx supabase secrets set SYNC_SECRET=$(openssl rand -hex 24)
 
-npx supabase functions deploy sync-securities sync-quotes
+npx supabase functions deploy sync-securities sync-quotes sync-fundamentals
 ```
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected into functions automatically — don't set them.
+
+#### The Upstox token
+
+`sync-quotes` and `sync-fundamentals` price the universe from Upstox and have no
+second source, so they need a token. It does **not** live in the function
+environment — it lives in `private.sync_config`, so rotating it is one statement
+and takes effect on the next cron tick, with no deploy and no build:
+
+```sql
+select public.upstox_token_set('<token>');
+```
+
+Get that token from Upstox → Apps → My Apps → **Analytics** tab → Generate Token.
+It is free, read-only, valid for a year, and needs no static IP for the market
+data this app reads. Set it once and forget it until next year.
+
+The Analytics tab is unavailable on some accounts. The fallback is the OAuth
+token, which expires at 3:30 AM IST daily — [`.github/workflows/upstox-token.yml`](.github/workflows/upstox-token.yml)
+logs in and refreshes it each morning. See [`.env.example`](.env.example) for the
+repository secrets it needs, and for why you should exhaust the Analytics option
+first: that workflow holds your full login, not a read-only token.
 
 Then edit [`supabase/migrations/0002_cron.sql`](supabase/migrations/0002_cron.sql), replacing `YOUR-PROJECT-REF` and `YOUR-SYNC-SECRET` at the bottom, and run it in the SQL Editor (or `npx supabase db push`).
 
