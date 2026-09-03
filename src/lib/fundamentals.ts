@@ -279,17 +279,24 @@ export function parseTopRatios(html: string): Map<string, number[]> {
 /**
  * How long a scraped page is worth keeping.
  *
- * A month, because of what this scrape is now *for*. Market cap comes from
- * Yahoo in batches of two hundred (see src/lib/marketCap.ts), so what remains
- * here is ROCE — a figure computed from annual statements, which changes when a
- * company files and not otherwise. Asking again tomorrow for a number that
- * moves once a year is what made this the slowest thing in the app.
+ * A day, like every other store — deliberately, and at a known cost.
  *
- * The market cap parsed alongside it ages badly over a month, and is kept
- * anyway: it is only ever read for symbols Yahoo has no figure for at all,
- * which are dead or near-dead scrips whose band is not in doubt.
+ * This was a month, and on the merits of the *figure* a month is still right:
+ * what remains here is ROCE, computed from annual statements, which changes
+ * when a company files and not otherwise. Market cap comes from Yahoo in
+ * batches of two hundred (see src/lib/marketCap.ts).
+ *
+ * What changed is where the answer comes from. `sync-fundamentals` fills
+ * `metrics.roce_pct` from Upstox on a rolling schedule, and useScreen skips
+ * this stage entirely for any row that arrives with a figure on it — so on a
+ * Supabase-backed run this store is consulted only for the rows the server has
+ * not covered yet. A one-day window costs a re-scrape of that remainder, paced
+ * at screener.in's measured 1.2s, rather than a re-scrape of the universe.
+ *
+ * Direct mode has no server figures and pays the full price. If a whole-market
+ * run there starts ending in `RateLimitedError`, this constant is why.
  */
-const KEEP_DAYS = 30;
+const KEEP_DAYS = 1;
 
 /** Settled answers, kept across reloads for as long as they are worth keeping. */
 const settled = dayCache<Fundamentals | null>(

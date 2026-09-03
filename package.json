@@ -16,6 +16,7 @@
     "seed:quotes": "node scripts/seed.mjs quotes",
     "check:metrics": "node scripts/check-metrics.mjs",
     "check:listings": "node scripts/check-listings.mjs",
+    "check:daycache": "node scripts/check-daycache.mjs",
     "check:upstox": "node scripts/upstox-check.mjs"
   },
   "dependencies": {
