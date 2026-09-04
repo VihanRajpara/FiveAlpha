@@ -58,9 +58,9 @@ Store one where the deployed functions will see it:
   select public.upstox_token_set('<your Analytics Token>');
 
 Get it from: Upstox -> Apps -> My Apps -> Analytics tab -> Generate Token.
-One year, read-only, one per account. No OAuth app and no static IP needed --
-the API Key / Secret / Redirect URI fields in .env belong to the daily-login
-path, which lives in .github/workflows/upstox-token.yml if you need it.
+One year, read-only, one per account. No OAuth app, no redirect URI and no
+static IP needed -- which is why the daily-login path this repo used to carry
+is gone. See .env.example.
 `);
   process.exit(1);
 }

@@ -16,9 +16,10 @@
 //     back up to twelve days to price 539 of 565 SME rows at an end-of-day
 //     close up to four days old. Upstox prices **560 of 565 live**.
 //
-// Without `UPSTOX_ACCESS_TOKEN` this function writes nothing and says so. That
-// is deliberate: a silent fallback to a worse source is how a table fills with
-// figures nobody can account for.
+// Without a token — `private.sync_config.upstox_token`, see migration 0011 —
+// this function writes nothing and says so. That is deliberate: a silent
+// fallback to a worse source is how a table fills with figures nobody can
+// account for.
 import {
   adminClient,
   assertAuthorized,

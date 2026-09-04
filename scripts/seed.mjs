@@ -600,7 +600,15 @@ async function syncQuotes() {
   // Every batch failing is a broken credential, not a market where nothing
   // traded. Writing that emptiness over a good table would be the worse error.
   if (batches.length > 0 && failed === batches.length) {
-    throw new Error('every Upstox batch failed — nothing written. Check UPSTOX_ACCESS_TOKEN.');
+    // Every batch, not some: that is a credential, not a market. Name where the
+    // token actually lives, because "check UPSTOX_ACCESS_TOKEN" sends you to a
+    // .env line that has not been the source since migration 0011.
+    throw new Error(
+      'every Upstox batch failed - nothing written. The token is almost certainly expired.\n' +
+        '  Check when it was stored:  select upstox_token_at from private.sync_config;\n' +
+        "  Store a fresh one:         select public.upstox_token_set('<token>');\n" +
+        '  An OAuth token dies at 3:30 AM IST daily; an Analytics Token lasts a year.',
+    );
   }
 
   // `market_cap_cr` is absent from every row rather than written as null: it is

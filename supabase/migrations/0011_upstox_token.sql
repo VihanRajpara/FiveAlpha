@@ -46,6 +46,18 @@ security definer
 set search_path = private, public
 as $$
 begin
+  -- Every Upstox token is a JWT: three dot-separated segments, hundreds of
+  -- characters. Refusing anything else costs nothing and catches the mistake
+  -- this function is most likely to be handed — a placeholder pasted verbatim
+  -- out of the README (`<token>`, 7 characters), which otherwise stores
+  -- cleanly, stamps `upstox_token_at` with a convincing timestamp, and then
+  -- surfaces hours later as an indistinguishable 401 from Upstox.
+  if coalesce(t, '') <> '' and t !~ '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$' then
+    raise exception
+      'that does not look like an Upstox token (% chars, expected a JWT) - nothing stored',
+      length(t);
+  end if;
+
   update private.sync_config
      set upstox_token    = coalesce(t, ''),
          -- Null for a cleared token, so `upstox_token_at` never claims a write
