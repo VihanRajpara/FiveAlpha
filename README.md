@@ -208,10 +208,10 @@ It is free, read-only, valid for a year, and needs no static IP for the market
 data this app reads. Set it once and forget it until next year.
 
 The Analytics tab is unavailable on some accounts. The fallback is the OAuth
-token, which expires at 3:30 AM IST daily — [`.github/workflows/upstox-token.yml`](.github/workflows/upstox-token.yml)
-logs in and refreshes it each morning. See [`.env.example`](.env.example) for the
-repository secrets it needs, and for why you should exhaust the Analytics option
-first: that workflow holds your full login, not a read-only token.
+token, which expires at 3:30 AM IST daily and has no refresh — so it needs
+something to log in every morning. This repo carried such a workflow and no
+longer does; recover it from git history rather than rebuilding it, and read
+[`.env.example`](.env.example) first for why it was worth deleting.
 
 Then edit [`supabase/migrations/0002_cron.sql`](supabase/migrations/0002_cron.sql), replacing `YOUR-PROJECT-REF` and `YOUR-SYNC-SECRET` at the bottom, and run it in the SQL Editor (or `npx supabase db push`).
 
