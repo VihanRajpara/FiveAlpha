@@ -92,6 +92,9 @@ export function useMarketData(): MarketData {
 
     let done = 0;
     try {
+      // `quiet` and `incremental` travel together on purpose: the poll is the
+      // only caller that wants a delta, and the only one that must not disturb
+      // the status bar. A manual refresh stays a full reload.
       await activeSource.fetchQuotes(targets, (batch) => {
         if (!mounted.current || batch.length === 0) return;
         done += batch.length;
@@ -108,7 +111,7 @@ export function useMarketData(): MarketData {
           }
           return next;
         });
-      });
+      }, quiet);
       if (mounted.current) setLastFetchedAt(new Date());
     } catch (err) {
       // A failed background poll is not worth a banner: the prices on screen are

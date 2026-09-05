@@ -273,13 +273,22 @@ export const supabaseSource: DataSource = {
     return (await rows()).map(toSecurity);
   },
 
-  async fetchQuotes(_targets, onBatch): Promise<Quote[]> {
-    // First call: the sync functions already refreshed these, so just read the
-    // view. On a cold load this rides on the read `listSecurities` started, so
-    // the whole page costs one trip rather than two.
-    if (watermark === 0) {
+  async fetchQuotes(_targets, onBatch, incremental): Promise<Quote[]> {
+    // A full read on the cold load, and again whenever someone asks for one.
+    //
+    // The refresh button must stay a *reload*: metrics only arrive on the full
+    // view, so serving it the delta would quietly stop it picking up a ROCE or
+    // market cap that `sync-fundamentals` has since backfilled — which is most
+    // of the reason a person presses it out of hours.
+    if (watermark === 0 || !incremental) {
+      // On the cold load, join the read `listSecurities` already started —
+      // clearing it here would throw that away and read the view twice, which
+      // is the whole cost `pending` exists to avoid. On a later reload there is
+      // nothing in flight and this forces a genuinely fresh read.
+      if (watermark !== 0) pending = null;
+
       const data = await rows();
-      // Consumed. Everything after this is served by the incremental path, and
+      // Consumed. The poll is served by the incremental path from here, and
       // holding the full row set would pin ~3 MB for the life of the tab.
       pending = null;
 
