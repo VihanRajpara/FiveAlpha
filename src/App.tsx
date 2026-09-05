@@ -889,9 +889,17 @@ export default function App({
 
         <div className="spacer" />
 
+        {/* Provenance, and it has to track the mode: the two paths no longer
+            share a price source. Supabase reads Upstox, which prints live and
+            carries the exchange's own timestamp; direct mode is still Yahoo at
+            roughly a quarter-hour behind. One sentence claiming both would be
+            wrong in whichever mode the reader is actually in. */}
         <span style={{ color: 'var(--on-surface-faint)' }}>
-          Lists: NSE EQUITY_L.csv + BSE scrip master, merged on ISIN · Prices: Yahoo Finance
-          (NSE book where dual-listed) · ~15 min delayed, not for trading
+          Lists: NSE EQUITY_L.csv + Emerge + BSE scrip master, merged on ISIN · Prices:{' '}
+          {sourceKind === 'supabase'
+            ? 'Upstox (NSE book where dual-listed) · live exchange print time'
+            : 'Yahoo Finance (NSE book where dual-listed) · ~15 min delayed'}
+          , not for trading
         </span>
       </footer>
 

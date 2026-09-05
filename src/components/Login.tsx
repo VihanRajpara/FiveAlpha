@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { lastUsername, login, type User } from '../lib/auth';
+import { activeSource } from '../lib/dataSource';
 
 /**
  * The whole of the signed-out app: a username, four digits, and one button.
@@ -95,7 +96,13 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
           </p>
         )}
 
-        <p className="login-foot">NSE + BSE equities · prices ~15 min delayed</p>
+        {/* Same claim as the footer inside the app, and it has to stay in step:
+            a sign-in screen promising a 15-minute delay over live Upstox prices
+            is the kind of stale copy nobody re-reads. */}
+        <p className="login-foot">
+          NSE + BSE equities ·{' '}
+          {activeSource.kind === 'supabase' ? 'live prices' : 'prices ~15 min delayed'}
+        </p>
       </form>
     </div>
   );

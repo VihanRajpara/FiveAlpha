@@ -17,6 +17,7 @@
     "check:metrics": "node scripts/check-metrics.mjs",
     "check:listings": "node scripts/check-listings.mjs",
     "check:daycache": "node scripts/check-daycache.mjs",
+    "check:quotepoll": "node scripts/check-quote-poll.mjs",
     "check:upstox": "node scripts/upstox-check.mjs"
   },
   "dependencies": {

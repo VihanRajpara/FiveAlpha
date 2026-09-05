@@ -159,9 +159,6 @@ async function fetchRows(): Promise<Row[]> {
  * same view, for the same rows. Reading it twice was the second half of the
  * load cost. They now share a single in-flight promise: whichever is called
  * first pays for the read and the other joins it.
- *
- * Cleared by `fetchQuotes` when it is called again, which is what the refresh
- * button does — a refresh must actually re-read.
  */
 let pending: Promise<Row[]> | null = null;
 
@@ -177,6 +174,94 @@ function rows(): Promise<Row[]> {
   return pending;
 }
 
+// ---------------------------------------------------------------------------
+// Incremental refresh
+//
+// The full view is 2.85 MB over six pages — fine once per load, ruinous on a
+// timer. Re-reading it every minute for a 6¼-hour session is ~210 MB per tab
+// per day, which is most of a free project's monthly egress for data that only
+// changes when `sync-quotes` runs, once every five minutes.
+//
+// So a refresh asks a narrower question: *which quote rows were written since
+// the last one I saw?* Four polls in five answer with an empty array, and the
+// fifth carries only the five columns that actually moved (~870 KB rather than
+// 2.85 MB, because the joined securities and metrics columns are the bulk of a
+// row and none of them changed).
+// ---------------------------------------------------------------------------
+
+/** Newest `quotes.updated_at` already applied, as epoch ms. */
+let watermark = 0;
+
+function noteWatermark(stamp: string | null | undefined): void {
+  const t = stamp ? Date.parse(stamp) : NaN;
+  if (Number.isFinite(t) && t > watermark) watermark = t;
+}
+
+/** Just the columns a price refresh can change. */
+type QuoteDelta = Pick<Row, 'symbol' | 'price' | 'previous_close' | 'price_time' | 'updated_at'>;
+
+/**
+ * A delta row as a `Quote` carrying **only** price fields.
+ *
+ * `marketCapCr`, `monthlyRsi14`, `rocePct` and `fundamentalsUrl` are optional on
+ * `Quote`, and this deliberately leaves them absent rather than null — the
+ * caller merges by spreading, so an absent key keeps the value already on
+ * screen while a null would erase it. `toQuote` cannot be reused for the same
+ * reason: it always writes those four.
+ *
+ * The consequence, stated plainly: metrics are read once per page load and a
+ * long-lived tab will not see a new ROCE until it is reloaded. They move hourly
+ * at most, against prices every five minutes, so this is the cheap half of the
+ * trade rather than an oversight.
+ */
+function toDeltaQuote(r: QuoteDelta): Quote {
+  const change = r.price !== null && r.previous_close !== null ? r.price - r.previous_close : null;
+  return {
+    symbol: r.symbol,
+    price: r.price,
+    previousClose: r.previous_close,
+    change,
+    changePercent:
+      change !== null && r.previous_close ? (change / r.previous_close) * 100 : null,
+    updatedAt: r.price_time ?? r.updated_at,
+  };
+}
+
+/**
+ * Quote rows written strictly after `watermark`.
+ *
+ * Paged like `fetchRows`, because a sync pass stamps all ~5,700 rows with the
+ * same `now()` and PostgREST still caps a response at 1000. The bursts are the
+ * same shape; the query is the cheap part.
+ */
+async function fetchQuoteDeltas(): Promise<QuoteDelta[]> {
+  const since = new Date(watermark).toISOString();
+  const page = (from: number) =>
+    client()
+      .from('quotes')
+      .select('symbol,price,previous_close,price_time,updated_at')
+      .gt('updated_at', since)
+      .order('symbol')
+      .range(from, from + PAGE_SIZE - 1);
+
+  const out: QuoteDelta[] = [];
+  for (let from = 0; ; from += PAGE_SIZE * PAGE_CONCURRENCY) {
+    const pages = await Promise.all(
+      Array.from({ length: PAGE_CONCURRENCY }, (_, i) => page(from + i * PAGE_SIZE)),
+    );
+
+    let full = 0;
+    for (const result of pages) {
+      if (result.error) throw new Error(`quotes: ${result.error.message}`);
+      const batch = (result.data ?? []) as unknown as QuoteDelta[];
+      out.push(...batch);
+      if (batch.length === PAGE_SIZE) full++;
+    }
+    // A short page anywhere in the burst means the result set ended inside it.
+    if (full < PAGE_CONCURRENCY) return out;
+  }
+}
+
 export const supabaseSource: DataSource = {
   kind: 'supabase',
 
@@ -188,17 +273,39 @@ export const supabaseSource: DataSource = {
     return (await rows()).map(toSecurity);
   },
 
-  async fetchQuotes(_targets, onBatch): Promise<Quote[]> {
-    // The sync functions already refreshed these; just read the view. On a cold
-    // load this rides on the read `listSecurities` started, so the whole page
-    // costs one trip rather than two.
-    const data = await rows();
-    // Consumed: the refresh button must go back to the database rather than
-    // hand back the rows it already showed.
-    pending = null;
+  async fetchQuotes(_targets, onBatch, incremental): Promise<Quote[]> {
+    // A full read on the cold load, and again whenever someone asks for one.
+    //
+    // The refresh button must stay a *reload*: metrics only arrive on the full
+    // view, so serving it the delta would quietly stop it picking up a ROCE or
+    // market cap that `sync-fundamentals` has since backfilled — which is most
+    // of the reason a person presses it out of hours.
+    if (watermark === 0 || !incremental) {
+      // On the cold load, join the read `listSecurities` already started —
+      // clearing it here would throw that away and read the view twice, which
+      // is the whole cost `pending` exists to avoid. On a later reload there is
+      // nothing in flight and this forces a genuinely fresh read.
+      if (watermark !== 0) pending = null;
 
-    const quotes = data.map(toQuote);
-    if (quotes.length > 0) onBatch?.(quotes);
+      const data = await rows();
+      // Consumed. The poll is served by the incremental path from here, and
+      // holding the full row set would pin ~3 MB for the life of the tab.
+      pending = null;
+
+      const quotes = data.map(toQuote);
+      for (const r of data) noteWatermark(r.updated_at);
+      if (quotes.length > 0) onBatch?.(quotes);
+      return quotes;
+    }
+
+    // Every call after that: only what changed. An empty result is the normal
+    // answer between sync passes and must stay cheap — no batch, no re-render.
+    const deltas = await fetchQuoteDeltas();
+    if (deltas.length === 0) return [];
+
+    const quotes = deltas.map(toDeltaQuote);
+    for (const d of deltas) noteWatermark(d.updated_at);
+    onBatch?.(quotes);
     return quotes;
   },
 

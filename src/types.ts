@@ -120,8 +120,20 @@ export type SecurityWithQuote = Security & { quote?: Quote; cls?: Classification
 export interface DataSource {
   readonly kind: 'direct' | 'supabase';
   listSecurities(): Promise<Security[]>;
-  /** Resolves progressively — `onBatch` fires as each chunk lands. */
-  fetchQuotes(targets: QuoteTarget[], onBatch?: (batch: Quote[]) => void): Promise<Quote[]>;
+  /**
+   * Resolves progressively — `onBatch` fires as each chunk lands.
+   *
+   * `incremental` asks for only what changed since the last call, and is the
+   * background poll's mode. It is a hint, not a contract: a source with nothing
+   * cheaper to offer may ignore it and return everything, and `direct` does
+   * exactly that. Batches from an incremental call may carry price fields only,
+   * so callers must merge them onto the quote they hold rather than replace it.
+   */
+  fetchQuotes(
+    targets: QuoteTarget[],
+    onBatch?: (batch: Quote[]) => void,
+    incremental?: boolean,
+  ): Promise<Quote[]>;
   /** Takes the Yahoo ticker (`Security.ticker`), not the display symbol. */
   fetchCandles(ticker: string, range: ChartRange): Promise<Candle[]>;
 }

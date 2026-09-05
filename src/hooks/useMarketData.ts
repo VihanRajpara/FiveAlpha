@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { activeSource } from '../lib/dataSource';
 import { fetchClassification } from '../lib/classification';
+import { isMarketOpen } from '../lib/format';
 import type { Classification, Quote, QuoteTarget, Security } from '../types';
+
+/**
+ * How often to look for new prices during a live session.
+ *
+ * `sync-quotes` writes every five minutes, so this is deliberately shorter than
+ * the thing it watches: the interval bounds *latency*, not cost. Volume is set
+ * by how often the data actually changes, because a poll that finds nothing new
+ * transfers nothing.
+ */
+const POLL_INTERVAL_MS = 60_000;
 
 export interface MarketData {
   securities: Security[];
@@ -65,31 +76,51 @@ export function useMarketData(): MarketData {
     };
   }, []);
 
-  const loadQuotes = useCallback(async (targets: QuoteTarget[]) => {
+  /**
+   * `quiet` is for the poll: it does the same read but leaves the busy dot, the
+   * progress bar and the button label alone. Without it the status bar would
+   * flash every minute all session for a refresh nobody asked for, which reads
+   * as the app struggling rather than working.
+   */
+  const loadQuotes = useCallback(async (targets: QuoteTarget[], quiet = false) => {
     if (targets.length === 0 || inFlight.current) return;
     inFlight.current = true;
-    setRefreshingQuotes(true);
-    setQuoteProgress(0);
+    if (!quiet) {
+      setRefreshingQuotes(true);
+      setQuoteProgress(0);
+    }
 
     let done = 0;
     try {
+      // `quiet` and `incremental` travel together on purpose: the poll is the
+      // only caller that wants a delta, and the only one that must not disturb
+      // the status bar. A manual refresh stays a full reload.
       await activeSource.fetchQuotes(targets, (batch) => {
-        if (!mounted.current) return;
+        if (!mounted.current || batch.length === 0) return;
         done += batch.length;
-        setQuoteProgress(Math.min(1, done / targets.length));
+        if (!quiet) setQuoteProgress(Math.min(1, done / targets.length));
         // Replace the map so React sees a new reference and re-renders the rows.
         setQuotes((prev) => {
           const next = new Map(prev);
-          for (const q of batch) next.set(q.symbol, q);
+          for (const q of batch) {
+            const held = next.get(q.symbol);
+            // Spread, not replace. A poll returns price fields only, and the
+            // metrics (market cap, RSI, ROCE) it omits must survive the merge —
+            // they came from the full read and are not in a delta.
+            next.set(q.symbol, held ? { ...held, ...q } : q);
+          }
           return next;
         });
-      });
+      }, quiet);
       if (mounted.current) setLastFetchedAt(new Date());
     } catch (err) {
-      if (mounted.current) setError(err instanceof Error ? err.message : String(err));
+      // A failed background poll is not worth a banner: the prices on screen are
+      // still the last good ones, and the next tick will try again.
+      if (mounted.current && !quiet) setError(err instanceof Error ? err.message : String(err));
+      else if (quiet) console.warn('Quote poll failed; keeping the prices on screen', err);
     } finally {
       inFlight.current = false;
-      if (mounted.current) {
+      if (mounted.current && !quiet) {
         setRefreshingQuotes(false);
         setQuoteProgress(1);
         // Set even when the pass threw: a failed fetch is still an answer, and
@@ -144,6 +175,47 @@ export function useMarketData(): MarketData {
 
   const refreshQuotes = useCallback(() => {
     void loadQuotes(securities.map((s) => ({ symbol: s.symbol, ticker: s.ticker })));
+  }, [loadQuotes, securities]);
+
+  /**
+   * Picks up new prices without anyone pressing anything.
+   *
+   * Supabase mode only. In direct mode a "refresh" is thousands of live Yahoo
+   * requests through the dev proxy, which is a thing to do on purpose and not
+   * on a timer.
+   *
+   * Three gates, each removing work that would otherwise be pure waste:
+   *
+   *   · **Market closed** — `sync-quotes` only runs on weekdays during the
+   *     session, so outside it there is provably nothing new to read.
+   *   · **Tab hidden** — a background tab has no one looking at it. Polling
+   *     resumes on the way back, and the immediate read on becoming visible is
+   *     what makes returning to the tab feel instant rather than up to a minute
+   *     behind.
+   *   · **A read already in flight** — `loadQuotes` guards this itself.
+   *
+   * A minute against a five-minute write cadence means a price is on screen
+   * within a minute of being stored, while four polls in five cost one empty
+   * PostgREST response, because the read asks only for rows newer than the last
+   * one it saw.
+   */
+  useEffect(() => {
+    if (activeSource.kind !== 'supabase' || securities.length === 0) return;
+
+    const targets = securities.map((s) => ({ symbol: s.symbol, ticker: s.ticker }));
+    const poll = () => {
+      if (document.visibilityState !== 'visible' || !isMarketOpen()) return;
+      void loadQuotes(targets, true);
+    };
+
+    const timer = setInterval(poll, POLL_INTERVAL_MS);
+    // Coming back to the tab should not wait out the rest of the interval —
+    // that is exactly the moment the prices on screen are most likely stale.
+    document.addEventListener('visibilitychange', poll);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', poll);
+    };
   }, [loadQuotes, securities]);
 
   /**
