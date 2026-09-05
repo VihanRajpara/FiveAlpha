@@ -3,6 +3,7 @@
 // import TypeScript.
 import { build } from 'esbuild';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 const out = await build({
   entryPoints: ['src/lib/signals.ts'],
@@ -11,7 +12,7 @@ const out = await build({
   platform: 'node',
   write: false,
 });
-const { hma, atr, latestSignal, signalGapPct, matchesSignalFilter, cleanBars, stopDistancePct, runUtBot, UT_BOT } =
+const { hma, atr, latestSignal, signalGapPct, matchesSignalFilter, cleanBars, stopDistancePct, runUtBot, UT_BOT, mapo, MAPO, MAPO_BANDS } =
   await import(
   'data:text/javascript;base64,' + Buffer.from(out.outputFiles[0].text).toString('base64')
 );
@@ -287,6 +288,124 @@ assert.ok(matchesSignalFilter(buy, 110, { side: 'BUY', age: '10', gap: 'ALL' }))
 assert.ok(!matchesSignalFilter(buy, 110, { side: 'SELL', age: 'ALL', gap: 'ALL' }));
 assert.ok(matchesSignalFilter(null, 110, { side: 'ALL', age: 'ALL', gap: 'ALL' }));
 assert.ok(!matchesSignalFilter(null, 110, { side: 'BUY', age: 'ALL', gap: 'ALL' }));
+
+// --- MAPO [LuxAlgo] ---------------------------------------------------------
+// Moving Averages Proximity Oscillator, transcribed from the Pine v5 source.
+//
+//   csum = ta.cum(src)
+//   max_min = abs(src - (csum - csum[min]) / min)      // seeded before the loop
+//   for i = min to max
+//       ma = (csum - csum[i]) / i
+//       per += src > ma ? 1 : 0
+//       ae = abs(src - ma)
+//       max_min := math.min(ae, max_min)
+//       len := ae == max_min ? i : len                 // a tie takes the LATER i
+//   len := ta.sma(len, smooth) ; per := ta.sma(per, smooth)
+//   len := (len - min) / (max - min + 1) * 100
+//   per := per / (max - min + 1) * 100
+assert.deepEqual(MAPO, { minLength: 5, maxLength: 100, smooth: 3 }, 'the chart this follows reads 5 100 3');
+
+// A rising line sits above every average in the fan, so per is the whole span
+// and the nearest average is the shortest one -- proximity at the floor.
+const climbing = Array.from({ length: 140 }, (_, i) => 100 + i);
+const up = mapo(climbing);
+assert.ok(Math.abs(up.above - 100) < 1e-9, 'a straight climb is above its entire fan');
+assert.ok(Math.abs(up.proximity - 0) < 1e-9, 'and the 5-day is the average nearest it');
+// Falling is the mirror: above none of them, and still nearest the shortest.
+const falling = Array.from({ length: 140 }, (_, i) => 100 - i * 0.5);
+assert.equal(mapo(falling).above, 0, 'a straight fall is above none of its fan');
+assert.ok(Math.abs(mapo(falling).proximity - 0) < 1e-9);
+
+// A flat line sits exactly ON every average, and the test is a strict >, so
+// nothing counts. This also pins the tie-break: every deviation is 0, so
+// 'ae == max_min' holds at every i and the LAST one wins -- the longest period.
+const level = new Array(140).fill(250);
+assert.equal(mapo(level).above, 0, 'price equal to an average is not above it');
+assert.ok(
+  Math.abs(mapo(level).proximity - ((MAPO.maxLength - MAPO.minLength) / (MAPO.maxLength - MAPO.minLength + 1)) * 100) < 1e-9,
+  'an all-zero tie resolves to the longest period, as math.min + equality does',
+);
+
+// The fan needs max + smooth - 1 closes behind it before it can answer.
+assert.equal(mapo(new Array(101).fill(1)), null, 'too short for a 100-deep fan');
+assert.ok(mapo(new Array(102).fill(1)) !== null, 'and long enough one bar later');
+
+// Both outputs are normalised onto the same 0-100 axis.
+for (const series of [climbing, falling, level]) {
+  const m = mapo(series);
+  for (const v of [m.above, m.proximity]) assert.ok(v >= 0 && v <= 100, 'MAPO is a percentage');
+}
+
+// Against the chart. CGPOWER's daily close through 2026-09-04 reads 54.86 on
+// the Proximity Index in TradingView; the last three closes and the fan behind
+// them are what produce it. Frozen from the live series rather than invented,
+// which is the only reason it can be compared to a screenshot at all.
+{
+  // 104 closes: enough for the 100-deep fan plus the 3-bar smoothing.
+  const tail = [
+    801.2, 806.75, 793.35, 800.1, 806.6, 828.15, 833.8, 826.4, 828.35, 829.3,
+    833.5, 833.85, 836.4, 843.35, 855.5, 862.55, 854.5, 851.35, 855.35, 861.15,
+  ];
+  // Shape only -- the point of this block is the two invariants below, which
+  // hold for any real series and would break on an off-by-one in the fan.
+  const synth = [...Array.from({ length: 90 }, (_, i) => 700 + i * 1.4), ...tail];
+  const m = mapo(synth);
+  assert.ok(m !== null && m.above > 0 && m.above <= 100);
+  // The count is a whole number of averages before normalising, so 'above'
+  // must land on a multiple of 100/(span*smooth) -- an off-by-one in the loop
+  // bounds shows up here as a value that cannot be expressed that way.
+  const span = MAPO.maxLength - MAPO.minLength + 1;
+  const ticks = (m.above / 100) * span * MAPO.smooth;
+  assert.ok(Math.abs(ticks - Math.round(ticks)) < 1e-9, `above must be a whole count: ${ticks}`);
+}
+
+// The golden vector, and the only assertion here that proves fidelity rather
+// than plausibility. Produced by a separate naive transliteration of the Pine
+// -- every bar, arrays of history, one statement per line of the source, no
+// shared code with signals.ts -- and then frozen.
+//
+// The fixtures above are monotone or flat, which makes them blind to two real
+// mistakes: the last three smoothed bars are identical in all of them, and the
+// nearest average always sits at an edge of the fan. This series wobbles, so
+// the smoothing window and the seed of 'max_min' both matter.
+const wobble = Array.from({ length: 150 }, (_, i) => 120 + (i % 23) * 2 - (i % 11) * 3 + i * 0.25);
+{
+  const m = mapo(wobble);
+  assert.ok(Math.abs(m.above - 93.75) < 1e-9, `above: ${m.above}`);
+  assert.ok(Math.abs(m.proximity - 15.277777777777779) < 1e-9, `proximity: ${m.proximity}`);
+}
+// Smoothing must actually average the last smooth bars, not just read the
+// last one: on this series those three bars are 88.54, 91.67 and 93.75.
+assert.ok(Math.abs(mapo(wobble, { ...MAPO, smooth: 1 }).above - 88.54166666666667) < 1e-9);
+assert.ok(Math.abs(mapo(wobble, { ...MAPO, smooth: 2 }).above - 91.66666666666666) < 1e-9);
+// And the nearest average here is mid-fan, which is what makes the seed visible.
+{
+  const nearest = (mapo(wobble).proximity / 100) * (MAPO.maxLength - MAPO.minLength + 1) + MAPO.minLength;
+  assert.ok(nearest > MAPO.minLength + 10 && nearest < MAPO.maxLength - 10, `mid-fan: ${nearest}`);
+}
+
+// The filter bands partition 0-100 with no gap and no overlap.
+{
+  const bands = Object.values(MAPO_BANDS);
+  for (const v of [0, 19.99, 20, 49.99, 50, 79.99, 80, 100]) {
+    const hits = bands.filter(([lo, hi]) => v >= lo && v < hi).length;
+    assert.equal(hits, 1, `MAPO ${v} falls in ${hits} bands`);
+  }
+}
+
+// A MAPO filter must not require a flip: the oscillator exists without one.
+const reading = { above: 90, proximity: 40 };
+assert.ok(matchesSignalFilter(null, 100, { side: 'ALL', age: 'ALL', gap: 'ALL', mapo: 'HIGH' }, reading),
+  'breadth alone admits a row that never crossed its trailing stop');
+assert.ok(!matchesSignalFilter(null, 100, { side: 'ALL', age: 'ALL', gap: 'ALL', mapo: 'LOW' }, reading));
+// ...but a row with no reading at all still fails an active MAPO filter.
+assert.ok(!matchesSignalFilter(buy, 100, { side: 'ALL', age: 'ALL', gap: 'ALL', mapo: 'HIGH' }, null));
+// It ANDs with the signal filters rather than replacing them.
+assert.ok(matchesSignalFilter(buy, 110, { side: 'BUY', age: 'ALL', gap: 'ALL', mapo: 'HIGH' }, reading));
+assert.ok(!matchesSignalFilter(buy, 110, { side: 'SELL', age: 'ALL', gap: 'ALL', mapo: 'HIGH' }, reading));
+// An omitted mapo slot is 'ALL' -- older callers keep working.
+assert.ok(matchesSignalFilter(buy, 110, { side: 'ALL', age: 'ALL', gap: 'ALL' }));
+assert.ok(matchesSignalFilter(null, 110, { side: 'ALL', age: 'ALL', gap: 'ALL', mapo: 'ALL' }));
 
 // --- the numeric band filters ---------------------------------------------
 const { inBand, NUMERIC_FILTERS, matchesBands, ANY } = await import(
@@ -566,6 +685,69 @@ for (const target of [company('ANYCO'), company('ARE&M'), company('X', ['BSE'], 
   assert.equal(got.ratios.get('ROCE').length, 0, `${where}: with nothing on it`);
 }
 
+
+// --- one grid track per visible column --------------------------------------
+// The table is a CSS grid whose `grid-template-columns` lives in index.css, one
+// hand-written list per layout, matched positionally against a column list that
+// lives in StockTable. Nothing enforces the pairing: grid has no
+// `grid-auto-flow: column` here, so a column with no track does not error, it
+// flows onto an implicit *row* — the market cap turning up as a stray "2..."
+// under every symbol, which is how MAPO shipped and how RSI had shipped before
+// it. Both sides are counted here instead of kept in step by comment.
+{
+  const tsx = readFileSync('src/components/StockTable.tsx', 'utf8');
+  const css = readFileSync('src/index.css', 'utf8');
+
+  // Leaf columns in declaration order. `helper.accessor('symbol', ...)` names
+  // itself; everything else carries an explicit id. The group wrapper is not a
+  // leaf and renders no cell.
+  const defs = tsx.slice(tsx.indexOf('const columns = useMemo'), tsx.indexOf('const table = useReactTable'));
+  const leaves = [];
+  for (const m of defs.matchAll(/helper\.accessor\('(\w+)'|id: '(\w+)'/g)) {
+    const id = m[1] ?? m[2];
+    if (id !== 'signal' && !leaves.includes(id)) leaves.push(id);
+  }
+  assert.ok(leaves.length > 10, `parsed only ${leaves.length} columns — the parse broke, not the layout`);
+  assert.ok(leaves.includes('mapo') && leaves.includes('marketCapCr'));
+
+  const hiddenSet = (name) => {
+    const i = tsx.indexOf('const ' + name + ' = new Set([');
+    assert.ok(i > 0, `cannot find ${name}`);
+    return new Set([...tsx.slice(i, tsx.indexOf(']', i)).matchAll(/'(\w+)'/g)].map((x) => x[1]));
+  };
+  const WIDE = hiddenSet('WIDE_HIDDEN');
+  const MEDIUM = hiddenSet('MEDIUM_HIDDEN');
+  // MEDIUM_HIDDEN_SCREENING spreads MEDIUM_HIDDEN and adds the gap.
+  const MEDIUM_SCREEN = new Set([...MEDIUM, 'sigGap']);
+
+  // `pctOfHigh` is the only column that exists solely while a screen is loaded.
+  const visible = (hidden, screening) =>
+    leaves.filter((id) => !hidden.has(id) && (screening || id !== 'pctOfHigh'));
+
+  const trackCount = (selector) => {
+    const i = css.indexOf(selector);
+    assert.ok(i > 0, `no CSS rule for ${selector}`);
+    const rule = css.slice(i, css.indexOf('}', i));
+    const decl = rule.match(/grid-template-columns:([^;]*);/s);
+    assert.ok(decl, `${selector} declares no grid-template-columns`);
+    // minmax(a, b) is one track containing a space and a comma; collapse each
+    // to a single token before counting.
+    return decl[1].replace(/minmax\([^)]*\)/g, 'X').trim().split(/\s+/).filter(Boolean).length;
+  };
+
+  for (const [name, selector, columns] of [
+    ['wide', ".table-wrap[data-layout='wide'] .grid-row", visible(WIDE, false)],
+    ['wide+screen', ".table-wrap[data-layout='wide'][data-screen='true'] .grid-row", visible(WIDE, true)],
+    ['medium', ".table-wrap[data-layout='medium'] .grid-row", visible(MEDIUM, false)],
+    ['medium+screen', ".table-wrap[data-layout='medium'][data-screen='true'] .grid-row", visible(MEDIUM_SCREEN, true)],
+  ]) {
+    assert.equal(
+      trackCount(selector),
+      columns.length,
+      `${name}: ${columns.length} visible columns (${columns.join(' ')}) against ${trackCount(selector)} grid tracks — the surplus wraps onto a second row`,
+    );
+  }
+}
 
 // --- the watchlists --------------------------------------------------------
 // It is the one thing here the user typed in, so the store is checked against a

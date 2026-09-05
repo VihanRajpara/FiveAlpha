@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchSignal, peekSignal, type Signal } from '../lib/signals';
+import { fetchReading, peekReading, type Mapo, type Signal } from '../lib/signals';
 
 /**
  * The UT Bot signal for one ticker, fetched on first sight.
@@ -11,25 +11,33 @@ import { fetchSignal, peekSignal, type Signal } from '../lib/signals';
  *
  * A failed request reads as "no signal" here and is not cached, so the next
  * time the row scrolls into view it is asked for again.
+ *
+ * Returns the MAPO reading alongside, because it rides the same request: the
+ * oscillator is computed from bars `latestSignal` had already fetched, so a
+ * separate hook for it would double the traffic to buy nothing.
  */
-export function useSignal(ticker: string): { signal: Signal | null; loaded: boolean } {
+export function useSignal(ticker: string): {
+  signal: Signal | null;
+  mapo: Mapo | null;
+  loaded: boolean;
+} {
   const [state, setState] = useState(() => {
-    const cached = peekSignal(ticker);
-    return { signal: cached ?? null, loaded: cached !== undefined };
+    const cached = peekReading(ticker);
+    return { signal: cached?.signal ?? null, mapo: cached?.mapo ?? null, loaded: cached !== undefined };
   });
 
   useEffect(() => {
-    const cached = peekSignal(ticker);
+    const cached = peekReading(ticker);
     if (cached !== undefined) {
-      setState({ signal: cached, loaded: true });
+      setState({ ...cached, loaded: true });
       return;
     }
 
     let alive = true;
-    setState({ signal: null, loaded: false });
-    fetchSignal(ticker).then(
-      (signal) => alive && setState({ signal, loaded: true }),
-      () => alive && setState({ signal: null, loaded: true }),
+    setState({ signal: null, mapo: null, loaded: false });
+    fetchReading(ticker).then(
+      (reading) => alive && setState({ ...reading, loaded: true }),
+      () => alive && setState({ signal: null, mapo: null, loaded: true }),
     );
     return () => {
       alive = false;

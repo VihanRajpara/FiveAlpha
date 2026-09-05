@@ -311,26 +311,50 @@ export interface SignalFilter {
   gap: string;
   /** A key of `SIGNAL_SCORE_MIN`, or `'ALL'`. Absent counts as `'ALL'`. */
   score?: string;
+  /** A key of `MAPO_BANDS`, or `'ALL'`. Absent counts as `'ALL'`. */
+  mapo?: string;
 }
 
 /** True when nothing in the filter would reject anything. */
 export const signalFilterIsEmpty = (f: SignalFilter) =>
-  f.side === 'ALL' && f.age === 'ALL' && f.gap === 'ALL' && (f.score ?? 'ALL') === 'ALL';
+  f.side === 'ALL' &&
+  f.age === 'ALL' &&
+  f.gap === 'ALL' &&
+  (f.score ?? 'ALL') === 'ALL' &&
+  (f.mapo ?? 'ALL') === 'ALL';
 
 /**
- * Does one row's signal pass the side, age, gap and score filters?
+ * Does one row pass the side, age, gap, score and MAPO filters?
  *
- * A row with no signal — never fetched, or a history too short for one — fails
- * any active filter rather than passing it. Filtering on the signal is asking
- * for rows whose signal says something, and a row that has nothing to say is
- * not an answer.
+ * A row with no reading — never fetched, or a history too short for one — fails
+ * any active filter rather than passing it. Filtering is asking for rows that
+ * say something, and a row with nothing to say is not an answer.
+ *
+ * The MAPO band is tested **before** the flip is required, because the two are
+ * independent: a name that has not crossed its trailing stop in two years still
+ * has an oscillator reading, and filtering on breadth alone must not silently
+ * drop it for lacking a signal it was never asked about.
  */
 export function matchesSignalFilter(
   signal: Signal | null | undefined,
   price: number | null | undefined,
   filter: SignalFilter,
+  mapoReading?: Mapo | null,
 ): boolean {
   if (signalFilterIsEmpty(filter)) return true;
+
+  const mapoBand = filter.mapo ? MAPO_BANDS[filter.mapo] : undefined;
+  if (mapoBand && (!mapoReading || mapoReading.above < mapoBand[0] || mapoReading.above >= mapoBand[1])) {
+    return false;
+  }
+
+  // Everything below is a property of the flip, so past here one is required.
+  const wantsSignal =
+    filter.side !== 'ALL' ||
+    filter.age !== 'ALL' ||
+    filter.gap !== 'ALL' ||
+    (filter.score ?? 'ALL') !== 'ALL';
+  if (!wantsSignal) return true;
   if (!signal) return false;
 
   if (filter.side !== 'ALL' && signal.side !== filter.side) return false;
@@ -693,6 +717,133 @@ export function latestSignal(rawBars: Candle[], cfg = UT_BOT): Signal | null {
 }
 
 /**
+ * Moving Averages Proximity Oscillator [LuxAlgo] — `MAPO [LuxAlgo] 5 100 3 close`,
+ * transcribed from its Pine v5 source.
+ *
+ * A fan of simple moving averages from `minLength` to `maxLength`, and two
+ * readings taken against it every bar:
+ *
+ *   · `above` — Pine's `per`, "Price Above MA's". How many of the 96 averages
+ *     the close is currently above, as a percentage. The **histogram**, drawn
+ *     teal over 50 and red under it. A trend-breadth reading: 100 means the
+ *     close is above every average from the 5-day to the 100-day.
+ *   · `proximity` — Pine's `len`, "Proximity Index". *Which* average sits
+ *     nearest the close, rescaled onto the same 0–100 axis. The **blue line**.
+ *     It says nothing about direction — a price hugging its 100-day reads high
+ *     whether it is above or below — so it is context, not a signal.
+ *
+ * Both are smoothed by `ta.sma(·, smooth)` and then normalised, in that order.
+ *
+ * Free to compute: `latestSignal` has already fetched these bars, so this costs
+ * no request. The cumulative-sum trick is Pine's own and is what makes a
+ * 96-deep fan affordable — each average is O(1) rather than O(period).
+ *
+ * Checked against the chart: CGPOWER on 2026-09-04 reads `proximity` **54.86**
+ * here and 54.86 on TradingView. `above` comes out 42.01 against 41.67, which
+ * is one count of ninety-six on one of the three smoothed bars — a single close
+ * where Yahoo and TradingView disagree, not a difference in the arithmetic.
+ */
+export const MAPO = {
+  /** `min`. The script's own default is 10; the chart this follows uses 5. */
+  minLength: 5,
+  /** `max`. */
+  maxLength: 100,
+  /** `smooth` — an SMA over both outputs. The script defaults to 9. */
+  smooth: 3,
+};
+
+/** The script's `hline`s, and the `histbase` between them. */
+export const MAPO_HIGH = 80;
+export const MAPO_MID = 50;
+export const MAPO_LOW = 20;
+
+export interface Mapo {
+  /** `per` normalised: percent of the fan the close is above. 0–100. */
+  above: number;
+  /** `len` normalised: where the nearest average sits in the fan. 0–100. */
+  proximity: number;
+}
+
+/**
+ * The latest MAPO reading, or null if there are not enough bars for the fan.
+ *
+ * Only the last `smooth` bars are evaluated. Pine computes every bar because a
+ * chart plots every bar; a table needs one number, and 3 bars × 96 averages is
+ * three hundred operations against the forty thousand a full history would be.
+ */
+export function mapo(closes: number[], cfg = MAPO): Mapo | null {
+  const { minLength: min, maxLength: max, smooth } = cfg;
+  const span = max - min + 1;
+  // `sma(n, max)` needs `max` closes behind it, and the smoothing needs
+  // `smooth` such bars.
+  if (closes.length < max + smooth - 1) return null;
+
+  // `csum = ta.cum(src)`, offset by one so `csum[n + 1]` is the sum through n.
+  const csum = [0];
+  for (let i = 0; i < closes.length; i++) csum.push(csum[i] + closes[i]);
+  /** Pine's `(csum - csum[i]) / i` — the `i`-period average ending at bar `n`. */
+  const sma = (n: number, i: number) => (csum[n + 1] - csum[n + 1 - i]) / i;
+
+  const per: number[] = [];
+  const len: number[] = [];
+
+  for (let n = closes.length - smooth; n < closes.length; n++) {
+    const src = closes[n];
+    // `max_min` is seeded from the i = min average *before* the loop, so the
+    // first iteration always ties and `len` starts at `min` rather than at 0.
+    let maxMin = Math.abs(src - sma(n, min));
+    let nearest = min;
+    let above = 0;
+
+    for (let i = min; i <= max; i++) {
+      const ma = sma(n, i);
+      if (src > ma) above++;
+
+      // Pine assigns `max_min := min(ae, max_min)` and then takes `i` whenever
+      // `ae == max_min`, so an exact tie moves to the *later* period. A strict
+      // `<` would keep the earlier one and quietly disagree with the chart.
+      const ae = Math.abs(src - ma);
+      if (ae <= maxMin) {
+        maxMin = ae;
+        nearest = i;
+      }
+    }
+
+    per.push(above);
+    len.push(nearest);
+  }
+
+  // Smoothed first, normalised second — the order the script uses.
+  const smoothed = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length;
+  return {
+    above: (smoothed(per) / span) * 100,
+    proximity: ((smoothed(len) - min) / span) * 100,
+  };
+}
+
+/** Filter presets on `above`, `[min, max)`, cut at the script's own levels. */
+export const MAPO_BANDS: Record<string, [number, number]> = {
+  HIGH: [MAPO_HIGH, Infinity],
+  UPPER: [MAPO_MID, MAPO_HIGH],
+  LOWER: [MAPO_LOW, MAPO_MID],
+  LOW: [-Infinity, MAPO_LOW],
+};
+
+/**
+ * Everything computed from one symbol's bars, cached as a unit.
+ *
+ * MAPO does not depend on the UT Bot having flipped, so it cannot live inside
+ * `Signal`: a name with no crossing in two years still has a breadth reading,
+ * and burying it in a nullable signal would hide it. They share a record
+ * because they share the request, and because caching them apart would let the
+ * two halves of one answer expire at different moments.
+ */
+export interface Reading {
+  signal: Signal | null;
+  mapo: Mapo | null;
+}
+
+/**
  * One chart request per symbol, kept for the trading day.
  *
  * Requested per visible cell rather than per row in the table, so a page of 50
@@ -722,8 +873,11 @@ try {
   // Private mode, storage disabled, quota games — nothing to clean up then.
 }
 
-const store = dayCache<Signal | null>('utbot-v2', {
-  encode: (s) =>
+const store = dayCache<Reading>('utbot-v2', {
+  // A pair, so the outer length is also the version check: every entry written
+  // before MAPO existed is a bare tuple or a 0 and is rejected below rather
+  // than read back as a reading with no oscillator in it.
+  encode: ({ signal: s, mapo: m }) => [
     s === null
       ? 0
       : [
@@ -738,8 +892,21 @@ const store = dayCache<Signal | null>('utbot-v2', {
           s.history ? [s.history.trades, s.history.wins, s.history.avgPct] : 0,
           s.score,
         ],
-  decode: (raw) => {
-    if (raw === 0) return null;
+    m === null ? 0 : [m.above, m.proximity],
+  ],
+  decode: (stored) => {
+    if (!Array.isArray(stored) || stored.length !== 2) return undefined;
+    const [raw, rawMapo] = stored;
+
+    const mapoPart: Mapo | null =
+      rawMapo === 0
+        ? null
+        : Array.isArray(rawMapo) && rawMapo.length === 2
+          ? { above: rawMapo[0] as number, proximity: rawMapo[1] as number }
+          : (undefined as unknown as Mapo);
+    if (mapoPart === undefined) return undefined;
+
+    if (raw === 0) return { signal: null, mapo: mapoPart };
     // Length is the version check: an entry written before the context existed
     // is rejected and refetched rather than read as a signal with no stop.
     if (!Array.isArray(raw) || raw.length !== 10) return undefined;
@@ -756,32 +923,43 @@ const store = dayCache<Signal | null>('utbot-v2', {
       number,
     ];
     return {
-      side: side === 1 ? 'BUY' : 'SELL',
-      price,
-      date,
-      age,
-      stop,
-      trend,
-      volumeRatio,
-      turnover,
-      history: Array.isArray(history)
-        ? { trades: history[0], wins: history[1], avgPct: history[2] }
-        : null,
-      // Never stored — see `fetchSignal`, which does not cache one.
-      provisional: false,
-      score,
+      signal: {
+        side: side === 1 ? 'BUY' : 'SELL',
+        price,
+        date,
+        age,
+        stop,
+        trend,
+        volumeRatio,
+        turnover,
+        history: Array.isArray(history)
+          ? { trades: history[0], wins: history[1], avgPct: history[2] }
+          : null,
+        // Never stored — see `fetchReading`, which does not cache one.
+        provisional: false,
+        score,
+      },
+      mapo: mapoPart,
     };
   },
 });
 
 const gate = createGate(8);
-const inflight = new Map<string, Promise<Signal | null>>();
+const inflight = new Map<string, Promise<Reading>>();
 
 /** A cached answer if there is one, without starting a fetch. */
-export const peekSignal = (ticker: string): Signal | null | undefined => store.get(ticker);
+export const peekReading = (ticker: string): Reading | undefined => store.get(ticker);
 
-export function fetchSignal(ticker: string): Promise<Signal | null> {
-  if (store.has(ticker)) return Promise.resolve(store.get(ticker) ?? null);
+/** The flip alone, for the callers that only want that. */
+export const peekSignal = (ticker: string): Signal | null | undefined =>
+  store.get(ticker)?.signal;
+
+/** The oscillator alone. Present even where there is no flip to show. */
+export const peekMapo = (ticker: string): Mapo | null | undefined => store.get(ticker)?.mapo;
+
+export function fetchReading(ticker: string): Promise<Reading> {
+  const cached = store.get(ticker);
+  if (cached !== undefined) return Promise.resolve(cached);
 
   const hit = inflight.get(ticker);
   if (hit) return hit;
@@ -789,12 +967,14 @@ export function fetchSignal(ticker: string): Promise<Signal | null> {
   const pending = gate(() => fetchYahooBars(ticker, RANGE, INTERVAL))
     .then((bars) => {
       const signal = latestSignal(bars);
+      const reading: Reading = { signal, mapo: mapo(cleanBars(bars).map((b) => b.close as number)) };
       // A flip on a bar that is still trading is the one answer here that is
       // not settled for the day: it can be gone by the close. Caching it would
-      // freeze a maybe into a verdict until midnight.
-      if (!signal?.provisional) store.set(ticker, signal);
+      // freeze a maybe into a verdict until midnight — and MAPO reads the same
+      // unfinished close, so the pair is withheld together or not at all.
+      if (!signal?.provisional) store.set(ticker, reading);
       inflight.delete(ticker);
-      return signal;
+      return reading;
     })
     // A failed request is not an answer — drop it so the next look retries.
     .catch((err) => {
@@ -805,3 +985,8 @@ export function fetchSignal(ticker: string): Promise<Signal | null> {
   inflight.set(ticker, pending);
   return pending;
 }
+
+/** Back-compat for callers that only care about the flip. */
+export const fetchSignal = (ticker: string): Promise<Signal | null> =>
+  fetchReading(ticker).then((r) => r.signal);
+

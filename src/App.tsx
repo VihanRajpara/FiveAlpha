@@ -12,7 +12,11 @@ import { useSignals } from './hooks/useSignals';
 import { SCREENS } from './lib/screens';
 import {
   SIGNAL_FILTER_MAX,
+  MAPO_HIGH,
+  MAPO_LOW,
+  MAPO_MID,
   matchesSignalFilter,
+  peekMapo,
   peekSignal,
   signalFilterIsEmpty,
   type SignalFilter,
@@ -86,9 +90,9 @@ const CAP_FILTER_HINT: Record<CapFilter, string> = {
 };
 
 /**
- * The four signal filters. Their values are the keys `matchesSignalFilter`
- * reads — `SIGNAL_AGE_MAX`, `SIGNAL_GAP_BANDS`, `SIGNAL_SCORE_MIN` — so the
- * thresholds live next to the arithmetic and only the labels live here.
+ * The signal filters. Their values are the keys `matchesSignalFilter` reads —
+ * `SIGNAL_AGE_MAX`, `SIGNAL_GAP_BANDS`, `SIGNAL_SCORE_MIN`, `MAPO_BANDS` — so
+ * the thresholds live next to the arithmetic and only the labels live here.
  */
 const SIGNAL_SIDE_OPTIONS = [
   { value: 'ALL', label: 'Any', hint: 'Both sides of the trailing stop' },
@@ -123,8 +127,21 @@ const SIGNAL_SCORE_OPTIONS = [
   { value: '75', label: '75+', hint: 'With the trend and confirmed — few rows pass this' },
 ];
 
+/**
+ * MAPO's breadth reading, banded at the oscillator's own `hline`s and its
+ * `histbase`. Independent of the flip: a name that has not crossed its trailing
+ * stop in two years still has a reading, and this filter still admits it.
+ */
+const SIGNAL_MAPO_OPTIONS = [
+  { value: 'ALL', label: 'Any', hint: 'Wherever price sits against its moving averages' },
+  { value: 'HIGH', label: `>${MAPO_HIGH}`, hint: `Above more than ${MAPO_HIGH}% of its 5–100 day averages` },
+  { value: 'UPPER', label: `${MAPO_MID}–${MAPO_HIGH}`, hint: 'Above most of the fan, short of the band' },
+  { value: 'LOWER', label: `${MAPO_LOW}–${MAPO_MID}`, hint: 'Below most of the fan' },
+  { value: 'LOW', label: `<${MAPO_LOW}`, hint: `Below more than ${100 - MAPO_LOW}% of its averages` },
+];
+
 /** The signal columns, which sort off the same fetched cache the filters use. */
-const SIGNAL_SORT_IDS = new Set(['sigSide', 'sigAt', 'sigGap']);
+const SIGNAL_SORT_IDS = new Set(['sigSide', 'sigAt', 'sigGap', 'mapo']);
 
 type BreadthKey = 'up' | 'down' | 'flat' | 'priced';
 
@@ -203,6 +220,7 @@ export default function App({
     age: 'ALL',
     gap: 'ALL',
     score: 'ALL',
+    mapo: 'ALL',
   });
   // The numeric band filters, keyed by `NUMERIC_FILTERS[].key`. One bag rather
   // than a `useState` each: they are all the same shape, and adding the next
@@ -350,7 +368,7 @@ export default function App({
   // has quietly lost rows or stopped ordering them.
   useEffect(() => {
     if (signalFilterAffordable) return;
-    if (signalFilterOn) setSignal({ side: 'ALL', age: 'ALL', gap: 'ALL', score: 'ALL' });
+    if (signalFilterOn) setSignal({ side: 'ALL', age: 'ALL', gap: 'ALL', score: 'ALL', mapo: 'ALL' });
     if (signalSortOn) setSorting([{ id: 'symbol', desc: false }]);
   }, [signalFilterAffordable, signalFilterOn, signalSortOn]);
 
@@ -416,6 +434,14 @@ export default function App({
         disabled: !signalFilterAffordable,
         options: SIGNAL_SCORE_OPTIONS,
         onChange: (v) => setSignal((s) => ({ ...s, score: v })),
+      },
+      {
+        key: 'signalMapo',
+        label: 'MAPO',
+        value: signal.mapo ?? 'ALL',
+        disabled: !signalFilterAffordable,
+        options: SIGNAL_MAPO_OPTIONS,
+        onChange: (v) => setSignal((s) => ({ ...s, mapo: v })),
       },
       // The universe cuts, which the Watchlists section does not have: a list
       // is already a universe, and filtering it by exchange would hide rows
@@ -533,7 +559,7 @@ export default function App({
       // answers — `useSignals` fills the same cache the cells read from, and
       // `signals.version` is what brings us back here as it fills.
       out = out.filter((row) =>
-        matchesSignalFilter(peekSignal(row.ticker), row.quote?.price, signal),
+        matchesSignalFilter(peekSignal(row.ticker), row.quote?.price, signal, peekMapo(row.ticker)),
       );
     }
 

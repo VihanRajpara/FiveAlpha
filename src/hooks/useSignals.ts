@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchSignal, peekSignal } from '../lib/signals';
+import { fetchReading, peekReading } from '../lib/signals';
 import type { SecurityWithQuote } from '../types';
 
 /**
@@ -27,7 +27,7 @@ export function useSignals(
   useEffect(() => {
     if (!enabled) return;
 
-    const missing = rows.filter((r) => peekSignal(r.ticker) === undefined);
+    const missing = rows.filter((r) => peekReading(r.ticker) === undefined);
     if (missing.length === 0) {
       setState((s) => (s.pending === 0 ? s : { ...s, pending: 0 }));
       return;
@@ -38,9 +38,9 @@ export function useSignals(
     setState((s) => ({ version: s.version, pending: left }));
 
     for (const row of missing) {
-      // `fetchSignal` is already gated to 8 in flight, so this loop queues
+      // `fetchReading` is already gated to 8 in flight, so this loop queues
       // rather than opening a socket per row.
-      fetchSignal(row.ticker)
+      fetchReading(row.ticker)
         .catch(() => null)
         .then(() => {
           if (!alive) return;

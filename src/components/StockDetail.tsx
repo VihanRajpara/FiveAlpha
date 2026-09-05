@@ -6,6 +6,10 @@ import type { Candle, ChartRange, Classification, Quote, Security } from '../typ
 import { useSignal } from '../hooks/useSignal';
 import { WatchPicker } from './WatchPicker';
 import {
+  MAPO,
+  MAPO_HIGH,
+  MAPO_LOW,
+  MAPO_MID,
   SIGNAL_RANGE_LABEL,
   UT_BOT,
   formatGap,
@@ -34,7 +38,7 @@ const RANGE_LABEL: Record<ChartRange, string> = {
  * nothing — the answer is in the day-cache.
  */
 function SignalPanel({ ticker, price }: { ticker: string; price: number | null | undefined }) {
-  const { signal, loaded } = useSignal(ticker);
+  const { signal, mapo, loaded } = useSignal(ticker);
 
   const study = `UT Bot on close · ${UT_BOT.keyValue}× ATR ${UT_BOT.atrPeriod}, daily bars`;
 
@@ -62,6 +66,36 @@ function SignalPanel({ ticker, price }: { ticker: string; price: number | null |
         <h3>Signal</h3>
         <span className="sig-study">{study}</span>
       </div>
+
+      {/* Its own block, below the flip: MAPO is a second indicator that
+          happens to ride the same request, not another fact about the UT Bot.
+          Shown even where there is no flip, because it does not depend on one. */}
+      {mapo && (
+        <>
+          <p className="sig-study">
+            MAPO [LuxAlgo] {MAPO.minLength} {MAPO.maxLength} {MAPO.smooth} close
+          </p>
+          <dl className="facts">
+            <div className="fact">
+              <dt>MAPO · above</dt>
+              <dd className={`num ${mapo.above > MAPO_MID ? 'up' : 'down'}`}>
+                {mapo.above.toFixed(1)}
+                {mapo.above >= MAPO_HIGH ? ` · over ${MAPO_HIGH}` : mapo.above <= MAPO_LOW ? ` · under ${MAPO_LOW}` : ''}
+              </dd>
+            </div>
+            <div className="fact">
+              <dt>MAPO · proximity</dt>
+              <dd className="num">{mapo.proximity.toFixed(1)}</dd>
+            </div>
+            <div className="fact">
+              <dt>Moving average fan</dt>
+              <dd className="num">
+                {MAPO.minLength}–{MAPO.maxLength}d, smoothed {MAPO.smooth}
+              </dd>
+            </div>
+          </dl>
+        </>
+      )}
 
       {!signal ? (
         <p className="sig-none">

@@ -29,6 +29,11 @@ import {
 } from '../lib/format';
 import {
   SIGNAL_FILTER_MAX,
+  MAPO,
+  MAPO_HIGH,
+  MAPO_LOW,
+  MAPO_MID,
+  peekMapo,
   SIGNAL_RANGE_LABEL,
   UT_BOT,
   formatGap,
@@ -312,7 +317,7 @@ function signalHint(signal: Signal): string {
 }
 
 function SignalStrip({ ticker, price }: { ticker: string; price: number | null | undefined }) {
-  const { signal, loaded } = useSignal(ticker);
+  const { signal, mapo, loaded } = useSignal(ticker);
 
   if (!loaded) {
     return (
@@ -324,7 +329,23 @@ function SignalStrip({ ticker, price }: { ticker: string; price: number | null |
 
   // Stated rather than left blank. A row that simply stopped after the company
   // name read as a row still loading, which is a different thing entirely.
-  if (!signal) return <div className="sig-strip muted">No signal in {SIGNAL_RANGE_LABEL}</div>;
+  const mapoChip = mapo && (
+    <span
+      className={`sig-mapo ${mapo.above > MAPO_MID ? 'up' : 'down'}`}
+      title={`MAPO ${mapo.above.toFixed(1)} — above that share of its ${MAPO.minLength}–${MAPO.maxLength} day averages`}
+    >
+      MAPO {mapo.above.toFixed(0)}
+    </span>
+  );
+
+  if (!signal) {
+    return (
+      <div className="sig-strip muted">
+        <span className="sig-strip-when">No signal in {SIGNAL_RANGE_LABEL}</span>
+        {mapoChip}
+      </div>
+    );
+  }
 
   const gap = signalGapPct(signal, price);
   return (
@@ -346,6 +367,7 @@ function SignalStrip({ ticker, price }: { ticker: string; price: number | null |
         </span>
         {signal.provisional && ' · live'}
       </span>
+      {mapoChip}
     </div>
   );
 }
@@ -376,6 +398,38 @@ function SignalSide({ ticker }: { ticker: string }) {
       {/* Two digits, because a BUY against the trend on no volume is not the
           same row as a BUY with both, and the badge alone said they were. */}
       <span className={`sig-score ${signal.score >= 60 ? 'strong' : ''}`}>{signal.score}</span>
+    </span>
+  );
+}
+
+/**
+ * MAPO's "Price Above MA's", the histogram half of the oscillator.
+ *
+ * The percentage, not the proximity index: breadth ranks a table, and "which
+ * average is nearest" does not. Coloured on the script's own `histbase` of 50
+ * and marked at its `hline`s, so a row reads the same way the pane does.
+ */
+function MapoCell({ ticker }: { ticker: string }) {
+  const { mapo, loaded } = useSignal(ticker);
+  if (!loaded) return <span className="skeleton" />;
+  if (!mapo) return <span className="num muted-dash">—</span>;
+
+  const extreme = mapo.above >= MAPO_HIGH || mapo.above <= MAPO_LOW;
+  return (
+    <span
+      className={`num ${mapo.above > MAPO_MID ? 'up' : 'down'}${extreme ? ' sig-score strong' : ''}`}
+      title={[
+        `MAPO [LuxAlgo] ${MAPO.minLength} ${MAPO.maxLength} ${MAPO.smooth} close`,
+        `Above ${mapo.above.toFixed(1)}% of its ${MAPO.minLength}–${MAPO.maxLength} day averages`,
+        `Nearest average sits at ${mapo.proximity.toFixed(1)} on the 0–100 fan`,
+        mapo.above >= MAPO_HIGH
+          ? `Over ${MAPO_HIGH} — above nearly the whole fan`
+          : mapo.above <= MAPO_LOW
+            ? `Under ${MAPO_LOW} — below nearly the whole fan`
+            : `Between the ${MAPO_LOW}/${MAPO_HIGH} bands`,
+      ].join('\n')}
+    >
+      {mapo.above.toFixed(0)}
     </span>
   );
 }
@@ -598,6 +652,17 @@ export function StockTable({
               ),
             },
           ),
+          // Same request, same day-cache, so this column is free — see `mapo`
+          // in src/lib/signals.ts. It sits in the signal group because it is
+          // read alongside the flip, not because the study produces it.
+          helper.accessor((r) => peekMapo(r.ticker)?.above, {
+            id: 'mapo',
+            header: 'MAPO',
+            enableSorting: signalSortable,
+            sortUndefined: 'last',
+            sortingFn: numericSort,
+            cell: (ctx) => <MapoCell ticker={ctx.row.original.ticker} />,
+          }),
         ],
       }),
       // The screen's own numbers, appended so they read as an extra section
