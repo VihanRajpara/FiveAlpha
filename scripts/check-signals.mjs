@@ -11,7 +11,7 @@ const out = await build({
   platform: 'node',
   write: false,
 });
-const { hma, atr, latestSignal, signalGapPct, matchesSignalFilter, cleanBars, stopDistancePct, runUtBot } =
+const { hma, atr, latestSignal, signalGapPct, matchesSignalFilter, cleanBars, stopDistancePct, runUtBot, UT_BOT } =
   await import(
   'data:text/javascript;base64,' + Buffer.from(out.outputFiles[0].text).toString('base64')
 );
@@ -23,13 +23,208 @@ assert.equal(h[7], null, 'HMA is null until it has enough bars');
 assert.ok(Math.abs(h[59] - 60) <= 1, `HMA should track a ramp: ${h[59]}`);
 assert.equal(h[59], h[58] + 1, 'and advance one for one with it');
 
+// The source calls round() on both derived lengths, not int(). At the study's
+// own n=31 the two disagree on each -- 16/6 rounded against 15/5 floored -- and
+// the warm-up length is what tells them apart: wma(.,16) first answers at 15,
+// wma(.,31) at 30, so the difference lands at 30 + 6 - 1 = 35 against 34.
+// A curve that starts on the wrong bar is the wrong curve everywhere after it.
+assert.equal(hma(ramp, 31).findIndex((v) => v !== null), 35, 'the sqrt length is rounded, not floored');
+
+// The warm-up only pins round(sqrt(n)); the outer wma(., 31) hides whether the
+// half length is 16 or 15. So pin the value too, on a series curved enough that
+// all four combinations of round/floor across the two lengths disagree:
+//   round/round 149.80  floor/floor 151.62  round/floor 149.99  floor/round 151.44
+// Terms exactly representable in binary, so this is not a transcendental
+// precision test wearing a hat.
+const curved = Array.from({ length: 70 }, (_, i) => 100 + (i % 17) * 3 - (i % 7) * 5 + i * 0.5);
+assert.ok(
+  Math.abs(hma(curved, 31).at(-1) - 149.80185461281286) < 1e-9,
+  'both HMA lengths are rounded: got ' + hma(curved, 31).at(-1),
+);
+
 // Every bar ranges 10 and closes mid-range, so both TR and ATR are 10.
 const flat = Array.from({ length: 30 }, (_, i) => ({
   date: `2026-01-${String(i + 1).padStart(2, '0')}`,
   open: 100, high: 105, low: 95, close: 100, volume: 1,
 }));
 assert.ok(Math.abs(atr(flat, 6).at(-1) - 10) < 1e-9, 'ATR of a constant range is that range');
+// Pine seeds rma at index period-1 over that many true ranges, not at index
+// period over period+1 of them.
+assert.equal(atr(flat, 6).findIndex((v) => v !== null), 5, 'the ATR seed lands one bar earlier than it used to');
+assert.equal(atr(flat, 6)[4], null);
 
+// The study runs atr(1), and rma(tr, 1) is tr -- no averaging at all. This is
+// the whole reason cleanBars matters: one bad high IS that bar's stop width.
+const trBars = Array.from({ length: 12 }, (_, i) => ({
+  date: '2026-02-' + String(i + 1).padStart(2, '0'),
+  open: 100 + i, high: 104 + i * 2, low: 96 - i, close: 100 + i, volume: 1,
+}));
+const trOf = (i) =>
+  i === 0
+    ? trBars[0].high - trBars[0].low
+    : Math.max(
+        trBars[i].high - trBars[i].low,
+        Math.abs(trBars[i].high - trBars[i - 1].close),
+        Math.abs(trBars[i].low - trBars[i - 1].close),
+      );
+for (let i = 0; i < trBars.length; i++) {
+  assert.ok(Math.abs(atr(trBars, 1)[i] - trOf(i)) < 1e-12, 'atr(1) must equal TR at bar ' + i);
+}
+
+// --- the golden vector -----------------------------------------------------
+// The one assertion here that proves fidelity rather than plausibility.
+//
+// The expectations below were produced by a separate, deliberately naive
+// transliteration of the Pine source -- arrays of history, one statement per
+// line of the script, no shared code with src/lib/signals.ts -- and then frozen.
+// Everything else in this section is a smoke test that would survive the rule
+// being subtly wrong; this would not. The whole point of the rewrite was that
+// the previous implementation passed every test it had while computing a
+// different study.
+//
+//   xATRTrailingStop := iff(src > nz(stop[1],0) and src[1] > nz(stop[1],0), max(nz(stop[1]), src-nLoss),
+//                       iff(src < nz(stop[1],0) and src[1] < nz(stop[1],0), min(nz(stop[1]), src+nLoss),
+//                       iff(src > nz(stop[1],0), src-nLoss, src+nLoss)))
+//   buy  = crossover(ema(src,1), xATRTrailingStop)   // ema(x,1) == x
+//   sell = crossover(xATRTrailingStop, ema(src,1))
+//
+// 40 bars: a rise, a sharp drop, a recovery -- one crossing each way, and the
+// stop's jump across the source in between.
+const pine = [];
+for (let i = 0, px = 100; i < 40; i++) {
+  px = +(px + (i < 14 ? 2.5 : i < 26 ? -4 : 3.2)).toFixed(4);
+  pine.push({
+    date: '2026-01-' + String(i + 1).padStart(2, '0'),
+    open: px, high: +(px * 1.012).toFixed(4), low: +(px * 0.988).toFixed(4),
+    close: px, volume: 1000,
+  });
+}
+
+// src is close, NOT the HMA -- the defect this vector exists to catch.
+assert.deepEqual(pine.map((b) => b.close).slice(0, 3), [102.5, 105, 107.5]);
+
+for (const [keyValue, atrPeriod, flips, final] of [
+  // The study's own parameters. atr(1) is tr, so nLoss is 6x this bar's range.
+  [6, 1, [[20, 'SELL'], [35, 'BUY']], 103.1104],
+  // A general period, to exercise the rma seed and its recursion.
+  [2, 5, [[15, 'SELL'], [29, 'BUY']], 122.4543422178],
+  // What this file used to compute the ATR side of, for contrast.
+  [1, 6, [[14, 'SELL'], [27, 'BUY']], 127.1312314913],
+]) {
+  const got = runUtBot(pine, { keyValue, atrPeriod, hmaLength: 31 });
+  assert.deepEqual(
+    got.flips.map((f) => [f.index, f.side]), flips,
+    'UT Bot ' + keyValue + 'x ATR ' + atrPeriod + ': flips must match the Pine run',
+  );
+  assert.ok(
+    Math.abs(got.stop - final) < 1e-9,
+    'UT Bot ' + keyValue + 'x ATR ' + atrPeriod + ': trailing stop ended at ' + got.stop + ', expected ' + final,
+  );
+  // Each flip is priced and dated at its own bar, as the chart labels it.
+  for (const f of got.flips) {
+    assert.equal(f.price, pine[f.index].close);
+    assert.equal(f.date, pine[f.index].date);
+  }
+}
+
+// The defaults are the ones read off the chart label, in the source's
+// declaration order: a=6 (key value) then c=1 (ATR period), not the reverse.
+assert.deepEqual(UT_BOT, { keyValue: 6, atrPeriod: 1, hmaLength: 31 });
+assert.deepEqual(
+  runUtBot(pine).flips.map((f) => [f.index, f.side]), [[20, 'SELL'], [35, 'BUY']],
+  'the exported defaults must be the ones the golden vector was cut against',
+);
+
+// A crossover cannot fire twice running, so no position filter is needed and
+// sides must strictly alternate.
+for (const [i, f] of runUtBot(pine).flips.entries()) {
+  if (i > 0) assert.notEqual(f.side, runUtBot(pine).flips[i - 1].side, 'flips alternate');
+}
+
+// Pine's crossover is "src > stop and src[1] <= stop[1]" -- the previous bar
+// may sit exactly ON the stop, and a strict < there loses a real signal.
+//
+// This is not a float-coincidence edge case, it is the circuit lock. A session
+// frozen at one price has high == low == close == the previous close, so its
+// true range is zero; at atr(1) that makes nLoss zero, which puts the trailing
+// stop exactly on the close. The next bar off the lock is then a crossing whose
+// src[1] equals stop[1] to the bit. Over 40,000 random integer walks, 21% of
+// them contain such a bar, and in every one of those a strict < changes the
+// flips -- on NSE small caps the lock is a weekly event, not a curiosity.
+const lockSeries = (closes) =>
+  cleanBars(
+    closes.map((c, i) => {
+      const frozen = i >= 15 && i <= 17;
+      return {
+        date: '2026-03-' + String(i + 1).padStart(2, '0'),
+        open: c, high: frozen ? c : c + 2, low: frozen ? c : c - 2, close: c, volume: 1000,
+      };
+    }),
+  );
+
+// A slide into a lower circuit, three sessions frozen at 80, then the break up.
+const lockedDown = lockSeries([140, 136, 132, 128, 124, 120, 116, 112, 108, 104, 100, 96, 92, 88, 84, 80, 80, 80, 92, 96, 100]);
+assert.equal(lockedDown[16].high, lockedDown[16].low, 'cleanBars must leave a locked session locked');
+assert.deepEqual(
+  runUtBot(lockedDown).flips.map((f) => [f.index, f.side]), [[6, 'SELL'], [18, 'BUY']],
+  'the break off a lower circuit is a crossover: src[1] sits exactly on stop[1]',
+);
+
+// And the mirror, which pins the >= on the crossunder: a rally into an upper
+// circuit, then the break down.
+const lockedUp = lockSeries([60, 64, 68, 72, 76, 80, 84, 88, 92, 96, 100, 104, 108, 112, 116, 120, 120, 120, 108, 104, 100]);
+assert.deepEqual(
+  runUtBot(lockedUp).flips.map((f) => [f.index, f.side]), [[18, 'SELL']],
+  'and the break off an upper circuit is a crossunder',
+);
+
+// --- sessions Yahoo invented ------------------------------------------------
+// The bug that made ADOR read 29 Jun 2026 against the chart's 20 Apr.
+//
+// Yahoo pads NSE holidays with a bar repeating the previous close in all four
+// fields and no volume: 2026-01-15, 05-01, 05-28 and 06-26 in one year, the
+// same dates for every symbol. At atr(1) the zero true range makes nLoss zero,
+// which puts the stop exactly on the close and makes the next real session a
+// crossing whatever it does -- four unrelated names flipped on 29 Jun, two of
+// them in opposite directions, which no market event does.
+//
+// Volume is the discriminator and the two cases must come apart on it alone:
+// the bars below are byte-identical but for that one field.
+const holiday = (volume) => {
+  const bars = [];
+  for (let i = 0, px = 500; i < 40; i++) {
+    if (i === 25) {
+      const p = bars[i - 1].close;
+      bars.push({ date: '2026-05-01', open: p, high: p, low: p, close: p, volume });
+      continue;
+    }
+    px = +(px + 6).toFixed(2);
+    bars.push({
+      date: '2026-04-' + String(i + 1).padStart(2, '0'),
+      open: px, high: +(px * 1.015).toFixed(2), low: +(px * 0.985).toFixed(2), close: px, volume: 50000,
+    });
+  }
+  return bars;
+};
+
+// Nothing traded, so there was no session: the bar goes, and a steady climb
+// that never crossed its stop reports no signal.
+const padded = cleanBars(holiday(0));
+assert.equal(padded.length, 39, 'a zero-range bar with no volume is not a session');
+assert.ok(!padded.some((b) => b.date === '2026-05-01'), 'and it is the holiday that was dropped');
+assert.deepEqual(runUtBot(padded).flips, [], 'an uninterrupted climb has not crossed anything');
+
+// The same bar with trading behind it is a circuit lock, is real, and keeps its
+// place -- and its zero range genuinely does collapse the stop onto the close,
+// so the next session genuinely is a crossing. Faithful, not a bug.
+const lockedRun = cleanBars(holiday(50000));
+assert.equal(lockedRun.length, 40, 'a locked session traded and must keep its bar');
+assert.deepEqual(
+  runUtBot(lockedRun).flips.map((f) => [f.index, f.side]), [[26, 'BUY']],
+  'the break off a lock is a real crossing',
+);
+
+// --- the V and the inverted V ----------------------------------------------
 // A V: 120 bars down to a trough, then 120 back up. The last flip must be a BUY
 // somewhere on the way up, priced at that bar's close.
 const bar = (i, close) => ({
@@ -182,9 +377,11 @@ assert.ok(stopDistancePct(sell, 110) < 0);
 assert.equal(stopDistancePct(signal, null), null, 'an unpriced row has no distance');
 
 // --- context ---------------------------------------------------------------
-// The V recovers above its own 200-day average, so the BUY fires with the trend.
-assert.equal(signal.trend, 1, 'a BUY in an uptrend agrees with it');
-assert.equal(latestSignal(peak).trend, 1, 'as does a SELL in a downtrend');
+// trend is the study's second plot -- the Hull line rising or falling, which is
+// what colours it green or red -- signed by side, so 1 is always agreement.
+// The V is still climbing at its last bar, so the BUY fires with the Hull trend.
+assert.equal(signal.trend, 1, 'a BUY while the Hull line rises agrees with it');
+assert.equal(latestSignal(peak).trend, 1, 'as does a SELL while it falls');
 assert.ok(signal.score >= 0 && signal.score <= 100, 'the score is a percentage');
 assert.equal(typeof signal.provisional, 'boolean');
 // Every bar has volume 1, so the flip bar traded exactly its own average.
@@ -200,6 +397,9 @@ const saw = Array.from({ length: 420 }, (_, i) =>
 );
 const sawSignal = latestSignal(saw);
 assert.ok(sawSignal.history, 'repeated flips give the rule a track record here');
+// Enough bars for the HMA means the Hull trend always has a direction; only a
+// series too short to slope at all scores 0.
+assert.ok([1, -1].includes(sawSignal.trend), 'a full HMA behind a flip always has a direction');
 assert.ok(sawSignal.history.trades >= 3, 'under three round trips it stays null');
 assert.ok(
   sawSignal.history.wins >= 0 && sawSignal.history.wins <= sawSignal.history.trades,

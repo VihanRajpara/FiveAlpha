@@ -4,23 +4,31 @@ import { createGate, isMarketOpen } from './format';
 import { fetchYahooBars } from './yahooCandles';
 
 /**
- * UT Bot on an HMA — the buy/sell leg of the TradingView study labelled
- * `SVMKR_UT_HMA_ORB 6 1 31 5 1010-1015`.
+ * The buy/sell leg of the TradingView study `SVMKR_UT_HMA_ORB 6 1 31 5 1010-1015`,
+ * transcribed from its Pine v4 source rather than inferred from its name.
  *
- * The script itself is private, so what is implemented here is the public
- * arithmetic its name is made of: an ATR trailing stop (UT Bot Alerts) fed by a
- * Hull moving average instead of raw closes. A signal is the bar on which the
- * source crosses its own trailing stop; the "amount" is that bar's close and the
- * "time" is that bar's date.
+ * The study is three independent parts stacked on one chart, and only the first
+ * produces a signal:
  *
- * **The ORB half is not implemented.** An opening-range breakout between 10:10
- * and 10:15 is an intraday rule, and Yahoo carries intraday bars for 60 days at
- * one request per symbol per timeframe — a table of 2,400 rows cannot pay for
- * it. Everything here is computed from daily bars, which is also why the signal
- * carries a date rather than a clock time.
+ *   1. **UT Bot** — an ATR trailing stop on `close`. A signal is the bar on which
+ *      the close crosses that stop. This is the whole of the buy/sell logic.
+ *   2. **A Hull moving average**, plotted and coloured by its own slope. It is an
+ *      *overlay*: `xATRTrailingStop` never reads it. The earlier version of this
+ *      file fed the HMA into the UT Bot as its source, which is a different rule
+ *      from the one on the chart. It survives here only as `trend` — the same
+ *      rising/falling test the script uses to colour the line green or red.
+ *   3. **An opening-range breakout** between 10:10 and 10:15, gated upstream on
+ *      `timeframe.isintraday and timeframe.multiplier <= 5`. On a daily chart
+ *      both its plots are `na`, so it contributes nothing to reproduce. This is
+ *      why the signal carries a date rather than a clock time.
  *
- * The four numbers below are read off that chart label in the order it prints
- * them and are the one thing worth checking against the real script.
+ * A fourth part, `UCS_LRS`, is commented out in the source in its entirety.
+ *
+ * The parameters below come from the chart label, whose five values map onto the
+ * script's inputs in declaration order: `a=6`, `c=1`, `n=31`, `inputMax=5`,
+ * `sess=1010-1015` (the boolean `h` is not printed). The last three match their
+ * declared defaults exactly, which pins the order and settles that `6 1` is the
+ * key value and then the ATR period — not the other way round.
  *
  * ## What the flip on its own does not say
  *
@@ -32,11 +40,13 @@ import { fetchYahooBars } from './yahooCandles';
  *
  *   · **It can repaint.** Mid-session the last daily bar is still moving, so a
  *     flip dated today may not survive the close — `provisional`.
- *   · **One bad tick moves it.** Yahoo's Indian history carries them, an ATR is
- *     a range average, and a single 2× high widens the stop for six bars —
- *     `cleanBars`, the same lesson `technicals.ts` already learned.
- *   · **It ignores the trend it fires against.** A BUY under the 200-day is the
- *     same arithmetic as one above it and not the same signal — `trend`.
+ *   · **One bad tick moves it.** Yahoo's Indian history carries them, and at
+ *     `atr(1)` a bar's own true range *is* the stop distance — one 2× high
+ *     throws the stop by six times a price that never traded — `cleanBars`,
+ *     the same lesson `technicals.ts` already learned.
+ *   · **It ignores the trend it fires into.** A BUY while the Hull line is
+ *     still falling is the same arithmetic as one while it rises and not the
+ *     same signal — `trend`.
  *   · **It ignores who was there.** A cross on a third of average volume is one
  *     participant — `volumeRatio`.
  *   · **It ignores whether the name can be traded at all** — `turnover`.
@@ -49,24 +59,53 @@ import { fetchYahooBars } from './yahooCandles';
  * with the chart. It is context carried alongside, folded into one `score`.
  */
 export const UT_BOT = {
-  /** ATR lookback, Wilder-smoothed. */
-  atrPeriod: 6,
-  /** UT Bot's "key value" — the ATR multiple the trailing stop sits away by. */
-  keyValue: 1,
-  /** Hull moving average length, used as the source instead of `close`. */
+  /**
+   * `a` — the ATR multiple the trailing stop sits away by, and the only knob
+   * the script's own input label calls "sensitivity".
+   *
+   * Six of them against a one-bar ATR is a stop roughly a tenth of the price
+   * away on a typical NSE name. That is a wide, slow trend follower: it is
+   * meant to sit through the noise a 1×ATR(6) stop would trade against.
+   */
+  keyValue: 6,
+  /**
+   * `c` — ATR lookback, Wilder-smoothed.
+   *
+   * One. Pine's `rma(tr, 1)` is `tr` itself, so there is no averaging here at
+   * all: the stop distance is six times *this bar's* true range. Which is why
+   * `cleanBars` is not optional.
+   */
+  atrPeriod: 1,
+  /**
+   * `n` — Hull moving average length.
+   *
+   * Plotted by the script, read by nothing in it. Used here only for `trend`.
+   */
   hmaLength: 31,
 };
 
-/** Daily bars are enough for a 31-period HMA several times over. */
-const RANGE = '1y';
+/**
+ * Two years of daily bars, set by measurement rather than by taste.
+ *
+ * A 6×ATR(1) stop is roughly a tenth of the price wide, so this rule flips
+ * about **5 times a year** per name — and `history` needs `MIN_TRADES` closed
+ * round trips, which is four flips. Over nineteen NSE large- and mid-caps a one
+ * year window left **6 of 19** with no track record at all (one name flipped
+ * once); two years leaves none.
+ *
+ * It is the same single Yahoo request either way — the window is a query
+ * parameter — so the cost is response size, not round trips. The measurement
+ * that first said a year was enough was taken before `cleanBars` learned to
+ * drop Yahoo's holiday bars, and was counting phantom flips.
+ */
+const RANGE = '2y';
+
+/** How far back `history` looks, for the places that have to say so. */
+export const SIGNAL_RANGE_LABEL = '2y';
 const INTERVAL = '1d';
 
 /** Volume and turnover are averaged over a month of sessions. */
 const VOL_WINDOW = 20;
-
-/** The trend a signal is judged against, longest available of the two. */
-const TREND_FAST = 50;
-const TREND_SLOW = 200;
 
 /**
  * Median daily turnover below which a signal is not actionable, in rupees.
@@ -98,7 +137,7 @@ const SPIKE_RATIO = 2;
  */
 export const SCORE = {
   base: 50,
-  /** Fires with the 200-day trend, or against it. */
+  /** Fires with the Hull line's own direction, or against it. */
   trend: 20,
   /** Flip bar traded at least `VOLUME_STRONG`× its 20-bar average. */
   volume: 10,
@@ -113,19 +152,25 @@ export const SCORE = {
 };
 
 /**
- * Measured, not assumed. Over the 156 flips this rule produced in a year of
- * daily bars across twenty NSE large- and mid-caps, flip-bar volume against its
- * own 20-bar average ran: median **0.90**, quartiles 0.68 / 1.23, max 3.73.
+ * Measured, not assumed. Re-measured 2026-09-05 against the corrected rule, over
+ * the 197 flips it produced in two years of daily bars across nineteen NSE
+ * large- and mid-caps: flip-bar volume against its own 20-bar average ran median
+ * **1.34**, quartiles 0.94 / 1.98, p90 2.98.
  *
- * Below one is the interesting part and it is structural rather than a fault:
- * the source is a 31-period HMA, so the crossing lands several bars *after* the
- * thrust that caused it and the flip bar is a quiet one by construction. Which
- * is why these are set where they are — 1.5 marks the 15% of flips that still
- * carried real participation, 0.7 the 26% that had none at all — and why the
- * band between them scores nothing rather than being interpolated. A cutoff at
- * 1.0 would have called two flips in three "weak".
+ * The previous pair (1.5 / 0.7) was measured against the HMA-sourced rule, whose
+ * median was **0.90** — below one, because a 31-period HMA crosses several bars
+ * *after* the thrust that caused it and the flip bar was quiet by construction.
+ * On `close` the crossing lands on the thrust itself and the whole distribution
+ * moves up, which retired both the number and the reasoning: at 1.5, 40% of
+ * flips now count as strong, and a bonus two flips in five collect is not a
+ * distinction.
+ *
+ * So: 2.0 marks the 24% that traded at twice their own month, just clear of the
+ * upper quartile; 0.7 the 10% that had nobody, well under the lower one. The
+ * 66% between them scores nothing rather than being interpolated — the band is
+ * the ordinary case and the score should be silent about it.
  */
-const VOLUME_STRONG = 1.5;
+const VOLUME_STRONG = 2;
 const VOLUME_THIN = 0.7;
 
 /** Completed round trips needed before a symbol's own hit rate means anything. */
@@ -151,8 +196,13 @@ export interface Signal {
    * The flip fires with the prevailing trend (`1`), against it (`-1`), or the
    * history is too short to have one (`0`).
    *
-   * Latest close against the 200-day average of closes, or the 50-day where
-   * there are not 200 bars. Signed by side, so `1` always means agreement.
+   * The trend is the study's own second plot: `c1 = n1 > n1[1]`, the Hull
+   * moving average rising or falling, which is what colours that line green or
+   * red on the chart. Signed by side, so `1` always means agreement.
+   *
+   * It was the 200-day SMA, which is a perfectly good regime filter and not one
+   * the chart shows. Since the HMA stopped feeding the signal there is no reason
+   * to prefer an indicator the user cannot see over the one they can.
    */
   trend: 1 | 0 | -1;
   /**
@@ -323,39 +373,53 @@ function wma(values: (number | null)[], len: number): (number | null)[] {
 }
 
 /**
- * `wma(2 * wma(src, n/2) - wma(src, n), sqrt(n))`, Hull's definition.
+ * `wma(2 * wma(src, round(n/2)) - wma(src, n), round(sqrt(n)))`, as the script
+ * writes it.
  *
- * Both derived lengths are floored, which is what Pine's `int()` does — rounding
- * instead moves a 9-period HMA by a third of a bar's worth of lag, and the point
- * of this file is to agree with a chart.
+ * Both derived lengths are **rounded**, not floored. This file previously
+ * floored them on the reasoning that Pine's `int()` truncates — true of
+ * `int()`, but the source calls `round()`, and at n=31 the two disagree on
+ * both: 16 vs 15 and 6 vs 5. Which is a different curve, and the point of this
+ * file is to agree with a chart.
  */
 export function hma(values: (number | null)[], len: number): (number | null)[] {
-  const half = wma(values, Math.max(1, Math.floor(len / 2)));
+  const half = wma(values, Math.max(1, Math.round(len / 2)));
   const full = wma(values, len);
   const raw = values.map((_, i) =>
     half[i] === null || full[i] === null ? null : 2 * (half[i] as number) - (full[i] as number),
   );
-  return wma(raw, Math.max(1, Math.floor(Math.sqrt(len))));
+  return wma(raw, Math.max(1, Math.round(Math.sqrt(len))));
 }
 
-/** Wilder's ATR. Bars must carry high/low/close — see `cleanBars`. */
+/**
+ * Pine's `atr(period)`, which is `rma(tr, period)`. Bars must carry
+ * high/low/close — see `cleanBars`.
+ *
+ * The seed is `sma(tr, period)` and it lands at index `period - 1`, over
+ * `period` true ranges. An earlier version seeded at index `period` over
+ * `period + 1` of them, which is off by one bar for the whole series and, at
+ * the `period = 1` this study actually uses, is the difference between an
+ * average of two bars and the identity: `rma(tr, 1)` is `tr`.
+ */
 export function atr(bars: Candle[], period: number): (number | null)[] {
   const out: (number | null)[] = new Array(bars.length).fill(null);
-  if (bars.length <= period) return out;
+  if (bars.length < period) return out;
 
   const trueRange = (i: number) => {
     const { high, low } = bars[i] as { high: number; low: number };
+    // Pine's `tr` at bar 0 is `high - low`: there is no previous close to gap
+    // against.
     if (i === 0) return high - low;
     const prev = bars[i - 1].close as number;
     return Math.max(high - low, Math.abs(high - prev), Math.abs(low - prev));
   };
 
   let sum = 0;
-  for (let i = 0; i <= period; i++) sum += trueRange(i);
-  let value = sum / (period + 1);
-  out[period] = value;
+  for (let i = 0; i < period; i++) sum += trueRange(i);
+  let value = sum / period;
+  out[period - 1] = value;
 
-  for (let i = period + 1; i < bars.length; i++) {
+  for (let i = period; i < bars.length; i++) {
     value = (value * (period - 1) + trueRange(i)) / period;
     out[i] = value;
   }
@@ -379,6 +443,26 @@ export function atr(bars: Candle[], period: number): (number | null)[] {
  * open/close body, which is the most conservative thing that is certainly true.
  * The opposite clamp is applied too — a `high` below the body, or a `low` above
  * it, is the same corruption in the direction that understates the range.
+ *
+ * ## Sessions that never happened
+ *
+ * The other half of this function, and the more damaging one. Yahoo pads NSE
+ * holidays with a bar repeating the previous close in all four fields and no
+ * volume behind it — 2026-01-15, 05-01, 05-28 and 06-26 in the last year alone,
+ * the same dates for every symbol on the exchange.
+ *
+ * At `atr(1)` that is not cosmetic. A zero true range makes `nLoss` zero, which
+ * puts the trailing stop *exactly* on the close, and the next real session is
+ * then a guaranteed crossing whatever it does. ADOR's flip read 29 Jun 2026
+ * against the chart's 20 Apr for precisely this reason: the 26 Jun holiday
+ * collapsed the stop and manufactured a BUY three days later. Four unrelated
+ * names flipped on that same date, which is the signature — a market-wide
+ * event does not send RELIANCE and ICICIBANK opposite ways on one day.
+ *
+ * The discriminator is volume, not the flat shape. A genuine circuit lock is
+ * also `open == high == low == close` and must keep its bar: it is a real
+ * session that traded, sometimes heavily — SUZLON locked twice on 11–14 million
+ * shares. A holiday traded nothing.
  */
 export function cleanBars(rawBars: Candle[]): Candle[] {
   const out: Candle[] = [];
@@ -387,6 +471,8 @@ export function cleanBars(rawBars: Candle[]): Candle[] {
     const { high, low, close } = bar;
     if (typeof close !== 'number' || close <= 0) continue;
     if (typeof high !== 'number' || typeof low !== 'number' || low <= 0) continue;
+    // A session Yahoo invented: no range and nothing traded. See above.
+    if (high === low && !(typeof bar.volume === 'number' && bar.volume > 0)) continue;
 
     const open = typeof bar.open === 'number' && bar.open > 0 ? bar.open : close;
     const bodyHigh = Math.max(open, close);
@@ -415,8 +501,24 @@ interface Flip {
  *
  * The stop update is Pine's `xATRTrailingStop` verbatim: it ratchets towards the
  * source while the source stays on the same side of it, and jumps to the other
- * side of the source when it doesn't. A flip is a bar where the source ends up
- * across the stop it was on the far side of.
+ * side of the source when it doesn't.
+ *
+ * **The source is `close`.** Not the HMA — the script's UT Bot leg reads
+ * `close` and the HMA is a separate plot it never consults. Feeding the HMA in
+ * here, as this function used to, is a smoother and much lazier rule than the
+ * one the chart draws.
+ *
+ * A flip is Pine's `crossover`, which the script writes through the identity
+ * `ema(src, 1) == src`:
+ *
+ *     buy  = crossover(src, stop)  ==  src > stop  and src[1] <= stop[1]
+ *     sell = crossunder(src, stop) ==  src < stop  and src[1] >= stop[1]
+ *
+ * Each side of the comparison is taken against **its own bar's** stop, which is
+ * why `prevStop` is carried rather than reusing `prev`. And there is no
+ * position filter: a `crossover` cannot fire on two consecutive bars, because
+ * firing on `i` requires `src[i] > stop[i]` and firing on `i+1` requires the
+ * negation of it. Pine's `pos` variable exists only to colour bars.
  *
  * Split out from `latestSignal` because the earlier flips are not waste: each
  * consecutive pair is a completed round trip of this exact rule on this exact
@@ -427,43 +529,48 @@ export function runUtBot(
   bars: Candle[],
   cfg = UT_BOT,
 ): { flips: Flip[]; stop: number | null } {
-  const src = hma(bars.map((b) => b.close), cfg.hmaLength);
   const ranges = atr(bars, cfg.atrPeriod);
 
   const flips: Flip[] = [];
-  let stop = 0;
-  let started = false;
-  let pos = 0;
+  /** `xATRTrailingStop[1]`, or null before the series has started. */
+  let prevStop: number | null = null;
 
-  for (let i = 1; i < bars.length; i++) {
-    const now = src[i];
-    const before = src[i - 1];
+  for (let i = 0; i < bars.length; i++) {
     const range = ranges[i];
-    if (now === null || before === null || range === null) continue;
+    if (range === null) continue;
 
+    const now = bars[i].close as number;
+    // `src[1]` — na on the first bar, which sends Pine's nested `iff` to its
+    // final arm and makes `crossover` na rather than true.
+    const before = i > 0 ? (bars[i - 1].close as number) : null;
+    // Pine's `nz(xATRTrailingStop[1], 0)`: zero on the first bar, which puts
+    // the source above it and seeds a long stop.
+    const prev: number = prevStop ?? 0;
     const nLoss = cfg.keyValue * range;
-    // Pine's `nz(xATRTrailingStop[1], 0)` — zero on the first bar that has both
-    // an HMA and an ATR, which puts the source above it and seeds a long stop.
-    const prev = started ? stop : 0;
-    started = true;
 
-    if (now > prev && before > prev) stop = Math.max(prev, now - nLoss);
-    else if (now < prev && before < prev) stop = Math.min(prev, now + nLoss);
-    else stop = now > prev ? now - nLoss : now + nLoss;
+    const stop =
+      before !== null && now > prev && before > prev
+        ? Math.max(prev, now - nLoss)
+        : before !== null && now < prev && before < prev
+          ? Math.min(prev, now + nLoss)
+          : now > prev
+            ? now - nLoss
+            : now + nLoss;
 
-    const flip = before < prev && now > stop ? 1 : before > prev && now < stop ? -1 : 0;
-    if (flip !== 0 && flip !== pos) {
-      pos = flip;
-      flips.push({
-        index: i,
-        side: flip === 1 ? 'BUY' : 'SELL',
-        price: bars[i].close as number,
-        date: bars[i].date,
-      });
+    if (prevStop !== null && before !== null) {
+      const side =
+        now > stop && before <= prevStop
+          ? 'BUY'
+          : now < stop && before >= prevStop
+            ? 'SELL'
+            : null;
+      if (side) flips.push({ index: i, side, price: now, date: bars[i].date });
     }
+
+    prevStop = stop;
   }
 
-  return { flips, stop: started ? stop : null };
+  return { flips, stop: prevStop };
 }
 
 const mean = (values: number[]): number | null =>
@@ -476,10 +583,6 @@ function median(values: number[]): number | null {
   const mid = sorted.length >> 1;
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
-
-/** Simple average of the last `len` values, or null if there are fewer. */
-const smaLast = (values: number[], len: number): number | null =>
-  values.length < len ? null : (mean(values.slice(-len)) as number);
 
 /**
  * How this rule has done on this symbol inside the window.
@@ -521,14 +624,15 @@ function summarise(flips: Flip[]): Signal['history'] {
  */
 export function latestSignal(rawBars: Candle[], cfg = UT_BOT): Signal | null {
   const bars = cleanBars(rawBars);
-  if (bars.length < cfg.hmaLength + cfg.atrPeriod + 2) return null;
+  // The UT Bot alone needs almost nothing — `atr(1)` exists on bar 0. The floor
+  // is set by the context instead: a Hull trend and a full volume window.
+  if (bars.length < cfg.hmaLength + VOL_WINDOW) return null;
 
   const { flips, stop } = runUtBot(bars, cfg);
   const flip = flips[flips.length - 1];
   if (!flip || stop === null) return null;
 
   const last = bars.length - 1;
-  const closes = bars.map((b) => b.close as number);
   const volumeAt = (i: number) => (typeof bars[i].volume === 'number' ? (bars[i].volume as number) : null);
 
   // Volume on the flip bar against the month ending on it — the average has to
@@ -544,10 +648,12 @@ export function latestSignal(rawBars: Candle[], cfg = UT_BOT): Signal | null {
   const volumeRatio = avgVolume && flipVolume ? flipVolume / avgVolume : null;
 
   // The regime the flip fired into, judged now rather than then: the question a
-  // signal has to answer is whether to act on it today.
-  const reference = smaLast(closes, TREND_SLOW) ?? smaLast(closes, TREND_FAST);
+  // signal has to answer is whether to act on it today. `c1` in the script —
+  // the Hull line rising or falling, which is the colour it is drawn in.
+  const hull = hma(bars.map((b) => b.close), cfg.hmaLength);
+  const rising = hull[last] !== null && hull[last - 1] !== null ? hull[last]! > hull[last - 1]! : null;
   const trend: Signal['trend'] =
-    reference === null ? 0 : ((closes[last] > reference ? 1 : -1) * (flip.side === 'BUY' ? 1 : -1)) as 1 | -1;
+    rising === null ? 0 : (((rising ? 1 : -1) * (flip.side === 'BUY' ? 1 : -1)) as 1 | -1);
 
   const turnover = median(
     bars
@@ -596,7 +702,27 @@ export function latestSignal(rawBars: Candle[], cfg = UT_BOT): Signal | null {
  * Stored as a positional tuple: ~2,400 of these share a 5 MB localStorage quota
  * with the screen's own caches, and the field names cost more than the numbers.
  */
-const store = dayCache<Signal | null>('utbot', {
+/**
+ * The discontinued rule's store, deleted on load.
+ *
+ * `utbot-v2` is a new key because every entry the old one holds was produced by
+ * the pre-source rule — HMA as the source, the parameters the wrong way round —
+ * and a rename retires them at once, where bumping `VERSION` in dayCache.ts is
+ * global and would also throw away the thirty-day fundamentals cache at 1.2s a
+ * row to refill.
+ *
+ * But a renamed store is only unread, not gone: ~2,400 dead signals would sit in
+ * a 5 MB quota shared with the screen's caches until the browser was cleared,
+ * and nothing would ever collect them. The old rule is discontinued, so its
+ * entries go with it.
+ */
+try {
+  localStorage.removeItem('fivealpha:utbot:v4');
+} catch {
+  // Private mode, storage disabled, quota games — nothing to clean up then.
+}
+
+const store = dayCache<Signal | null>('utbot-v2', {
   encode: (s) =>
     s === null
       ? 0

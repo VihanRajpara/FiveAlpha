@@ -6,6 +6,7 @@ import type { Candle, ChartRange, Classification, Quote, Security } from '../typ
 import { useSignal } from '../hooks/useSignal';
 import { WatchPicker } from './WatchPicker';
 import {
+  SIGNAL_RANGE_LABEL,
   UT_BOT,
   formatGap,
   scoreLabel,
@@ -35,7 +36,7 @@ const RANGE_LABEL: Record<ChartRange, string> = {
 function SignalPanel({ ticker, price }: { ticker: string; price: number | null | undefined }) {
   const { signal, loaded } = useSignal(ticker);
 
-  const study = `UT Bot · ATR ${UT_BOT.atrPeriod} × ${UT_BOT.keyValue} on HMA ${UT_BOT.hmaLength}, daily bars`;
+  const study = `UT Bot on close · ${UT_BOT.keyValue}× ATR ${UT_BOT.atrPeriod}, daily bars`;
 
   if (!loaded) {
     return (
@@ -64,8 +65,8 @@ function SignalPanel({ ticker, price }: { ticker: string; price: number | null |
 
       {!signal ? (
         <p className="sig-none">
-          No flip in the last year of daily bars — the history is too short, or the trailing stop
-          has not been crossed.
+          No flip in {SIGNAL_RANGE_LABEL} of daily bars — the history is too short, or the
+          trailing stop has not been crossed.
         </p>
       ) : (
         <>
@@ -128,8 +129,8 @@ function SignalPanel({ ticker, price }: { ticker: string; price: number | null |
                 {signal.trend === 0
                   ? 'Too little history'
                   : signal.trend === 1
-                    ? 'With the 200-day'
-                    : 'Against the 200-day'}
+                    ? `With the Hull ${UT_BOT.hmaLength}`
+                    : `Against the Hull ${UT_BOT.hmaLength}`}
               </dd>
             </div>
             <div className="fact">
@@ -148,7 +149,7 @@ function SignalPanel({ ticker, price }: { ticker: string; price: number | null |
                 is the same rule's record on this name — evidence, not a
                 backtest: no costs, no slippage, one year of bars. */}
             <div className="fact">
-              <dt>This rule here (1y)</dt>
+              <dt>This rule here ({SIGNAL_RANGE_LABEL})</dt>
               <dd className="num">
                 {signal.history
                   ? `${signal.history.wins}/${signal.history.trades} won · avg ${formatGap(signal.history.avgPct)}`

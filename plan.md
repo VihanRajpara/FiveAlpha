@@ -45,7 +45,7 @@ Step 5 is the whole idempotency story. Re-running the cron, or running the funct
 
 ### 1. Extract the pure math — `supabase/functions/_shared/utbot.ts` (new)
 
-Move out of [src/lib/signals.ts](src/lib/signals.ts), verbatim: `UT_BOT`, `SCORE` and its constants, `wma`, `hma`, `atr`, `cleanBars`, `runUtBot`, `mean`, `median`, `smaLast`, `summarise`, `latestSignal`, and the `Signal` / `Flip` types.
+Move out of [src/lib/signals.ts](src/lib/signals.ts), verbatim: `UT_BOT`, `SCORE` and its constants, `wma`, `hma`, `atr`, `cleanBars`, `runUtBot`, `mean`, `median`, `summarise`, `latestSignal`, and the `Signal` / `Flip` types.
 
 Two constraints make one file work in both runtimes:
 

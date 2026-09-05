@@ -29,6 +29,7 @@ import {
 } from '../lib/format';
 import {
   SIGNAL_FILTER_MAX,
+  SIGNAL_RANGE_LABEL,
   UT_BOT,
   formatGap,
   peekSignal,
@@ -285,7 +286,7 @@ function ScreenCell({
 function signalHint(signal: Signal): string {
   return [
     `Score ${signal.score} · ${scoreLabel(signal.score)}`,
-    `UT Bot (ATR ${UT_BOT.atrPeriod} × ${UT_BOT.keyValue}) on HMA ${UT_BOT.hmaLength}, daily bars`,
+    `UT Bot on close · ${UT_BOT.keyValue}× ATR ${UT_BOT.atrPeriod}, daily bars`,
     `${signal.side} at ${formatPrice(signal.price)} on ${formatDate(signal.date)}, ${
       signal.age === 0 ? 'today' : `${signal.age} bars ago`
     }`,
@@ -293,8 +294,8 @@ function signalHint(signal: Signal): string {
     signal.trend === 0
       ? 'Trend unknown — short history'
       : signal.trend === 1
-        ? 'With the 200-day trend'
-        : 'Against the 200-day trend',
+        ? `With the Hull ${UT_BOT.hmaLength} trend`
+        : `Against the Hull ${UT_BOT.hmaLength} trend`,
     signal.volumeRatio === null
       ? 'No volume reported'
       : `Flip volume ${signal.volumeRatio.toFixed(1)}× its 20-day average`,
@@ -323,7 +324,7 @@ function SignalStrip({ ticker, price }: { ticker: string; price: number | null |
 
   // Stated rather than left blank. A row that simply stopped after the company
   // name read as a row still loading, which is a different thing entirely.
-  if (!signal) return <div className="sig-strip muted">No signal in the last year</div>;
+  if (!signal) return <div className="sig-strip muted">No signal in {SIGNAL_RANGE_LABEL}</div>;
 
   const gap = signalGapPct(signal, price);
   return (
@@ -1007,7 +1008,7 @@ export function StockTable({
                         ? `Sort by ${String(header.column.columnDef.header)}`
                         : // The group heading, and the signal columns while the
                           // list is too long to have fetched all of them.
-                          `UT Bot on HMA, daily bars — sorts on lists of ${SIGNAL_FILTER_MAX} rows or fewer`
+                          `UT Bot on close, daily bars — sorts on lists of ${SIGNAL_FILTER_MAX} rows or fewer`
                     }
                   >
                     {flexRender(header.column.columnDef.header, header.getContext())}
