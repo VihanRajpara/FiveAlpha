@@ -2540,8 +2540,34 @@ body {
   padding: 10px 20px 18px;
 }
 
-/* Pushed to its own end of the row so the two control groups stay adjacent —
-   ranges and study toggles read as one cluster, the reading as another. */
+/**
+ * One row of three things that are not the same kind of thing.
+ *
+ * The ranges pick one of four, the study chips are each on or off, and the
+ * return is a reading rather than a control at all. They sat at three different
+ * heights — a 36px segmented track beside 28px chips — which made the row look
+ * assembled rather than designed. Everything on it is 32px now.
+ */
+.range-row .segmented {
+  padding: 2px;
+}
+
+.range-row .segmented button {
+  height: 26px;
+}
+
+.range-row .study {
+  height: 32px;
+}
+
+/**
+ * The return belongs to the range, not to the layer toggles.
+ *
+ * `margin-left: auto` alone put it wherever the wrap happened to leave it —
+ * at panel widths that meant stranded on the second line beside `Vol`, reading
+ * as a label for the toggles. Ordered explicitly, it stays with the ranges it
+ * describes and the toggles take a line of their own.
+ */
 .range-return {
   font-weight: 600;
   margin-left: auto;
@@ -2699,11 +2725,19 @@ body {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 2px 10px;
+  /* Tighter across than down: when this wraps — and at 680px with a four-figure
+     share it will — the second line should read as a continuation of the first,
+     not as a separate row of data. */
+  gap: 1px 9px;
   padding: 0 2px 6px;
-  font-size: 11px;
+  font-size: 10.5px;
   line-height: 1.5;
   color: var(--on-surface-variant);
+}
+
+/* Never breaks a value away from its own letter. */
+.chart-read span {
+  flex: none;
 }
 
 .chart-read span {
@@ -2720,7 +2754,7 @@ body {
 
 .chart-read b {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--on-surface);
@@ -2797,6 +2831,276 @@ body {
 
 .key-stop {
   border-top-style: dashed;
+}
+
+/**
+ * Full screen: the chart and every control that drives it, edge to edge.
+ *
+ * The wrapper holds the plot *and* the range and study rows, so going full
+ * screen carries the whole instrument. A chart whose range you cannot change is
+ * a screenshot.
+ *
+ * It only reaches the viewport because the element is portalled out of the
+ * panel first — see `chartStage` in StockDetail. `position: fixed` here is
+ * necessary but on its own was not sufficient.
+ */
+.chart-full[data-full] {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--canvas);
+  overflow: hidden;
+}
+
+/* The plot takes whatever the controls leave. */
+.chart-full[data-full] .chart-box {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+}
+
+.chart-full[data-full] .chart-stage {
+  flex: 1;
+  min-height: 0;
+}
+
+/* `autoSize` follows the element, so the height comes off the flex row rather
+   than a fixed number — which is the entire point of going full screen. */
+.chart-full[data-full] .tv-chart,
+.chart-full[data-full] .tv-chart[data-mapo] {
+  height: 100%;
+}
+
+.chart-full[data-full] .range-row {
+  padding: 0;
+  flex: none;
+}
+
+/* Below this the row cannot hold all three groups, so the break is chosen
+   rather than left to chance: ranges and their reading on one line, the layer
+   toggles on the next. */
+@media (max-width: 560px) {
+  /**
+   * The return belongs to the range, not to the layer toggles.
+   *
+   * Wide, the natural order is right: two control groups on the left, the
+   * reading pushed to the far right. Once it wraps, that same order strands the
+   * return on the second line beside `Vol`, where it reads as a label for the
+   * toggles. Only here is the order worth overriding.
+   */
+  .range-return {
+    order: 1;
+  }
+
+  .range-row .study-toggles {
+    order: 2;
+    flex-basis: 100%;
+  }
+}
+
+/* On a phone in portrait the controls are most of the screen; wrapping them
+   tightly buys the plot back its height. */
+@media (max-width: 700px) {
+  .chart-full[data-full] {
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    gap: 6px;
+  }
+
+  .chart-full[data-full] .range-row {
+    gap: 6px 8px;
+  }
+
+  /* The legend and the plain-English line are both explanation, and full screen
+     on a phone is where someone has gone *because* they want the picture. Both
+     are still there in the panel. */
+  .chart-full[data-full] .chart-legend,
+  .chart-full[data-full] .chart-plain {
+    display: none;
+  }
+
+  /* In landscape the controls are most of what is left, so they compress. */
+  @media (orientation: landscape) {
+    .chart-full[data-full] .chart-read {
+      padding-bottom: 2px;
+    }
+
+    .chart-full[data-full] .segmented button,
+    .chart-full[data-full] .study {
+      height: 26px;
+    }
+  }
+}
+
+/**
+ * The chart in a sentence.
+ *
+ * The rest of the panel speaks to someone who already knows what a trailing
+ * stop is. This line is for everyone else, and it is placed last on purpose:
+ * a reader who does not need it skips it, and one who does finds it exactly
+ * where the jargon ran out.
+ */
+.chart-plain {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--outline);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--on-surface-variant);
+  text-wrap: pretty;
+}
+
+/* ---------- chart tools ---------- */
+
+.chart-stage {
+  position: relative;
+}
+
+/**
+ * Above the library's own canvases, which is the whole trick.
+ *
+ * Lightweight Charts stacks its panes and its crosshair layer up to
+ * `z-index: 50`. At anything below that the toolbar is still *visible* — the
+ * canvas is transparent wherever nothing is drawn — but every click lands on
+ * the chart instead, so the buttons look live and are not. `pointer-events` is
+ * stated for the same reason: this element has to be the one that gets the
+ * press, and the crosshair should stop following the moment the pointer is over
+ * a control rather than over the plot.
+ */
+.chart-tools {
+  position: absolute;
+  top: 4px;
+  right: 56px;
+  display: flex;
+  gap: 4px;
+  z-index: 60;
+  pointer-events: auto;
+}
+
+/**
+ * On a phone the plot is the scarce thing, not the chrome.
+ *
+ * Three chips parked over a 340px-wide chart cover a real share of the candles,
+ * so they shed the price-axis offset and sit tight to the corner — the axis
+ * there is narrower anyway once the decimals go.
+ */
+@media (max-width: 700px) {
+  .chart-tools {
+    right: 44px;
+    top: 2px;
+  }
+
+  .chart-read {
+    font-size: 10px;
+    gap: 1px 7px;
+  }
+
+  /* Two fields the phone can spare: the exact session volume and the second
+     MAPO output are both in the panel below, and neither is what the crosshair
+     is being dragged to find. */
+  .chart-read span:nth-child(6),
+  .chart-read-dim {
+    display: none;
+  }
+}
+
+/**
+ * Legible against a moving chart.
+ *
+ * These started as faint outlines on a near-transparent fill, which reads as
+ * decoration on a white plot — the controls were there and nobody could find
+ * them. They are the only interactive thing floating over the canvas, so they
+ * have to look like controls: a real border, full-strength ink, and a shadow,
+ * which is the one place in this design system where a shadow is honest, since
+ * the element genuinely is above the content.
+ *
+ * Still only 88% opaque. A solid block would hide the candles underneath, and
+ * the point is to reach the tools without losing the plot.
+ */
+.chart-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--outline);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--on-surface);
+  box-shadow: var(--elev-1);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out),
+    border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    transform var(--t-press) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chart-tool:hover {
+    border-color: var(--on-surface-faint);
+    color: var(--on-surface);
+  }
+}
+
+.chart-tool:active {
+  transform: scale(0.94);
+}
+
+.chart-tool[data-on='true'] {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-container);
+}
+
+/**
+ * Full screen is the primary action here — filled, not outlined.
+ *
+ * Three identical chips made the reader scan all three to find the one they
+ * wanted, and this is the one they want: the whole toolbar exists so the chart
+ * can be opened properly. Log and Reset stay quiet outlines beside it, which is
+ * the hierarchy actually doing work rather than three controls shouting equally.
+ */
+.chart-tool-primary {
+  border-color: transparent;
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.chart-tool-primary span {
+  font-size: 12px;
+  line-height: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chart-tool-primary:hover {
+    background: var(--primary-hover);
+    border-color: transparent;
+    color: var(--on-primary);
+  }
+}
+
+@media (pointer: coarse) {
+  .chart-tool {
+    height: 32px;
+    padding: 0 12px;
+  }
+}
+
+/* Volume's key, matching how it is drawn: a filled block, not a rule. */
+.key-vol {
+  display: inline-block;
+  width: 10px;
+  height: 8px;
+  flex: none;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--on-surface-faint) 55%, transparent);
 }
 
 /* ---------- study toggles ---------- */

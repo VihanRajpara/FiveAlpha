@@ -5,6 +5,7 @@ import {
   HistogramSeries,
   LineSeries,
   LineStyle,
+  PriceScaleMode,
   createChart,
   createSeriesMarkers,
   type CandlestickData,
@@ -63,6 +64,10 @@ export interface ChartSeries {
 interface Props extends ChartSeries {
   showStop: boolean;
   showMapo: boolean;
+  showVolume: boolean;
+  /** Drawn over the whole page; the toolbar swaps its label to match. */
+  full: boolean;
+  onToggleFull: () => void;
 }
 
 /** Bars are dated `yyyy-mm-dd`; the library wants seconds. Parsed as UTC noon so
@@ -111,6 +116,50 @@ const soften = (rgb: string, alpha: number) =>
     ? rgb.replace(/[\d.]+\)$/, `${alpha})`)
     : rgb.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
 
+/**
+ * The chart, said in words.
+ *
+ * Everything else on this panel is addressed to someone who already knows what
+ * a trailing stop is. `UT Bot`, `6x ATR 1`, `MAPO 99.3` and a dashed line are
+ * precise and completely opaque to a first-time reader, and a chart nobody can
+ * read is decoration however correct it is.
+ *
+ * So the same two studies get one sentence of plain English, built from the
+ * values already on screen rather than from a second opinion: which side of its
+ * own stop the price is on, how far, and where it sits in the fan. No advice —
+ * it describes the picture, it does not say what to do about it.
+ */
+function reading(close: number | null, stop: number | null, m: Mapo | null): string | null {
+  const parts: string[] = [];
+
+  if (close !== null && stop !== null) {
+    const above = close >= stop;
+    const gap = Math.abs((close - stop) / stop) * 100;
+    parts.push(
+      `Price is ${gap.toFixed(1)}% ${above ? 'above' : 'below'} its trailing stop, so the rule ` +
+        `is currently ${above ? 'long' : 'out'}.`,
+    );
+  }
+
+  if (m) {
+    // The script's own bands, in the words they actually mean.
+    const where =
+      m.above >= MAPO_HIGH
+        ? 'above almost every one of'
+        : m.above > MAPO_MID
+          ? 'above most of'
+          : m.above > MAPO_LOW
+            ? 'below most of'
+            : 'below almost every one of';
+    parts.push(
+      `It is trading ${where} its ${MAPO.minLength}–${MAPO.maxLength} day averages ` +
+        `(${m.above.toFixed(0)}%).`,
+    );
+  }
+
+  return parts.length ? parts.join(' ') : null;
+}
+
 /** What the status line shows — the hovered bar, or the last one. */
 interface Readout {
   bar: Candle;
@@ -118,11 +167,32 @@ interface Readout {
   mapo: Mapo | null;
 }
 
-export function CandleChart({ bars, stop, mapo, flips, showStop, showMapo }: Props) {
+export function CandleChart({
+  bars,
+  stop,
+  mapo,
+  flips,
+  showStop,
+  showMapo,
+  showVolume,
+  full,
+  onToggleFull,
+}: Props) {
+  /**
+   * Logarithmic price.
+   *
+   * Not a preference. Over five years it is the difference between a chart and
+   * a flat line with a spike on the end: a share that went 100 to 1,600 spends
+   * four of those years inside the bottom eighth of a linear axis, so the early
+   * move — the one that made the difference — is the one you cannot see. Here
+   * equal percentage moves get equal height.
+   */
+  const [log, setLog] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const priceRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const fitRef = useRef<(() => void) | null>(null);
   const stopRef = useRef<ISeriesApi<'Line'> | null>(null);
   const histRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const proxRef = useRef<ISeriesApi<'Line'> | null>(null);
@@ -172,8 +242,20 @@ export function CandleChart({ bars, stop, mapo, flips, showStop, showMapo }: Pro
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.1, bottom: 0.26 } },
       timeScale: { borderVisible: false, rightOffset: 4, fixLeftEdge: true },
       localization: {
+        /**
+         * Paise only where paise exist.
+         *
+         * `1,600.00` and `1,400.00` cost the axis two characters each that no
+         * one reads on a four-figure share, and that width comes straight out
+         * of the plot on a 680px panel. Below a thousand the decimals are the
+         * whole point, so they stay. The exact OHLC is in the status line
+         * either way.
+         */
         priceFormatter: (p: number) =>
-          p.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          p.toLocaleString('en-IN', {
+            minimumFractionDigits: p >= 1000 ? 0 : 2,
+            maximumFractionDigits: p >= 1000 ? 0 : 2,
+          }),
       },
     });
 
@@ -205,6 +287,7 @@ export function CandleChart({ bars, stop, mapo, flips, showStop, showMapo }: Pro
     });
 
     chart.current = api;
+    fitRef.current = () => api.timeScale().fitContent();
 
     // The status line follows the crosshair and falls back to the last bar, so
     // the row is never empty and the layout never jumps as the pointer arrives.
@@ -292,7 +375,7 @@ export function CandleChart({ bars, stop, mapo, flips, showStop, showMapo }: Pro
       }
     }
     price.setData(candles);
-    vol.setData(volume);
+    vol.setData(showVolume ? volume : []);
 
     createSeriesMarkers(
       price,
@@ -308,7 +391,13 @@ export function CandleChart({ bars, stop, mapo, flips, showStop, showMapo }: Pro
     );
 
     api.timeScale().fitContent();
-  }, [bars, flips]);
+  }, [bars, flips, showVolume]);
+
+  useEffect(() => {
+    chart.current
+      ?.priceScale('right')
+      .applyOptions({ mode: log ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal });
+  }, [log]);
 
   // --- the trailing stop ---------------------------------------------------
   useEffect(() => {
@@ -384,13 +473,21 @@ export function CandleChart({ bars, stop, mapo, flips, showStop, showMapo }: Pro
         1,
       );
 
+      /**
+       * The bands, drawn but not labelled.
+       *
+       * With labels this pane stacked `80.00`, the histogram's value, the
+       * line's value and `20.00` into 96px of axis, where they overlapped into
+       * an unreadable pile. The dashed rules say where the bands are perfectly
+       * well on their own, and the legend says what they mean.
+       */
       for (const level of [MAPO_HIGH, MAPO_LOW]) {
         hist.createPriceLine({
           price: level,
           color: c.line,
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
+          axisLabelVisible: false,
           title: '',
         });
       }
@@ -403,7 +500,10 @@ export function CandleChart({ bars, stop, mapo, flips, showStop, showMapo }: Pro
           color: c.accent,
           lineWidth: 1,
           priceLineVisible: false,
-          lastValueVisible: true,
+          // One live label in this pane, and it belongs to the histogram —
+          // `above` is the reading, `proximity` is the detail beneath it. Both
+          // are in the status line for anyone who wants the pair.
+          lastValueVisible: false,
           crosshairMarkerVisible: false,
         },
         1,
@@ -437,6 +537,13 @@ export function CandleChart({ bars, stop, mapo, flips, showStop, showMapo }: Pro
         }
       : null);
   const rising = shown ? (shown.bar.close ?? 0) >= (shown.bar.open ?? 0) : true;
+  // Always the latest bar, never the hovered one: this is what the share is
+  // doing now, not a caption that changes under the pointer.
+  const plain = reading(
+    last?.close ?? null,
+    stop[stop.length - 1] ?? null,
+    mapo[mapo.length - 1] ?? null,
+  );
 
   return (
     <div className="chart-box">
@@ -476,16 +583,56 @@ export function CandleChart({ bars, stop, mapo, flips, showStop, showMapo }: Pro
         </div>
       )}
 
-      <div ref={host} className="tv-chart" data-mapo={showMapo || undefined} />
+      <div className="chart-stage">
+        <div ref={host} className="tv-chart" data-mapo={showMapo || undefined} />
+
+        {/* Over the plot, top right, where a chart's own tools sit. Only three,
+            and each is here because panning and zooming created the need for
+            it: somewhere to get back to, a scale that survives five years, and
+            room to actually look. */}
+        <div className="chart-tools">
+          <button
+            type="button"
+            className="chart-tool"
+            data-on={log}
+            aria-pressed={log}
+            onClick={() => setLog((v) => !v)}
+            title="Logarithmic scale — equal percentage moves get equal height"
+          >
+            Log
+          </button>
+          <button
+            type="button"
+            className="chart-tool"
+            onClick={() => fitRef.current?.()}
+            title="Fit every bar back into view"
+          >
+            Reset
+          </button>
+          <button
+            type="button"
+            className="chart-tool chart-tool-primary"
+            aria-pressed={full}
+            onClick={onToggleFull}
+            title={full ? 'Exit full screen (Esc)' : 'Full screen'}
+          >
+            {/* The arrows carry it at a glance; the word is the confirmation.
+                This is the control people go looking for, so it is the one that
+                does not make you read the toolbar to find it. */}
+            <span aria-hidden>{full ? '⤡' : '⤢'}</span>
+            {full ? 'Exit' : 'Full'}
+          </button>
+        </div>
+      </div>
 
       <p className="chart-legend">
         {showStop && (
-          <span>
+          <span title="A stop that trails the price by six times the last bar's range. When price closes through it, the signal flips.">
             <i className="key-stop" /> UT Bot · {UT_BOT.keyValue}× ATR {UT_BOT.atrPeriod} on close
           </span>
         )}
         {showMapo && (
-          <span>
+          <span title="Of every moving average from 5 to 100 days, how many the price is currently above. 100 means all of them.">
             <i className="key-mapo" /> MAPO · {MAPO.minLength}–{MAPO.maxLength}d fan, smoothed{' '}
             {MAPO.smooth}
           </span>
@@ -500,6 +647,8 @@ export function CandleChart({ bars, stop, mapo, flips, showStop, showMapo }: Pro
           Charts by TradingView
         </a>
       </p>
+
+      {plain && <p className="chart-plain">{plain}</p>}
     </div>
   );
 }

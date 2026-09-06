@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { CAP_LABEL } from '../lib/classification';
 import { formatDate, formatPercent, formatPrice, formatVolume } from '../lib/format';
@@ -223,6 +224,38 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
    */
   const [showStop, setShowStop] = useState(true);
   const [showMapo, setShowMapo] = useState(true);
+  const [showVolume, setShowVolume] = useState(true);
+
+  /**
+   * The chart, over the whole page.
+   *
+   * A 680px panel is enough to see that a stop was crossed and not enough to
+   * study why. An in-page overlay rather than the Fullscreen API:
+   * `requestFullscreen` is refused on non-video elements by iOS Safari, which
+   * is exactly the device with the least room to spare.
+   */
+  const [full, setFull] = useState(false);
+
+  useEffect(() => {
+    if (!full) return;
+    // Captured, so Escape leaves the chart before it reaches the panel's own
+    // handler — the one key that means "back" should not skip a level.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      setFull(false);
+    };
+    window.addEventListener('keydown', onKey, true);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      document.body.style.overflow = previous;
+    };
+  }, [full]);
+
+  // A panel that changes subject underneath an open chart would strand it.
+  useEffect(() => setFull(false), [security.symbol]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -334,6 +367,31 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
     };
   }, [security.ticker]);
 
+  /**
+   * The chart and its controls, in the panel or over the whole page.
+   *
+   * Portalled to `document.body` when full, and that is not stylistic.
+   * `position: fixed` is only viewport-relative while no ancestor establishes a
+   * containing block — and two ancestors here do. `.drawer-body` carries
+   * `container-type: inline-size` for the three-column facts, which implies
+   * layout containment; on a phone `.drawer` carries `will-change: transform`
+   * for the drag. Either alone is enough to trap it, and left in place "full
+   * screen" filled the drawer body and nothing else.
+   *
+   * A plain function, not a component declared in render: a nested component
+   * would be a new type on every render and would remount the chart on each
+   * one. This re-parents only when `full` actually flips — the single moment
+   * when losing the zoom is the right behaviour anyway.
+   */
+  const chartStage = (children: ReactNode) => {
+    const stage = (
+      <div className="chart-full" data-full={full || undefined}>
+        {children}
+      </div>
+    );
+    return full ? createPortal(stage, document.body) : stage;
+  };
+
   const shown = useMemo(
     () => (series ? windowChart(series, range) : null),
     [series, range],
@@ -437,7 +495,9 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
 
           <div ref={sentinelRef} className="drawer-sentinel" aria-hidden />
 
-          {loading ? (
+          {chartStage(
+            <>
+              {loading ? (
             <div className="center-msg" style={{ padding: '56px 12px' }}>
               <div className="spinner" />
               Loading {RANGE_LABEL[range]} history…
@@ -455,6 +515,9 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
                 flips={shown.flips}
                 showStop={showStop}
                 showMapo={showMapo}
+                showVolume={showVolume}
+                full={full}
+                onToggleFull={() => setFull((v) => !v)}
               />
             )
           )}
@@ -490,6 +553,17 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
               >
                 <i className="key-mapo" /> MAPO
               </button>
+              {/* Volume is a layer like the other two, so it is dismissed like
+                  them rather than being the one thing you cannot turn off. */}
+              <button
+                type="button"
+                className="study"
+                data-on={showVolume}
+                aria-pressed={showVolume}
+                onClick={() => setShowVolume((v) => !v)}
+              >
+                <i className="key-vol" /> Vol
+              </button>
             </div>
             {windowReturn !== null && (
               <span className={`range-return num ${windowReturn >= 0 ? 'up' : 'down'}`}>
@@ -497,7 +571,9 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
                 <span className="range-over"> over {RANGE_LABEL[range]}</span>
               </span>
             )}
-          </div>
+              </div>
+            </>,
+          )}
 
           {/* Three groups, not thirteen tiles.
               Ungrouped, ISIN carried the same weight as Day range and the reader
