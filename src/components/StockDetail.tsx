@@ -386,6 +386,37 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
   const chartStage = (children: ReactNode) => {
     const stage = (
       <div className="chart-full" data-full={full || undefined}>
+        {/* Full screen leaves the panel's own header behind, and a chart with no
+            name on it is a chart of nothing. The subject and its price come
+            along — the two facts you cannot work without. */}
+        {full && (
+          <header className="chart-full-head">
+            <div className="chart-full-id">
+              <h2>{security.symbol}</h2>
+              <p>{security.name}</p>
+            </div>
+            <div className="chart-full-px">
+              <span className="num">{formatPrice(quote?.price)}</span>
+              {change !== null && (
+                <span className={`chg-chip num ${trendClass}`}>
+                  <span className="arrow" aria-hidden>
+                    {positive ? '▲' : '▼'}
+                  </span>
+                  {formatPercent(quote?.changePercent)}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => setFull(false)}
+              aria-label="Exit full screen"
+              title="Exit full screen (Esc)"
+            >
+              ✕
+            </button>
+          </header>
+        )}
         {children}
       </div>
     );
