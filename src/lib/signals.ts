@@ -513,7 +513,7 @@ export function cleanBars(rawBars: Candle[]): Candle[] {
 }
 
 /** One crossing of the trailing stop, as the run produces it. */
-interface Flip {
+export interface Flip {
   index: number;
   side: 'BUY' | 'SELL';
   price: number;
@@ -552,10 +552,23 @@ interface Flip {
 export function runUtBot(
   bars: Candle[],
   cfg = UT_BOT,
-): { flips: Flip[]; stop: number | null } {
+): { flips: Flip[]; stop: number | null; stops: (number | null)[] } {
   const ranges = atr(bars, cfg.atrPeriod);
 
   const flips: Flip[] = [];
+  /**
+   * The stop at every bar, for the chart to draw.
+   *
+   * The same argument the flips already make: the loop computes this on every
+   * pass and used to throw all but the last one away. A trailing stop is the
+   * only part of this study that is visible on a chart — the flips are just
+   * where the close crossed it — so a caller that wants to *draw* the rule
+   * needs the line, not the verdict.
+   *
+   * `null` before the ATR has enough bars to start, which is why it is aligned
+   * to `bars` by index rather than compacted.
+   */
+  const stops: (number | null)[] = new Array(bars.length).fill(null);
   /** `xATRTrailingStop[1]`, or null before the series has started. */
   let prevStop: number | null = null;
 
@@ -591,10 +604,11 @@ export function runUtBot(
       if (side) flips.push({ index: i, side, price: now, date: bars[i].date });
     }
 
+    stops[i] = stop;
     prevStop = stop;
   }
 
-  return { flips, stop: prevStop };
+  return { flips, stop: prevStop, stops };
 }
 
 const mean = (values: number[]): number | null =>
@@ -771,6 +785,58 @@ export interface Mapo {
  * chart plots every bar; a table needs one number, and 3 bars × 96 averages is
  * three hundred operations against the forty thousand a full history would be.
  */
+/**
+ * The cumulative-sum SMA the oscillator is built on.
+ *
+ * `csum[n + 1]` is the sum through bar `n`, so any period's average is one
+ * subtraction — which is what makes evaluating ninety-six of them per bar
+ * affordable at all.
+ */
+function smaOver(closes: number[]) {
+  const csum = [0];
+  for (let i = 0; i < closes.length; i++) csum.push(csum[i] + closes[i]);
+  /** Pine's `(csum - csum[i]) / i` — the `i`-period average ending at bar `n`. */
+  return (n: number, i: number) => (csum[n + 1] - csum[n + 1 - i]) / i;
+}
+
+/**
+ * One bar's raw `per` and `len`, before smoothing or normalisation.
+ *
+ * Split out so the table's single reading and the chart's whole series run the
+ * *same* arithmetic. They have genuinely different cost profiles — one is
+ * called for thousands of tickers and evaluates three bars, the other for one
+ * ticker and evaluates a thousand — but if they were two transcriptions of the
+ * Pine they would eventually disagree, and the chart would draw a line that
+ * contradicted the column beside it.
+ */
+function mapoBar(closes: number[], sma: (n: number, i: number) => number, n: number, cfg: typeof MAPO) {
+  const { minLength: min, maxLength: max } = cfg;
+  const src = closes[n];
+  // `max_min` is seeded from the i = min average *before* the loop, so the
+  // first iteration always ties and `len` starts at `min` rather than at 0.
+  let maxMin = Math.abs(src - sma(n, min));
+  let nearest = min;
+  let above = 0;
+
+  for (let i = min; i <= max; i++) {
+    const ma = sma(n, i);
+    if (src > ma) above++;
+
+    // Pine assigns `max_min := min(ae, max_min)` and then takes `i` whenever
+    // `ae == max_min`, so an exact tie moves to the *later* period. A strict
+    // `<` would keep the earlier one and quietly disagree with the chart.
+    const ae = Math.abs(src - ma);
+    if (ae <= maxMin) {
+      maxMin = ae;
+      nearest = i;
+    }
+  }
+
+  return { per: above, len: nearest };
+}
+
+const meanOf = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length;
+
 export function mapo(closes: number[], cfg = MAPO): Mapo | null {
   const { minLength: min, maxLength: max, smooth } = cfg;
   const span = max - min + 1;
@@ -778,47 +844,67 @@ export function mapo(closes: number[], cfg = MAPO): Mapo | null {
   // `smooth` such bars.
   if (closes.length < max + smooth - 1) return null;
 
-  // `csum = ta.cum(src)`, offset by one so `csum[n + 1]` is the sum through n.
-  const csum = [0];
-  for (let i = 0; i < closes.length; i++) csum.push(csum[i] + closes[i]);
-  /** Pine's `(csum - csum[i]) / i` — the `i`-period average ending at bar `n`. */
-  const sma = (n: number, i: number) => (csum[n + 1] - csum[n + 1 - i]) / i;
-
+  const sma = smaOver(closes);
   const per: number[] = [];
   const len: number[] = [];
 
   for (let n = closes.length - smooth; n < closes.length; n++) {
-    const src = closes[n];
-    // `max_min` is seeded from the i = min average *before* the loop, so the
-    // first iteration always ties and `len` starts at `min` rather than at 0.
-    let maxMin = Math.abs(src - sma(n, min));
-    let nearest = min;
-    let above = 0;
-
-    for (let i = min; i <= max; i++) {
-      const ma = sma(n, i);
-      if (src > ma) above++;
-
-      // Pine assigns `max_min := min(ae, max_min)` and then takes `i` whenever
-      // `ae == max_min`, so an exact tie moves to the *later* period. A strict
-      // `<` would keep the earlier one and quietly disagree with the chart.
-      const ae = Math.abs(src - ma);
-      if (ae <= maxMin) {
-        maxMin = ae;
-        nearest = i;
-      }
-    }
-
-    per.push(above);
-    len.push(nearest);
+    const bar = mapoBar(closes, sma, n, cfg);
+    per.push(bar.per);
+    len.push(bar.len);
   }
 
   // Smoothed first, normalised second — the order the script uses.
-  const smoothed = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length;
   return {
-    above: (smoothed(per) / span) * 100,
-    proximity: ((smoothed(len) - min) / span) * 100,
+    above: (meanOf(per) / span) * 100,
+    proximity: ((meanOf(len) - min) / span) * 100,
   };
+}
+
+/**
+ * `above` at every bar, for the chart's oscillator pane.
+ *
+ * Aligned to `closes` by index and `null` until the fan has enough history —
+ * `max + smooth - 1` bars, which on a daily series is about five months. That
+ * warm-up is the reason the chart computes its studies over a long history and
+ * then *windows* the result: asked to compute over a one-month view there would
+ * be nothing to draw at all.
+ *
+ * ~96 averages a bar, each a single subtraction. Over five years of dailies
+ * that is roughly 120k operations — a few milliseconds, once, for a chart that
+ * is drawn on demand for one symbol. The single-reading `mapo` above stays
+ * separate precisely because it runs for thousands of them.
+ */
+export function mapoSeries(closes: number[], cfg = MAPO): (Mapo | null)[] {
+  const { minLength: min, maxLength: max, smooth } = cfg;
+  const span = max - min + 1;
+  const out: (Mapo | null)[] = new Array(closes.length).fill(null);
+  if (closes.length < max + smooth - 1) return out;
+
+  const sma = smaOver(closes);
+  const per: number[] = [];
+  const len: number[] = [];
+
+  for (let n = max - 1; n < closes.length; n++) {
+    const bar = mapoBar(closes, sma, n, cfg);
+    per.push(bar.per);
+    len.push(bar.len);
+    if (per.length > smooth) {
+      per.shift();
+      len.shift();
+    }
+    // Both outputs, because the script plots both: `per` is the histogram and
+    // `len` is the line drawn over it. A pane with only the histogram is half
+    // the indicator, and the table's single reading already carries the pair.
+    if (per.length === smooth) {
+      out[n] = {
+        above: (meanOf(per) / span) * 100,
+        proximity: ((meanOf(len) - min) / span) * 100,
+      };
+    }
+  }
+
+  return out;
 }
 
 /** Filter presets on `above`, `[min, max)`, cut at the script's own levels. */
@@ -984,6 +1070,110 @@ export function fetchReading(ticker: string): Promise<Reading> {
 
   inflight.set(ticker, pending);
   return pending;
+}
+
+/* ---------- the chart's series ---------------------------------------- */
+
+/**
+ * How much history the chart computes over, regardless of what it displays.
+ *
+ * Both studies need a run-up before they produce anything — the ATR needs its
+ * period, and the fan needs `maxLength + smooth - 1` bars, about five months of
+ * dailies. Computing over the visible window instead would leave the 1M view
+ * with no oscillator at all and a trailing stop seeded from nothing.
+ *
+ * Daily, and never weekly, because that is the interval the table's own signal
+ * is calibrated on (see RANGE/INTERVAL above). A chart drawing weekly-derived
+ * studies beside a column showing daily-derived ones would be two different
+ * answers to the same question.
+ */
+const CHART_RANGE = '5y';
+
+export interface ChartData {
+  bars: Candle[];
+  /** UT Bot trailing stop at every bar, aligned by index. */
+  stop: (number | null)[];
+  /** Both MAPO outputs at every bar, aligned by index. */
+  mapo: (Mapo | null)[];
+  /**
+   * Every crossing in the full history.
+   *
+   * Carried rather than recomputed by the chart, because the trailing stop is
+   * path-dependent: run the rule over a one-month slice and it starts from a
+   * stop seeded at zero, so the flips it reports near the left edge are ones
+   * that never happened. These are the flips of the whole series, filtered to
+   * the window by date.
+   */
+  flips: Flip[];
+}
+
+/** Trading days per display window. `null` means the whole history. */
+export const CHART_WINDOW: Record<string, number | null> = {
+  '1mo': 22,
+  '6mo': 126,
+  '1y': 252,
+  '5y': null,
+};
+
+const chartStore = new Map<string, ChartData>();
+const chartInflight = new Map<string, Promise<ChartData>>();
+
+/**
+ * Five years of dailies with both studies computed over all of it, once.
+ *
+ * Cached per ticker and keyed on nothing else, which is what lets the range
+ * buttons re-window instantly instead of firing a request each: the old chart
+ * refetched on every press, and three of the four presses were asking for a
+ * subset of what it already had.
+ *
+ * Only drawers that have been opened land in here, so the map stays small — this
+ * is deliberately not the `store` above, which holds a reading for every ticker
+ * in the table and would grow by a thousand bars each if it held these.
+ */
+export function fetchChartSeries(ticker: string): Promise<ChartData> {
+  const cached = chartStore.get(ticker);
+  if (cached) return Promise.resolve(cached);
+
+  const hit = chartInflight.get(ticker);
+  if (hit) return hit;
+
+  const pending = gate(() => fetchYahooBars(ticker, CHART_RANGE, INTERVAL))
+    .then((raw) => {
+      const bars = cleanBars(raw);
+      const run = runUtBot(bars);
+      const data: ChartData = {
+        bars,
+        stop: run.stops,
+        flips: run.flips,
+        mapo: mapoSeries(bars.map((b) => b.close as number)),
+      };
+      chartStore.set(ticker, data);
+      chartInflight.delete(ticker);
+      return data;
+    })
+    .catch((err) => {
+      chartInflight.delete(ticker);
+      throw err;
+    });
+
+  chartInflight.set(ticker, pending);
+  return pending;
+}
+
+/** The tail of a computed series — the display window, studies already warm. */
+export function windowChart(data: ChartData, range: string): ChartData {
+  const take = CHART_WINDOW[range] ?? null;
+  if (take === null || take >= data.bars.length) return data;
+  const from = data.bars.length - take;
+  // By index for the aligned series, by date for the flips — their `index`
+  // points into the full history and would be meaningless after a slice.
+  const firstDate = data.bars[from].date;
+  return {
+    bars: data.bars.slice(from),
+    stop: data.stop.slice(from),
+    mapo: data.mapo.slice(from),
+    flips: data.flips.filter((f) => f.date >= firstDate),
+  };
 }
 
 /** Back-compat for callers that only care about the flip. */

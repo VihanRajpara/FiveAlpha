@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { activeSource } from '../lib/dataSource';
 import { CAP_LABEL } from '../lib/classification';
 import { formatDate, formatPercent, formatPrice, formatVolume } from '../lib/format';
-import type { Candle, ChartRange, Classification, Quote, Security } from '../types';
+import type { ChartRange, Classification, Quote, Security } from '../types';
 import { useSignal } from '../hooks/useSignal';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { useClosing } from '../hooks/useClosing';
@@ -12,6 +12,9 @@ import { WatchPicker } from './WatchPicker';
 import {
   MAPO,
   MAPO_HIGH,
+  fetchChartSeries,
+  windowChart,
+  type ChartData,
   MAPO_LOW,
   MAPO_MID,
   SIGNAL_RANGE_LABEL,
@@ -23,7 +26,7 @@ import {
 } from '../lib/signals';
 import { CompanyFundamentals } from './CompanyFundamentals';
 import { ExchangeBadges } from './ExchangeBadges';
-import { PriceChart } from './PriceChart';
+import { CandleChart } from './CandleChart';
 
 const RANGES: ChartRange[] = ['1mo', '6mo', '1y', '5y'];
 const RANGE_LABEL: Record<ChartRange, string> = {
@@ -213,7 +216,46 @@ interface Props {
 
 export function StockDetail({ security, quote, cls, onClose, docked = false }: Props) {
   const [range, setRange] = useState<ChartRange>('1y');
-  const [candles, setCandles] = useState<Candle[]>([]);
+  const [series, setSeries] = useState<ChartData | null>(null);
+  /**
+   * Which studies are drawn. Both on by default: they are the two rules this
+   * screener actually decides on, and a chart of a screener that does not show
+   * them is a chart of something else.
+   */
+  const [showStop, setShowStop] = useState(true);
+  const [showMapo, setShowMapo] = useState(true);
+  const [showVolume, setShowVolume] = useState(true);
+
+  /**
+   * The chart, over the whole page.
+   *
+   * A 680px panel is enough to see that a stop was crossed and not enough to
+   * study why. An in-page overlay rather than the Fullscreen API:
+   * `requestFullscreen` is refused on non-video elements by iOS Safari, which
+   * is exactly the device with the least room to spare.
+   */
+  const [full, setFull] = useState(false);
+
+  useEffect(() => {
+    if (!full) return;
+    // Captured, so Escape leaves the chart before it reaches the panel's own
+    // handler — the one key that means "back" should not skip a level.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      setFull(false);
+    };
+    window.addEventListener('keydown', onKey, true);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      document.body.style.overflow = previous;
+    };
+  }, [full]);
+
+  // A panel that changes subject underneath an open chart would strand it.
+  useEffect(() => setFull(false), [security.symbol]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -294,15 +336,24 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
     setCondensed(false);
   }, [security.symbol]);
 
+  /**
+   * One fetch per symbol, not per range.
+   *
+   * `range` is deliberately not a dependency. The series is five years of
+   * dailies with both studies already computed over all of it, so every range
+   * button is a slice of what is in hand — the old chart re-requested on each
+   * press, and three of the four presses asked for a subset of what it had just
+   * been given.
+   */
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setSeries(null);
 
-    activeSource
-      .fetchCandles(security.ticker, range)
-      .then((rows) => {
-        if (!cancelled) setCandles(rows);
+    fetchChartSeries(security.ticker)
+      .then((data) => {
+        if (!cancelled) setSeries(data);
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -314,7 +365,38 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
     return () => {
       cancelled = true;
     };
-  }, [security.ticker, range]);
+  }, [security.ticker]);
+
+  /**
+   * The chart and its controls, in the panel or over the whole page.
+   *
+   * Portalled to `document.body` when full, and that is not stylistic.
+   * `position: fixed` is only viewport-relative while no ancestor establishes a
+   * containing block — and two ancestors here do. `.drawer-body` carries
+   * `container-type: inline-size` for the three-column facts, which implies
+   * layout containment; on a phone `.drawer` carries `will-change: transform`
+   * for the drag. Either alone is enough to trap it, and left in place "full
+   * screen" filled the drawer body and nothing else.
+   *
+   * A plain function, not a component declared in render: a nested component
+   * would be a new type on every render and would remount the chart on each
+   * one. This re-parents only when `full` actually flips — the single moment
+   * when losing the zoom is the right behaviour anyway.
+   */
+  const chartStage = (children: ReactNode) => {
+    const stage = (
+      <div className="chart-full" data-full={full || undefined}>
+        {children}
+      </div>
+    );
+    return full ? createPortal(stage, document.body) : stage;
+  };
+
+  const shown = useMemo(
+    () => (series ? windowChart(series, range) : null),
+    [series, range],
+  );
+  const candles = shown?.bars ?? [];
 
   const change = quote?.change ?? null;
   const positive = (change ?? 0) >= 0;
@@ -413,7 +495,9 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
 
           <div ref={sentinelRef} className="drawer-sentinel" aria-hidden />
 
-          {loading ? (
+          {chartStage(
+            <>
+              {loading ? (
             <div className="center-msg" style={{ padding: '56px 12px' }}>
               <div className="spinner" />
               Loading {RANGE_LABEL[range]} history…
@@ -423,11 +507,19 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
               Couldn’t load history — {error}
             </div>
           ) : (
-            <PriceChart
-              key={range}
-              candles={candles}
-              positive={windowReturn === null || windowReturn >= 0}
-            />
+            shown && (
+              <CandleChart
+                bars={shown.bars}
+                stop={shown.stop}
+                mapo={shown.mapo}
+                flips={shown.flips}
+                showStop={showStop}
+                showMapo={showMapo}
+                showVolume={showVolume}
+                full={full}
+                onToggleFull={() => setFull((v) => !v)}
+              />
+            )
           )}
 
           <div className="range-row">
@@ -438,13 +530,50 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
                 </button>
               ))}
             </div>
+
+            {/* Toggles, not a second range control: these add and remove layers
+                rather than choosing between them, so they are independent
+                switches and each says what it is drawing. */}
+            <div className="study-toggles">
+              <button
+                type="button"
+                className="study"
+                data-on={showStop}
+                aria-pressed={showStop}
+                onClick={() => setShowStop((v) => !v)}
+              >
+                <i className="key-stop" /> UT Bot
+              </button>
+              <button
+                type="button"
+                className="study"
+                data-on={showMapo}
+                aria-pressed={showMapo}
+                onClick={() => setShowMapo((v) => !v)}
+              >
+                <i className="key-mapo" /> MAPO
+              </button>
+              {/* Volume is a layer like the other two, so it is dismissed like
+                  them rather than being the one thing you cannot turn off. */}
+              <button
+                type="button"
+                className="study"
+                data-on={showVolume}
+                aria-pressed={showVolume}
+                onClick={() => setShowVolume((v) => !v)}
+              >
+                <i className="key-vol" /> Vol
+              </button>
+            </div>
             {windowReturn !== null && (
               <span className={`range-return num ${windowReturn >= 0 ? 'up' : 'down'}`}>
                 {formatPercent(windowReturn)}
                 <span className="range-over"> over {RANGE_LABEL[range]}</span>
               </span>
             )}
-          </div>
+              </div>
+            </>,
+          )}
 
           {/* Three groups, not thirteen tiles.
               Ungrouped, ISIN carried the same weight as Day range and the reader

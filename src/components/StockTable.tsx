@@ -245,23 +245,10 @@ function TypeCell({ cls }: { cls: Classification | undefined }) {
  * fixed columns now, and a missing one that rendered nothing would shift the
  * two beside it — which is the alignment the columns exist for.
  */
-function Metric({
-  label,
-  value,
-  tone,
-  title,
-}: {
-  label: string;
-  value: string | undefined;
-  /** Colours the figure where the figure has a direction. Most do not. */
-  tone?: 'up' | 'down';
-  title?: string;
-}) {
+function Metric({ label, value }: { label: string; value: string | undefined }) {
   return (
-    <span className="metric" title={title}>
-      <b className={`num${value === undefined ? ' muted-dash' : ''}${tone ? ` ${tone}` : ''}`}>
-        {value ?? '—'}
-      </b>
+    <span className="metric">
+      <b className={value === undefined ? 'num muted-dash' : 'num'}>{value ?? '—'}</b>
       {label}
     </span>
   );
@@ -363,52 +350,6 @@ function signalHint(signal: Signal): string {
     .join('\n');
 }
 
-/**
- * Where the price now sits relative to the flip, drawn.
- *
- * The card used to print `+24.9%` two lines above `-0.45%` in opposite colours
- * with nothing saying they measure different things — one is the distance from
- * the signal price, the other is today's move. Labelling both fixes the
- * ambiguity; drawing one of them answers the question the reader actually has,
- * which is *how much of this move has already happened*.
- *
- * The domain and its ticks are not invented. They are the app's own
- * `SIGNAL_GAP_BANDS` — Below 0 / 0-5 / 5-15 / >15 — the same edges the FROM
- * SIGNAL filter offers, so a row's mark lands in the band the reader may have
- * filtered on. Clamped to [-15, +35]: past that the exact number stops mattering
- * and only "far" does, and an unbounded axis would squash every ordinary row
- * into the first few pixels.
- *
- * `aria-hidden`, deliberately. It re-encodes the percentage printed beside it,
- * so a screen reader that announced both would read the same fact twice.
- */
-const GAP_MIN = -15;
-const GAP_MAX = 35;
-/** Where a gap sits across the track, 0-100. */
-const gapAt = (pct: number) =>
-  ((Math.max(GAP_MIN, Math.min(GAP_MAX, pct)) - GAP_MIN) / (GAP_MAX - GAP_MIN)) * 100;
-
-function GapBar({ gap }: { gap: number }) {
-  const zero = gapAt(0);
-  const now = gapAt(gap);
-  const [from, to] = now >= zero ? [zero, now] : [now, zero];
-  return (
-    <span className="gapbar" aria-hidden>
-      {/* The band edges, so the bar is a scale and not just a length. */}
-      {[5, 15].map((t) => (
-        <i key={t} className="gapbar-tick" style={{ left: `${gapAt(t)}%` }} />
-      ))}
-      {/* The signal price itself — the baseline everything here is measured from. */}
-      <i className="gapbar-zero" style={{ left: `${zero}%` }} />
-      <i
-        className={`gapbar-fill ${gap >= 0 ? 'up' : 'down'}`}
-        data-side={gap >= 0 ? 'right' : 'left'}
-        style={{ left: `${from}%`, width: `${Math.max(to - from, 1.5)}%` }}
-      />
-    </span>
-  );
-}
-
 function SignalStrip({ ticker, price }: { ticker: string; price: number | null | undefined }) {
   const { signal, loaded } = useSignal(ticker);
 
@@ -446,18 +387,21 @@ function SignalStrip({ ticker, price }: { ticker: string; price: number | null |
         </span>
       </span>
 
-      {gap !== null && <GapBar gap={gap} />}
-
       <span className="sig-strip-when">
         {gap !== null && (
           <>
+            {/* The colour is back on this figure. It carried no colour while the
+                bar sat above it — the bar was the thing saying which way and how
+                far — and with the bar gone this is the only place that says it. */}
             <b className={`num ${gap >= 0 ? 'up' : 'down'}`}>{formatGap(gap)}</b> from signal ·{' '}
           </>
         )}
         {/* Bars, not days: 20 sessions is a calendar month. The column used to
-            print "20d" for both. */}
-        {formatDate(signal.date)} ·{' '}
-        {signal.age === 0 ? 'today' : `${signal.age} ${signal.age === 1 ? 'bar' : 'bars'}`}
+            print "20d" for both. Ahead of the date, because "how stale is this
+            verdict" is the question being asked and the calendar date is the
+            detail behind it. */}
+        {signal.age === 0 ? 'today' : `${signal.age} ${signal.age === 1 ? 'bar' : 'bars'}`} ·{' '}
+        {formatDate(signal.date)}
         {signal.provisional && ' · live'}
       </span>
     </div>
@@ -465,29 +409,45 @@ function SignalStrip({ ticker, price }: { ticker: string; price: number | null |
 }
 
 /**
- * MAPO as one of the metrics rather than a green chip on the signal.
+ * MAPO, drawn as the meter it always was.
  *
- * It never belonged to the flip — it rides the same request but measures
- * something else entirely, and sitting inside the signal block it read as part
- * of the verdict. Beside RSI and ROCE it reads as what it is: another number
- * about the share.
+ * It spent one revision as a green chip inside the signal and one as a fifth
+ * item in the metric row. Neither worked. As a chip it read as part of the
+ * verdict, which it is not; as a metric it was the item that broke the row —
+ * five cells in an auto-filling grid wrap to four-plus-one on a narrow phone,
+ * and MAPO sat alone on a second line looking like a different kind of thing.
+ *
+ * It is a share of a bounded whole — the percentage of its 5–100 day averages
+ * the price is above — which is the one shape on this card that is genuinely a
+ * ratio against a limit, and so the one that earns a track. Drawn, it also
+ * stops competing with the four figures below it and gets the emphasis it was
+ * asked for without a colour fight.
+ *
+ * The tick is at 50, the oscillator's own `histbase` and the only threshold
+ * that flips the reading, so the meter explains its own colour.
  *
  * The hook is the same one the strip above calls, which is one fetch and not
  * two — `fetchSignal` collapses concurrent callers onto a single promise.
  */
-function MapoMetric({ ticker }: { ticker: string }) {
+function MapoMeter({ ticker }: { ticker: string }) {
   const { mapo } = useSignal(ticker);
+  if (!mapo) return null;
+
+  const strong = mapo.above > MAPO_MID;
   return (
-    <Metric
-      label="MAPO"
-      value={mapo ? mapo.above.toFixed(0) : undefined}
-      tone={mapo ? (mapo.above > MAPO_MID ? 'up' : 'down') : undefined}
-      title={
-        mapo
-          ? `Above ${mapo.above.toFixed(1)}% of its ${MAPO.minLength}–${MAPO.maxLength} day averages`
-          : undefined
-      }
-    />
+    <div
+      className={`mapo ${strong ? 'up' : 'down'}`}
+      title={`Above ${mapo.above.toFixed(1)}% of its ${MAPO.minLength}–${MAPO.maxLength} day averages`}
+    >
+      <span className="mapo-label">MAPO</span>
+      {/* The figure is printed beside it, so the track is decoration to a
+          screen reader and says so. */}
+      <span className="mapo-track" aria-hidden>
+        <i className="mapo-fill" style={{ width: `${Math.max(mapo.above, 1.5)}%` }} />
+        <i className="mapo-mid" />
+      </span>
+      <b className="num mapo-value">{mapo.above.toFixed(0)}</b>
+    </div>
   );
 }
 
@@ -1122,6 +1082,8 @@ export function StockTable({
           <div className="stack-foot">
             <SignalStrip ticker={row.original.ticker} price={q?.price} />
 
+            <MapoMeter ticker={row.original.ticker} />
+
             <span className="stack-screen">
               {result && (
                 <Metric
@@ -1132,7 +1094,6 @@ export function StockTable({
               <Metric label="RSI(M)" value={rsi?.toFixed(0)} />
               <Metric label="ROCE" value={roce === undefined ? undefined : `${roce.toFixed(0)}%`} />
               <Metric label="M.Cap ₹Cr" value={mcap === undefined ? undefined : formatCrore(mcap)} />
-              <MapoMetric ticker={row.original.ticker} />
             </span>
           </div>
         </div>
