@@ -20,12 +20,14 @@
     "check:quotepoll": "node scripts/check-quote-poll.mjs",
     "check:upstox": "node scripts/upstox-check.mjs",
     "check:contrast": "node scripts/check-contrast.mjs",
-    "check:sheet": "node scripts/check-sheet.mjs"
+    "check:sheet": "node scripts/check-sheet.mjs",
+    "check:chart": "node scripts/check-chart.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
     "@tanstack/react-table": "^8.20.5",
     "@tanstack/react-virtual": "^3.10.8",
+    "lightweight-charts": "^5.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

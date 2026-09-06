@@ -2543,31 +2543,6 @@ body {
   overflow: visible;
 }
 
-/* Floating quote bubble that tracks the crosshair. */
-.chart-tip {
-  position: absolute;
-  top: 0;
-  transform: translateX(-50%);
-  padding: 5px 10px;
-  border-radius: 8px;
-  background: var(--surface);
-  border: 1px solid var(--outline-faint);
-  box-shadow: var(--elev-2);
-  font-size: 12px;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-.chart-tip b {
-  font-family: var(--font-display);
-  font-weight: 700;
-}
-
-.chart-tip span {
-  color: var(--on-surface-variant);
-  margin-right: 6px;
-}
-
 .chart-dates {
   display: flex;
   justify-content: space-between;
@@ -2578,12 +2553,14 @@ body {
 
 .range-row {
   display: flex;
-  gap: 12px;
+  gap: 10px 12px;
   align-items: center;
   flex-wrap: wrap;
   padding: 10px 20px 18px;
 }
 
+/* Pushed to its own end of the row so the two control groups stay adjacent —
+   ranges and study toggles read as one cluster, the reading as another. */
 .range-return {
   font-weight: 600;
   margin-left: auto;
@@ -2594,10 +2571,9 @@ body {
   font-weight: 400;
 }
 
-/* The series fades in when the range changes. `PriceChart` is keyed on the
-   range so it genuinely remounts, which is what gives `@starting-style`
-   something to start from — otherwise a 5Y line would snap into the space a 1M
-   line just left. */
+/* The series fades in when the range changes. The chart is no longer remounted
+   on a range press — the window is a slice of a series already in hand — so this
+   now only runs on the first paint, which is the one that needed it. */
 .chart-box {
   opacity: 1;
   transition: opacity 220ms var(--ease-out);
@@ -2720,6 +2696,201 @@ body {
   font-family: var(--font-mono);
   font-size: 14px;
   letter-spacing: -0.02em;
+}
+
+/* ---------- candles & studies ---------- */
+
+/**
+ * The candle body and its wick share one colour, set on the group.
+ *
+ * Filled bodies both ways rather than hollow-for-up: hollow candles rely on a
+ * 1px outline to carry the direction, and at the widths a drawer gives this —
+ * often two or three pixels a candle — that outline *is* the whole body. Solid
+ * survives the squeeze.
+ */
+.candle.up {
+  fill: var(--up);
+  stroke: var(--up);
+}
+
+.candle.down {
+  fill: var(--down);
+  stroke: var(--down);
+}
+
+/* The trailing stop. Dashed and in the accent, so it never reads as a third
+   price series sitting alongside the candles — it is the rule, not the market. */
+.ut-stop {
+  stroke: var(--primary);
+}
+
+/* The oscillator's own 20–80 channel, from its `hline`s. A wash rather than a
+   fill: it is the backdrop the line is read against. */
+.mapo-band {
+  fill: var(--primary);
+  opacity: 0.05;
+}
+
+.mapo-line {
+  stroke: var(--primary);
+}
+
+.chart-axis {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/**
+ * The OHLC readout.
+ *
+ * Above the chart rather than in a bubble on it. A floating tooltip has to be
+ * chased with the pointer and covers the very candles it describes; a fixed
+ * strip that updates as you scrub keeps the whole series visible, which is what
+ * TradingView's own header row does and for the same reason.
+ *
+ * It shows the last bar when nothing is hovered, so the row is never empty and
+ * the layout never jumps as the pointer arrives.
+ */
+.chart-read {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  padding: 0 2px 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--on-surface-variant);
+}
+
+.chart-read span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.chart-read em {
+  font-style: normal;
+  color: var(--on-surface-faint);
+}
+
+.chart-read b {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--on-surface);
+}
+
+.chart-read-date {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+/* Said out loud when the candles are no longer one session each — a five-year
+   view is drawn in weeks, and a reader counting bars deserves to know. */
+.chart-agg {
+  color: var(--on-surface-faint);
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0 2px;
+  font-size: 10.5px;
+  color: var(--on-surface-faint);
+}
+
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* The two study keys, drawn the way the chart draws them: the stop is a dashed
+   rule, the oscillator a solid one. A pair of identical dots would make the
+   legend a colour lookup rather than a shape one. */
+.key-stop,
+.key-mapo {
+  display: inline-block;
+  width: 14px;
+  height: 0;
+  flex: none;
+  border-top: 2px solid var(--primary);
+}
+
+.key-stop {
+  border-top-style: dashed;
+}
+
+.chart-empty {
+  padding: 48px 12px;
+}
+
+/* ---------- study toggles ---------- */
+
+/**
+ * Independent switches, not a segmented picker.
+ *
+ * They sit on the range row because both answer "what am I looking at", but
+ * they are a different kind of control: the ranges are one-of-four and these
+ * are each-on-or-off, so they must not borrow the segmented track's look or the
+ * reader will expect picking one to unpick the other.
+ */
+.study-toggles {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.study {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--outline);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--on-surface-variant);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out),
+    border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    transform var(--t-press) var(--ease-out);
+}
+
+/* Off is the state that has to look off: the key line goes grey with the label,
+   so the row reads as "this layer is not on the chart" and not merely as an
+   unselected tab. */
+.study[data-on='false'] .key-stop,
+.study[data-on='false'] .key-mapo {
+  border-top-color: var(--on-surface-faint);
+}
+
+.study[data-on='true'] {
+  border-color: var(--primary);
+  background: var(--primary-container);
+  color: var(--primary);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .study:hover {
+    border-color: var(--on-surface-faint);
+  }
+
+  .study[data-on='true']:hover {
+    border-color: var(--primary);
+  }
+}
+
+.study:active {
+  transform: scale(0.97);
 }
 
 /* ---------- screener.in panel ---------- */

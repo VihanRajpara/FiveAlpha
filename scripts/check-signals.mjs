@@ -715,10 +715,10 @@ for (const target of [company('ANYCO'), company('ARE&M'), company('X', ['BSE'], 
     assert.ok(i > 0, `cannot find ${name}`);
     return new Set([...tsx.slice(i, tsx.indexOf(']', i)).matchAll(/'(\w+)'/g)].map((x) => x[1]));
   };
-  const WIDE = hiddenSet('WIDE_HIDDEN');
-  const MEDIUM = hiddenSet('MEDIUM_HIDDEN');
-  // MEDIUM_HIDDEN_SCREENING spreads MEDIUM_HIDDEN and adds the gap.
-  const MEDIUM_SCREEN = new Set([...MEDIUM, 'sigGap']);
+  // One desktop layout now. The `medium` breakpoint that used to drop six more
+  // columns is gone — the table scrolls sideways instead of shedding data — so
+  // there are two track templates to check rather than four.
+  const DESKTOP = hiddenSet('DESKTOP_HIDDEN');
 
   // `pctOfHigh` is the only column that exists solely while a screen is loaded.
   const visible = (hidden, screening) =>
@@ -736,10 +736,12 @@ for (const target of [company('ANYCO'), company('ARE&M'), company('X', ['BSE'], 
   };
 
   for (const [name, selector, columns] of [
-    ['wide', ".table-wrap[data-layout='wide'] .grid-row", visible(WIDE, false)],
-    ['wide+screen', ".table-wrap[data-layout='wide'][data-screen='true'] .grid-row", visible(WIDE, true)],
-    ['medium', ".table-wrap[data-layout='medium'] .grid-row", visible(MEDIUM, false)],
-    ['medium+screen', ".table-wrap[data-layout='medium'][data-screen='true'] .grid-row", visible(MEDIUM_SCREEN, true)],
+    ['desktop', ".table-wrap[data-layout='desktop'] .grid-row", visible(DESKTOP, false)],
+    [
+      'desktop+screen',
+      ".table-wrap[data-layout='desktop'][data-screen='true'] .grid-row",
+      visible(DESKTOP, true),
+    ],
   ]) {
     assert.equal(
       trackCount(selector),

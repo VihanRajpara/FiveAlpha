@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { activeSource } from '../lib/dataSource';
 import { CAP_LABEL } from '../lib/classification';
 import { formatDate, formatPercent, formatPrice, formatVolume } from '../lib/format';
-import type { Candle, ChartRange, Classification, Quote, Security } from '../types';
+import type { ChartRange, Classification, Quote, Security } from '../types';
 import { useSignal } from '../hooks/useSignal';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { useClosing } from '../hooks/useClosing';
@@ -12,6 +11,9 @@ import { WatchPicker } from './WatchPicker';
 import {
   MAPO,
   MAPO_HIGH,
+  fetchChartSeries,
+  windowChart,
+  type ChartData,
   MAPO_LOW,
   MAPO_MID,
   SIGNAL_RANGE_LABEL,
@@ -23,7 +25,7 @@ import {
 } from '../lib/signals';
 import { CompanyFundamentals } from './CompanyFundamentals';
 import { ExchangeBadges } from './ExchangeBadges';
-import { PriceChart } from './PriceChart';
+import { CandleChart } from './CandleChart';
 
 const RANGES: ChartRange[] = ['1mo', '6mo', '1y', '5y'];
 const RANGE_LABEL: Record<ChartRange, string> = {
@@ -213,7 +215,14 @@ interface Props {
 
 export function StockDetail({ security, quote, cls, onClose, docked = false }: Props) {
   const [range, setRange] = useState<ChartRange>('1y');
-  const [candles, setCandles] = useState<Candle[]>([]);
+  const [series, setSeries] = useState<ChartData | null>(null);
+  /**
+   * Which studies are drawn. Both on by default: they are the two rules this
+   * screener actually decides on, and a chart of a screener that does not show
+   * them is a chart of something else.
+   */
+  const [showStop, setShowStop] = useState(true);
+  const [showMapo, setShowMapo] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -294,15 +303,24 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
     setCondensed(false);
   }, [security.symbol]);
 
+  /**
+   * One fetch per symbol, not per range.
+   *
+   * `range` is deliberately not a dependency. The series is five years of
+   * dailies with both studies already computed over all of it, so every range
+   * button is a slice of what is in hand — the old chart re-requested on each
+   * press, and three of the four presses asked for a subset of what it had just
+   * been given.
+   */
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setSeries(null);
 
-    activeSource
-      .fetchCandles(security.ticker, range)
-      .then((rows) => {
-        if (!cancelled) setCandles(rows);
+    fetchChartSeries(security.ticker)
+      .then((data) => {
+        if (!cancelled) setSeries(data);
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -314,7 +332,13 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
     return () => {
       cancelled = true;
     };
-  }, [security.ticker, range]);
+  }, [security.ticker]);
+
+  const shown = useMemo(
+    () => (series ? windowChart(series, range) : null),
+    [series, range],
+  );
+  const candles = shown?.bars ?? [];
 
   const change = quote?.change ?? null;
   const positive = (change ?? 0) >= 0;
@@ -423,11 +447,15 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
               Couldn’t load history — {error}
             </div>
           ) : (
-            <PriceChart
-              key={range}
-              candles={candles}
-              positive={windowReturn === null || windowReturn >= 0}
-            />
+            shown && (
+              <CandleChart
+                bars={shown.bars}
+                stop={shown.stop}
+                above={shown.above}
+                showStop={showStop}
+                showMapo={showMapo}
+              />
+            )
           )}
 
           <div className="range-row">
@@ -437,6 +465,30 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
                   {RANGE_LABEL[r]}
                 </button>
               ))}
+            </div>
+
+            {/* Toggles, not a second range control: these add and remove layers
+                rather than choosing between them, so they are independent
+                switches and each says what it is drawing. */}
+            <div className="study-toggles">
+              <button
+                type="button"
+                className="study"
+                data-on={showStop}
+                aria-pressed={showStop}
+                onClick={() => setShowStop((v) => !v)}
+              >
+                <i className="key-stop" /> UT Bot
+              </button>
+              <button
+                type="button"
+                className="study"
+                data-on={showMapo}
+                aria-pressed={showMapo}
+                onClick={() => setShowMapo((v) => !v)}
+              >
+                <i className="key-mapo" /> MAPO
+              </button>
             </div>
             {windowReturn !== null && (
               <span className={`range-return num ${windowReturn >= 0 ? 'up' : 'down'}`}>
