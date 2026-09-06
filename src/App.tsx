@@ -12,7 +12,11 @@ import { useSignals } from './hooks/useSignals';
 import { SCREENS } from './lib/screens';
 import {
   SIGNAL_FILTER_MAX,
+  MAPO_HIGH,
+  MAPO_LOW,
+  MAPO_MID,
   matchesSignalFilter,
+  peekMapo,
   peekSignal,
   signalFilterIsEmpty,
   type SignalFilter,
@@ -20,6 +24,8 @@ import {
 import { ANY, NUMERIC_FILTERS, matchesBands } from './lib/filters';
 import type { User } from './lib/auth';
 import { useActiveList } from './hooks/useWatchlist';
+import { useMediaQuery } from './hooks/useMediaQuery';
+import { onTabListKeys } from './hooks/useFocusTrap';
 import { toggleWatch } from './lib/watchlist';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
 import { UNCLASSIFIED } from './lib/classification';
@@ -86,9 +92,9 @@ const CAP_FILTER_HINT: Record<CapFilter, string> = {
 };
 
 /**
- * The four signal filters. Their values are the keys `matchesSignalFilter`
- * reads — `SIGNAL_AGE_MAX`, `SIGNAL_GAP_BANDS`, `SIGNAL_SCORE_MIN` — so the
- * thresholds live next to the arithmetic and only the labels live here.
+ * The signal filters. Their values are the keys `matchesSignalFilter` reads —
+ * `SIGNAL_AGE_MAX`, `SIGNAL_GAP_BANDS`, `SIGNAL_SCORE_MIN`, `MAPO_BANDS` — so
+ * the thresholds live next to the arithmetic and only the labels live here.
  */
 const SIGNAL_SIDE_OPTIONS = [
   { value: 'ALL', label: 'Any', hint: 'Both sides of the trailing stop' },
@@ -123,8 +129,21 @@ const SIGNAL_SCORE_OPTIONS = [
   { value: '75', label: '75+', hint: 'With the trend and confirmed — few rows pass this' },
 ];
 
+/**
+ * MAPO's breadth reading, banded at the oscillator's own `hline`s and its
+ * `histbase`. Independent of the flip: a name that has not crossed its trailing
+ * stop in two years still has a reading, and this filter still admits it.
+ */
+const SIGNAL_MAPO_OPTIONS = [
+  { value: 'ALL', label: 'Any', hint: 'Wherever price sits against its moving averages' },
+  { value: 'HIGH', label: `>${MAPO_HIGH}`, hint: `Above more than ${MAPO_HIGH}% of its 5–100 day averages` },
+  { value: 'UPPER', label: `${MAPO_MID}–${MAPO_HIGH}`, hint: 'Above most of the fan, short of the band' },
+  { value: 'LOWER', label: `${MAPO_LOW}–${MAPO_MID}`, hint: 'Below most of the fan' },
+  { value: 'LOW', label: `<${MAPO_LOW}`, hint: `Below more than ${100 - MAPO_LOW}% of its averages` },
+];
+
 /** The signal columns, which sort off the same fetched cache the filters use. */
-const SIGNAL_SORT_IDS = new Set(['sigSide', 'sigAt', 'sigGap']);
+const SIGNAL_SORT_IDS = new Set(['sigSide', 'sigAt', 'sigGap', 'mapo']);
 
 type BreadthKey = 'up' | 'down' | 'flat' | 'priced';
 
@@ -171,6 +190,21 @@ export default function App({
     return () => clearInterval(id);
   }, []);
 
+  /**
+   * Whether the detail panel docks beside the table instead of covering it.
+   *
+   * Overlaying a 1240px table with a scrim to show a 680px panel wastes the
+   * larger half of the screen: everything under the scrim is dimmed, and none
+   * of it can be clicked. Past this width there is room for both, so the panel
+   * becomes a second column and the table stays live — arrow down the rows and
+   * the panel follows.
+   *
+   * 1400 is where that stops being a trade: the panel takes 560px there and
+   * leaves the table 840, which is enough for the frozen symbol column plus
+   * several figures before it scrolls. Below it, the overlay is still right.
+   */
+  const docked = useMediaQuery('(min-width: 1400px)');
+
   const [search, setSearch] = useState('');
   // `/` focuses it from anywhere — see the shortcut handler below.
   const searchRef = useRef<HTMLInputElement>(null);
@@ -203,6 +237,7 @@ export default function App({
     age: 'ALL',
     gap: 'ALL',
     score: 'ALL',
+    mapo: 'ALL',
   });
   // The numeric band filters, keyed by `NUMERIC_FILTERS[].key`. One bag rather
   // than a `useState` each: they are all the same shape, and adding the next
@@ -350,7 +385,7 @@ export default function App({
   // has quietly lost rows or stopped ordering them.
   useEffect(() => {
     if (signalFilterAffordable) return;
-    if (signalFilterOn) setSignal({ side: 'ALL', age: 'ALL', gap: 'ALL', score: 'ALL' });
+    if (signalFilterOn) setSignal({ side: 'ALL', age: 'ALL', gap: 'ALL', score: 'ALL', mapo: 'ALL' });
     if (signalSortOn) setSorting([{ id: 'symbol', desc: false }]);
   }, [signalFilterAffordable, signalFilterOn, signalSortOn]);
 
@@ -416,6 +451,14 @@ export default function App({
         disabled: !signalFilterAffordable,
         options: SIGNAL_SCORE_OPTIONS,
         onChange: (v) => setSignal((s) => ({ ...s, score: v })),
+      },
+      {
+        key: 'signalMapo',
+        label: 'MAPO',
+        value: signal.mapo ?? 'ALL',
+        disabled: !signalFilterAffordable,
+        options: SIGNAL_MAPO_OPTIONS,
+        onChange: (v) => setSignal((s) => ({ ...s, mapo: v })),
       },
       // The universe cuts, which the Watchlists section does not have: a list
       // is already a universe, and filtering it by exchange would hide rows
@@ -533,7 +576,7 @@ export default function App({
       // answers — `useSignals` fills the same cache the cells read from, and
       // `signals.version` is what brings us back here as it fills.
       out = out.filter((row) =>
-        matchesSignalFilter(peekSignal(row.ticker), row.quote?.price, signal),
+        matchesSignalFilter(peekSignal(row.ticker), row.quote?.price, signal, peekMapo(row.ticker)),
       );
     }
 
@@ -616,7 +659,7 @@ export default function App({
     breadth.priced === 0 ? '—' : `${Math.round((n / breadth.priced) * 100)}% of priced`;
 
   return (
-    <div className="app">
+    <div className="app" data-docked={selectedRow && docked ? '' : undefined}>
       <header className="topbar">
         <div className="brand">
           {/* The lockup, masked in over the brand gradient by .brand-logo, which
@@ -700,10 +743,18 @@ export default function App({
             out of room for it at laptop widths, where it landed on the brand.
             The count is of the active list: one you have to remember to go and
             look at is one you stop using. */}
-        <nav className="segmented viewnav" role="tablist" aria-label="Sections">
+        <nav
+          className="segmented viewnav"
+          role="tablist"
+          aria-label="Sections"
+          onKeyDown={onTabListKeys}
+        >
           <button
             type="button"
             role="tab"
+            // Roving: one tab stop for the pair, arrows between them. Two stops
+            // for two tabs is what `role="tab"` exists to avoid.
+            tabIndex={watchlistView ? -1 : 0}
             data-active={!watchlistView}
             aria-selected={!watchlistView}
             onClick={() => setView('screener')}
@@ -713,6 +764,7 @@ export default function App({
           <button
             type="button"
             role="tab"
+            tabIndex={watchlistView ? 0 : -1}
             data-active={watchlistView}
             aria-selected={watchlistView}
             onClick={() => setView('watchlist')}
@@ -862,7 +914,10 @@ export default function App({
         {refreshingQuotes && (
           <>
             <span className="progress" aria-hidden>
-              <i style={{ width: `${Math.round(quoteProgress * 100)}%` }} />
+              {/* A custom property, not `width` — the bar is scaled on the
+                  compositor rather than re-laying-out the footer on every
+                  progress tick. See `.progress i`. */}
+              <i style={{ '--p': quoteProgress } as React.CSSProperties} />
             </span>
             <span className="num">{Math.round(quoteProgress * 100)}%</span>
           </>
@@ -905,6 +960,7 @@ export default function App({
 
       {selectedRow && (
         <StockDetail
+          docked={docked}
           security={selectedRow}
           quote={selectedRow.quote}
           cls={selectedRow.cls}

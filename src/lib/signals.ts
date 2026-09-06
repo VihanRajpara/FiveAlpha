@@ -4,23 +4,31 @@ import { createGate, isMarketOpen } from './format';
 import { fetchYahooBars } from './yahooCandles';
 
 /**
- * UT Bot on an HMA — the buy/sell leg of the TradingView study labelled
- * `SVMKR_UT_HMA_ORB 6 1 31 5 1010-1015`.
+ * The buy/sell leg of the TradingView study `SVMKR_UT_HMA_ORB 6 1 31 5 1010-1015`,
+ * transcribed from its Pine v4 source rather than inferred from its name.
  *
- * The script itself is private, so what is implemented here is the public
- * arithmetic its name is made of: an ATR trailing stop (UT Bot Alerts) fed by a
- * Hull moving average instead of raw closes. A signal is the bar on which the
- * source crosses its own trailing stop; the "amount" is that bar's close and the
- * "time" is that bar's date.
+ * The study is three independent parts stacked on one chart, and only the first
+ * produces a signal:
  *
- * **The ORB half is not implemented.** An opening-range breakout between 10:10
- * and 10:15 is an intraday rule, and Yahoo carries intraday bars for 60 days at
- * one request per symbol per timeframe — a table of 2,400 rows cannot pay for
- * it. Everything here is computed from daily bars, which is also why the signal
- * carries a date rather than a clock time.
+ *   1. **UT Bot** — an ATR trailing stop on `close`. A signal is the bar on which
+ *      the close crosses that stop. This is the whole of the buy/sell logic.
+ *   2. **A Hull moving average**, plotted and coloured by its own slope. It is an
+ *      *overlay*: `xATRTrailingStop` never reads it. The earlier version of this
+ *      file fed the HMA into the UT Bot as its source, which is a different rule
+ *      from the one on the chart. It survives here only as `trend` — the same
+ *      rising/falling test the script uses to colour the line green or red.
+ *   3. **An opening-range breakout** between 10:10 and 10:15, gated upstream on
+ *      `timeframe.isintraday and timeframe.multiplier <= 5`. On a daily chart
+ *      both its plots are `na`, so it contributes nothing to reproduce. This is
+ *      why the signal carries a date rather than a clock time.
  *
- * The four numbers below are read off that chart label in the order it prints
- * them and are the one thing worth checking against the real script.
+ * A fourth part, `UCS_LRS`, is commented out in the source in its entirety.
+ *
+ * The parameters below come from the chart label, whose five values map onto the
+ * script's inputs in declaration order: `a=6`, `c=1`, `n=31`, `inputMax=5`,
+ * `sess=1010-1015` (the boolean `h` is not printed). The last three match their
+ * declared defaults exactly, which pins the order and settles that `6 1` is the
+ * key value and then the ATR period — not the other way round.
  *
  * ## What the flip on its own does not say
  *
@@ -32,11 +40,13 @@ import { fetchYahooBars } from './yahooCandles';
  *
  *   · **It can repaint.** Mid-session the last daily bar is still moving, so a
  *     flip dated today may not survive the close — `provisional`.
- *   · **One bad tick moves it.** Yahoo's Indian history carries them, an ATR is
- *     a range average, and a single 2× high widens the stop for six bars —
- *     `cleanBars`, the same lesson `technicals.ts` already learned.
- *   · **It ignores the trend it fires against.** A BUY under the 200-day is the
- *     same arithmetic as one above it and not the same signal — `trend`.
+ *   · **One bad tick moves it.** Yahoo's Indian history carries them, and at
+ *     `atr(1)` a bar's own true range *is* the stop distance — one 2× high
+ *     throws the stop by six times a price that never traded — `cleanBars`,
+ *     the same lesson `technicals.ts` already learned.
+ *   · **It ignores the trend it fires into.** A BUY while the Hull line is
+ *     still falling is the same arithmetic as one while it rises and not the
+ *     same signal — `trend`.
  *   · **It ignores who was there.** A cross on a third of average volume is one
  *     participant — `volumeRatio`.
  *   · **It ignores whether the name can be traded at all** — `turnover`.
@@ -49,24 +59,53 @@ import { fetchYahooBars } from './yahooCandles';
  * with the chart. It is context carried alongside, folded into one `score`.
  */
 export const UT_BOT = {
-  /** ATR lookback, Wilder-smoothed. */
-  atrPeriod: 6,
-  /** UT Bot's "key value" — the ATR multiple the trailing stop sits away by. */
-  keyValue: 1,
-  /** Hull moving average length, used as the source instead of `close`. */
+  /**
+   * `a` — the ATR multiple the trailing stop sits away by, and the only knob
+   * the script's own input label calls "sensitivity".
+   *
+   * Six of them against a one-bar ATR is a stop roughly a tenth of the price
+   * away on a typical NSE name. That is a wide, slow trend follower: it is
+   * meant to sit through the noise a 1×ATR(6) stop would trade against.
+   */
+  keyValue: 6,
+  /**
+   * `c` — ATR lookback, Wilder-smoothed.
+   *
+   * One. Pine's `rma(tr, 1)` is `tr` itself, so there is no averaging here at
+   * all: the stop distance is six times *this bar's* true range. Which is why
+   * `cleanBars` is not optional.
+   */
+  atrPeriod: 1,
+  /**
+   * `n` — Hull moving average length.
+   *
+   * Plotted by the script, read by nothing in it. Used here only for `trend`.
+   */
   hmaLength: 31,
 };
 
-/** Daily bars are enough for a 31-period HMA several times over. */
-const RANGE = '1y';
+/**
+ * Two years of daily bars, set by measurement rather than by taste.
+ *
+ * A 6×ATR(1) stop is roughly a tenth of the price wide, so this rule flips
+ * about **5 times a year** per name — and `history` needs `MIN_TRADES` closed
+ * round trips, which is four flips. Over nineteen NSE large- and mid-caps a one
+ * year window left **6 of 19** with no track record at all (one name flipped
+ * once); two years leaves none.
+ *
+ * It is the same single Yahoo request either way — the window is a query
+ * parameter — so the cost is response size, not round trips. The measurement
+ * that first said a year was enough was taken before `cleanBars` learned to
+ * drop Yahoo's holiday bars, and was counting phantom flips.
+ */
+const RANGE = '2y';
+
+/** How far back `history` looks, for the places that have to say so. */
+export const SIGNAL_RANGE_LABEL = '2y';
 const INTERVAL = '1d';
 
 /** Volume and turnover are averaged over a month of sessions. */
 const VOL_WINDOW = 20;
-
-/** The trend a signal is judged against, longest available of the two. */
-const TREND_FAST = 50;
-const TREND_SLOW = 200;
 
 /**
  * Median daily turnover below which a signal is not actionable, in rupees.
@@ -98,7 +137,7 @@ const SPIKE_RATIO = 2;
  */
 export const SCORE = {
   base: 50,
-  /** Fires with the 200-day trend, or against it. */
+  /** Fires with the Hull line's own direction, or against it. */
   trend: 20,
   /** Flip bar traded at least `VOLUME_STRONG`× its 20-bar average. */
   volume: 10,
@@ -113,19 +152,25 @@ export const SCORE = {
 };
 
 /**
- * Measured, not assumed. Over the 156 flips this rule produced in a year of
- * daily bars across twenty NSE large- and mid-caps, flip-bar volume against its
- * own 20-bar average ran: median **0.90**, quartiles 0.68 / 1.23, max 3.73.
+ * Measured, not assumed. Re-measured 2026-09-05 against the corrected rule, over
+ * the 197 flips it produced in two years of daily bars across nineteen NSE
+ * large- and mid-caps: flip-bar volume against its own 20-bar average ran median
+ * **1.34**, quartiles 0.94 / 1.98, p90 2.98.
  *
- * Below one is the interesting part and it is structural rather than a fault:
- * the source is a 31-period HMA, so the crossing lands several bars *after* the
- * thrust that caused it and the flip bar is a quiet one by construction. Which
- * is why these are set where they are — 1.5 marks the 15% of flips that still
- * carried real participation, 0.7 the 26% that had none at all — and why the
- * band between them scores nothing rather than being interpolated. A cutoff at
- * 1.0 would have called two flips in three "weak".
+ * The previous pair (1.5 / 0.7) was measured against the HMA-sourced rule, whose
+ * median was **0.90** — below one, because a 31-period HMA crosses several bars
+ * *after* the thrust that caused it and the flip bar was quiet by construction.
+ * On `close` the crossing lands on the thrust itself and the whole distribution
+ * moves up, which retired both the number and the reasoning: at 1.5, 40% of
+ * flips now count as strong, and a bonus two flips in five collect is not a
+ * distinction.
+ *
+ * So: 2.0 marks the 24% that traded at twice their own month, just clear of the
+ * upper quartile; 0.7 the 10% that had nobody, well under the lower one. The
+ * 66% between them scores nothing rather than being interpolated — the band is
+ * the ordinary case and the score should be silent about it.
  */
-const VOLUME_STRONG = 1.5;
+const VOLUME_STRONG = 2;
 const VOLUME_THIN = 0.7;
 
 /** Completed round trips needed before a symbol's own hit rate means anything. */
@@ -151,8 +196,13 @@ export interface Signal {
    * The flip fires with the prevailing trend (`1`), against it (`-1`), or the
    * history is too short to have one (`0`).
    *
-   * Latest close against the 200-day average of closes, or the 50-day where
-   * there are not 200 bars. Signed by side, so `1` always means agreement.
+   * The trend is the study's own second plot: `c1 = n1 > n1[1]`, the Hull
+   * moving average rising or falling, which is what colours that line green or
+   * red on the chart. Signed by side, so `1` always means agreement.
+   *
+   * It was the 200-day SMA, which is a perfectly good regime filter and not one
+   * the chart shows. Since the HMA stopped feeding the signal there is no reason
+   * to prefer an indicator the user cannot see over the one they can.
    */
   trend: 1 | 0 | -1;
   /**
@@ -261,26 +311,50 @@ export interface SignalFilter {
   gap: string;
   /** A key of `SIGNAL_SCORE_MIN`, or `'ALL'`. Absent counts as `'ALL'`. */
   score?: string;
+  /** A key of `MAPO_BANDS`, or `'ALL'`. Absent counts as `'ALL'`. */
+  mapo?: string;
 }
 
 /** True when nothing in the filter would reject anything. */
 export const signalFilterIsEmpty = (f: SignalFilter) =>
-  f.side === 'ALL' && f.age === 'ALL' && f.gap === 'ALL' && (f.score ?? 'ALL') === 'ALL';
+  f.side === 'ALL' &&
+  f.age === 'ALL' &&
+  f.gap === 'ALL' &&
+  (f.score ?? 'ALL') === 'ALL' &&
+  (f.mapo ?? 'ALL') === 'ALL';
 
 /**
- * Does one row's signal pass the side, age, gap and score filters?
+ * Does one row pass the side, age, gap, score and MAPO filters?
  *
- * A row with no signal — never fetched, or a history too short for one — fails
- * any active filter rather than passing it. Filtering on the signal is asking
- * for rows whose signal says something, and a row that has nothing to say is
- * not an answer.
+ * A row with no reading — never fetched, or a history too short for one — fails
+ * any active filter rather than passing it. Filtering is asking for rows that
+ * say something, and a row with nothing to say is not an answer.
+ *
+ * The MAPO band is tested **before** the flip is required, because the two are
+ * independent: a name that has not crossed its trailing stop in two years still
+ * has an oscillator reading, and filtering on breadth alone must not silently
+ * drop it for lacking a signal it was never asked about.
  */
 export function matchesSignalFilter(
   signal: Signal | null | undefined,
   price: number | null | undefined,
   filter: SignalFilter,
+  mapoReading?: Mapo | null,
 ): boolean {
   if (signalFilterIsEmpty(filter)) return true;
+
+  const mapoBand = filter.mapo ? MAPO_BANDS[filter.mapo] : undefined;
+  if (mapoBand && (!mapoReading || mapoReading.above < mapoBand[0] || mapoReading.above >= mapoBand[1])) {
+    return false;
+  }
+
+  // Everything below is a property of the flip, so past here one is required.
+  const wantsSignal =
+    filter.side !== 'ALL' ||
+    filter.age !== 'ALL' ||
+    filter.gap !== 'ALL' ||
+    (filter.score ?? 'ALL') !== 'ALL';
+  if (!wantsSignal) return true;
   if (!signal) return false;
 
   if (filter.side !== 'ALL' && signal.side !== filter.side) return false;
@@ -323,39 +397,53 @@ function wma(values: (number | null)[], len: number): (number | null)[] {
 }
 
 /**
- * `wma(2 * wma(src, n/2) - wma(src, n), sqrt(n))`, Hull's definition.
+ * `wma(2 * wma(src, round(n/2)) - wma(src, n), round(sqrt(n)))`, as the script
+ * writes it.
  *
- * Both derived lengths are floored, which is what Pine's `int()` does — rounding
- * instead moves a 9-period HMA by a third of a bar's worth of lag, and the point
- * of this file is to agree with a chart.
+ * Both derived lengths are **rounded**, not floored. This file previously
+ * floored them on the reasoning that Pine's `int()` truncates — true of
+ * `int()`, but the source calls `round()`, and at n=31 the two disagree on
+ * both: 16 vs 15 and 6 vs 5. Which is a different curve, and the point of this
+ * file is to agree with a chart.
  */
 export function hma(values: (number | null)[], len: number): (number | null)[] {
-  const half = wma(values, Math.max(1, Math.floor(len / 2)));
+  const half = wma(values, Math.max(1, Math.round(len / 2)));
   const full = wma(values, len);
   const raw = values.map((_, i) =>
     half[i] === null || full[i] === null ? null : 2 * (half[i] as number) - (full[i] as number),
   );
-  return wma(raw, Math.max(1, Math.floor(Math.sqrt(len))));
+  return wma(raw, Math.max(1, Math.round(Math.sqrt(len))));
 }
 
-/** Wilder's ATR. Bars must carry high/low/close — see `cleanBars`. */
+/**
+ * Pine's `atr(period)`, which is `rma(tr, period)`. Bars must carry
+ * high/low/close — see `cleanBars`.
+ *
+ * The seed is `sma(tr, period)` and it lands at index `period - 1`, over
+ * `period` true ranges. An earlier version seeded at index `period` over
+ * `period + 1` of them, which is off by one bar for the whole series and, at
+ * the `period = 1` this study actually uses, is the difference between an
+ * average of two bars and the identity: `rma(tr, 1)` is `tr`.
+ */
 export function atr(bars: Candle[], period: number): (number | null)[] {
   const out: (number | null)[] = new Array(bars.length).fill(null);
-  if (bars.length <= period) return out;
+  if (bars.length < period) return out;
 
   const trueRange = (i: number) => {
     const { high, low } = bars[i] as { high: number; low: number };
+    // Pine's `tr` at bar 0 is `high - low`: there is no previous close to gap
+    // against.
     if (i === 0) return high - low;
     const prev = bars[i - 1].close as number;
     return Math.max(high - low, Math.abs(high - prev), Math.abs(low - prev));
   };
 
   let sum = 0;
-  for (let i = 0; i <= period; i++) sum += trueRange(i);
-  let value = sum / (period + 1);
-  out[period] = value;
+  for (let i = 0; i < period; i++) sum += trueRange(i);
+  let value = sum / period;
+  out[period - 1] = value;
 
-  for (let i = period + 1; i < bars.length; i++) {
+  for (let i = period; i < bars.length; i++) {
     value = (value * (period - 1) + trueRange(i)) / period;
     out[i] = value;
   }
@@ -379,6 +467,26 @@ export function atr(bars: Candle[], period: number): (number | null)[] {
  * open/close body, which is the most conservative thing that is certainly true.
  * The opposite clamp is applied too — a `high` below the body, or a `low` above
  * it, is the same corruption in the direction that understates the range.
+ *
+ * ## Sessions that never happened
+ *
+ * The other half of this function, and the more damaging one. Yahoo pads NSE
+ * holidays with a bar repeating the previous close in all four fields and no
+ * volume behind it — 2026-01-15, 05-01, 05-28 and 06-26 in the last year alone,
+ * the same dates for every symbol on the exchange.
+ *
+ * At `atr(1)` that is not cosmetic. A zero true range makes `nLoss` zero, which
+ * puts the trailing stop *exactly* on the close, and the next real session is
+ * then a guaranteed crossing whatever it does. ADOR's flip read 29 Jun 2026
+ * against the chart's 20 Apr for precisely this reason: the 26 Jun holiday
+ * collapsed the stop and manufactured a BUY three days later. Four unrelated
+ * names flipped on that same date, which is the signature — a market-wide
+ * event does not send RELIANCE and ICICIBANK opposite ways on one day.
+ *
+ * The discriminator is volume, not the flat shape. A genuine circuit lock is
+ * also `open == high == low == close` and must keep its bar: it is a real
+ * session that traded, sometimes heavily — SUZLON locked twice on 11–14 million
+ * shares. A holiday traded nothing.
  */
 export function cleanBars(rawBars: Candle[]): Candle[] {
   const out: Candle[] = [];
@@ -387,6 +495,8 @@ export function cleanBars(rawBars: Candle[]): Candle[] {
     const { high, low, close } = bar;
     if (typeof close !== 'number' || close <= 0) continue;
     if (typeof high !== 'number' || typeof low !== 'number' || low <= 0) continue;
+    // A session Yahoo invented: no range and nothing traded. See above.
+    if (high === low && !(typeof bar.volume === 'number' && bar.volume > 0)) continue;
 
     const open = typeof bar.open === 'number' && bar.open > 0 ? bar.open : close;
     const bodyHigh = Math.max(open, close);
@@ -415,8 +525,24 @@ interface Flip {
  *
  * The stop update is Pine's `xATRTrailingStop` verbatim: it ratchets towards the
  * source while the source stays on the same side of it, and jumps to the other
- * side of the source when it doesn't. A flip is a bar where the source ends up
- * across the stop it was on the far side of.
+ * side of the source when it doesn't.
+ *
+ * **The source is `close`.** Not the HMA — the script's UT Bot leg reads
+ * `close` and the HMA is a separate plot it never consults. Feeding the HMA in
+ * here, as this function used to, is a smoother and much lazier rule than the
+ * one the chart draws.
+ *
+ * A flip is Pine's `crossover`, which the script writes through the identity
+ * `ema(src, 1) == src`:
+ *
+ *     buy  = crossover(src, stop)  ==  src > stop  and src[1] <= stop[1]
+ *     sell = crossunder(src, stop) ==  src < stop  and src[1] >= stop[1]
+ *
+ * Each side of the comparison is taken against **its own bar's** stop, which is
+ * why `prevStop` is carried rather than reusing `prev`. And there is no
+ * position filter: a `crossover` cannot fire on two consecutive bars, because
+ * firing on `i` requires `src[i] > stop[i]` and firing on `i+1` requires the
+ * negation of it. Pine's `pos` variable exists only to colour bars.
  *
  * Split out from `latestSignal` because the earlier flips are not waste: each
  * consecutive pair is a completed round trip of this exact rule on this exact
@@ -427,43 +553,48 @@ export function runUtBot(
   bars: Candle[],
   cfg = UT_BOT,
 ): { flips: Flip[]; stop: number | null } {
-  const src = hma(bars.map((b) => b.close), cfg.hmaLength);
   const ranges = atr(bars, cfg.atrPeriod);
 
   const flips: Flip[] = [];
-  let stop = 0;
-  let started = false;
-  let pos = 0;
+  /** `xATRTrailingStop[1]`, or null before the series has started. */
+  let prevStop: number | null = null;
 
-  for (let i = 1; i < bars.length; i++) {
-    const now = src[i];
-    const before = src[i - 1];
+  for (let i = 0; i < bars.length; i++) {
     const range = ranges[i];
-    if (now === null || before === null || range === null) continue;
+    if (range === null) continue;
 
+    const now = bars[i].close as number;
+    // `src[1]` — na on the first bar, which sends Pine's nested `iff` to its
+    // final arm and makes `crossover` na rather than true.
+    const before = i > 0 ? (bars[i - 1].close as number) : null;
+    // Pine's `nz(xATRTrailingStop[1], 0)`: zero on the first bar, which puts
+    // the source above it and seeds a long stop.
+    const prev: number = prevStop ?? 0;
     const nLoss = cfg.keyValue * range;
-    // Pine's `nz(xATRTrailingStop[1], 0)` — zero on the first bar that has both
-    // an HMA and an ATR, which puts the source above it and seeds a long stop.
-    const prev = started ? stop : 0;
-    started = true;
 
-    if (now > prev && before > prev) stop = Math.max(prev, now - nLoss);
-    else if (now < prev && before < prev) stop = Math.min(prev, now + nLoss);
-    else stop = now > prev ? now - nLoss : now + nLoss;
+    const stop =
+      before !== null && now > prev && before > prev
+        ? Math.max(prev, now - nLoss)
+        : before !== null && now < prev && before < prev
+          ? Math.min(prev, now + nLoss)
+          : now > prev
+            ? now - nLoss
+            : now + nLoss;
 
-    const flip = before < prev && now > stop ? 1 : before > prev && now < stop ? -1 : 0;
-    if (flip !== 0 && flip !== pos) {
-      pos = flip;
-      flips.push({
-        index: i,
-        side: flip === 1 ? 'BUY' : 'SELL',
-        price: bars[i].close as number,
-        date: bars[i].date,
-      });
+    if (prevStop !== null && before !== null) {
+      const side =
+        now > stop && before <= prevStop
+          ? 'BUY'
+          : now < stop && before >= prevStop
+            ? 'SELL'
+            : null;
+      if (side) flips.push({ index: i, side, price: now, date: bars[i].date });
     }
+
+    prevStop = stop;
   }
 
-  return { flips, stop: started ? stop : null };
+  return { flips, stop: prevStop };
 }
 
 const mean = (values: number[]): number | null =>
@@ -476,10 +607,6 @@ function median(values: number[]): number | null {
   const mid = sorted.length >> 1;
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
-
-/** Simple average of the last `len` values, or null if there are fewer. */
-const smaLast = (values: number[], len: number): number | null =>
-  values.length < len ? null : (mean(values.slice(-len)) as number);
 
 /**
  * How this rule has done on this symbol inside the window.
@@ -521,14 +648,15 @@ function summarise(flips: Flip[]): Signal['history'] {
  */
 export function latestSignal(rawBars: Candle[], cfg = UT_BOT): Signal | null {
   const bars = cleanBars(rawBars);
-  if (bars.length < cfg.hmaLength + cfg.atrPeriod + 2) return null;
+  // The UT Bot alone needs almost nothing — `atr(1)` exists on bar 0. The floor
+  // is set by the context instead: a Hull trend and a full volume window.
+  if (bars.length < cfg.hmaLength + VOL_WINDOW) return null;
 
   const { flips, stop } = runUtBot(bars, cfg);
   const flip = flips[flips.length - 1];
   if (!flip || stop === null) return null;
 
   const last = bars.length - 1;
-  const closes = bars.map((b) => b.close as number);
   const volumeAt = (i: number) => (typeof bars[i].volume === 'number' ? (bars[i].volume as number) : null);
 
   // Volume on the flip bar against the month ending on it — the average has to
@@ -544,10 +672,12 @@ export function latestSignal(rawBars: Candle[], cfg = UT_BOT): Signal | null {
   const volumeRatio = avgVolume && flipVolume ? flipVolume / avgVolume : null;
 
   // The regime the flip fired into, judged now rather than then: the question a
-  // signal has to answer is whether to act on it today.
-  const reference = smaLast(closes, TREND_SLOW) ?? smaLast(closes, TREND_FAST);
+  // signal has to answer is whether to act on it today. `c1` in the script —
+  // the Hull line rising or falling, which is the colour it is drawn in.
+  const hull = hma(bars.map((b) => b.close), cfg.hmaLength);
+  const rising = hull[last] !== null && hull[last - 1] !== null ? hull[last]! > hull[last - 1]! : null;
   const trend: Signal['trend'] =
-    reference === null ? 0 : ((closes[last] > reference ? 1 : -1) * (flip.side === 'BUY' ? 1 : -1)) as 1 | -1;
+    rising === null ? 0 : (((rising ? 1 : -1) * (flip.side === 'BUY' ? 1 : -1)) as 1 | -1);
 
   const turnover = median(
     bars
@@ -587,6 +717,133 @@ export function latestSignal(rawBars: Candle[], cfg = UT_BOT): Signal | null {
 }
 
 /**
+ * Moving Averages Proximity Oscillator [LuxAlgo] — `MAPO [LuxAlgo] 5 100 3 close`,
+ * transcribed from its Pine v5 source.
+ *
+ * A fan of simple moving averages from `minLength` to `maxLength`, and two
+ * readings taken against it every bar:
+ *
+ *   · `above` — Pine's `per`, "Price Above MA's". How many of the 96 averages
+ *     the close is currently above, as a percentage. The **histogram**, drawn
+ *     teal over 50 and red under it. A trend-breadth reading: 100 means the
+ *     close is above every average from the 5-day to the 100-day.
+ *   · `proximity` — Pine's `len`, "Proximity Index". *Which* average sits
+ *     nearest the close, rescaled onto the same 0–100 axis. The **blue line**.
+ *     It says nothing about direction — a price hugging its 100-day reads high
+ *     whether it is above or below — so it is context, not a signal.
+ *
+ * Both are smoothed by `ta.sma(·, smooth)` and then normalised, in that order.
+ *
+ * Free to compute: `latestSignal` has already fetched these bars, so this costs
+ * no request. The cumulative-sum trick is Pine's own and is what makes a
+ * 96-deep fan affordable — each average is O(1) rather than O(period).
+ *
+ * Checked against the chart: CGPOWER on 2026-09-04 reads `proximity` **54.86**
+ * here and 54.86 on TradingView. `above` comes out 42.01 against 41.67, which
+ * is one count of ninety-six on one of the three smoothed bars — a single close
+ * where Yahoo and TradingView disagree, not a difference in the arithmetic.
+ */
+export const MAPO = {
+  /** `min`. The script's own default is 10; the chart this follows uses 5. */
+  minLength: 5,
+  /** `max`. */
+  maxLength: 100,
+  /** `smooth` — an SMA over both outputs. The script defaults to 9. */
+  smooth: 3,
+};
+
+/** The script's `hline`s, and the `histbase` between them. */
+export const MAPO_HIGH = 80;
+export const MAPO_MID = 50;
+export const MAPO_LOW = 20;
+
+export interface Mapo {
+  /** `per` normalised: percent of the fan the close is above. 0–100. */
+  above: number;
+  /** `len` normalised: where the nearest average sits in the fan. 0–100. */
+  proximity: number;
+}
+
+/**
+ * The latest MAPO reading, or null if there are not enough bars for the fan.
+ *
+ * Only the last `smooth` bars are evaluated. Pine computes every bar because a
+ * chart plots every bar; a table needs one number, and 3 bars × 96 averages is
+ * three hundred operations against the forty thousand a full history would be.
+ */
+export function mapo(closes: number[], cfg = MAPO): Mapo | null {
+  const { minLength: min, maxLength: max, smooth } = cfg;
+  const span = max - min + 1;
+  // `sma(n, max)` needs `max` closes behind it, and the smoothing needs
+  // `smooth` such bars.
+  if (closes.length < max + smooth - 1) return null;
+
+  // `csum = ta.cum(src)`, offset by one so `csum[n + 1]` is the sum through n.
+  const csum = [0];
+  for (let i = 0; i < closes.length; i++) csum.push(csum[i] + closes[i]);
+  /** Pine's `(csum - csum[i]) / i` — the `i`-period average ending at bar `n`. */
+  const sma = (n: number, i: number) => (csum[n + 1] - csum[n + 1 - i]) / i;
+
+  const per: number[] = [];
+  const len: number[] = [];
+
+  for (let n = closes.length - smooth; n < closes.length; n++) {
+    const src = closes[n];
+    // `max_min` is seeded from the i = min average *before* the loop, so the
+    // first iteration always ties and `len` starts at `min` rather than at 0.
+    let maxMin = Math.abs(src - sma(n, min));
+    let nearest = min;
+    let above = 0;
+
+    for (let i = min; i <= max; i++) {
+      const ma = sma(n, i);
+      if (src > ma) above++;
+
+      // Pine assigns `max_min := min(ae, max_min)` and then takes `i` whenever
+      // `ae == max_min`, so an exact tie moves to the *later* period. A strict
+      // `<` would keep the earlier one and quietly disagree with the chart.
+      const ae = Math.abs(src - ma);
+      if (ae <= maxMin) {
+        maxMin = ae;
+        nearest = i;
+      }
+    }
+
+    per.push(above);
+    len.push(nearest);
+  }
+
+  // Smoothed first, normalised second — the order the script uses.
+  const smoothed = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length;
+  return {
+    above: (smoothed(per) / span) * 100,
+    proximity: ((smoothed(len) - min) / span) * 100,
+  };
+}
+
+/** Filter presets on `above`, `[min, max)`, cut at the script's own levels. */
+export const MAPO_BANDS: Record<string, [number, number]> = {
+  HIGH: [MAPO_HIGH, Infinity],
+  UPPER: [MAPO_MID, MAPO_HIGH],
+  LOWER: [MAPO_LOW, MAPO_MID],
+  LOW: [-Infinity, MAPO_LOW],
+};
+
+/**
+ * Everything computed from one symbol's bars, cached as a unit.
+ *
+ * MAPO does not depend on the UT Bot having flipped, so it cannot live inside
+ * `Signal`: a name with no crossing in two years still has a breadth reading,
+ * and burying it in a nullable signal would hide it. They share a record
+ * because they share the request, and because caching them apart would let the
+ * two halves of one answer expire at different moments.
+ */
+export interface Reading {
+  signal: Signal | null;
+  mapo: Mapo | null;
+}
+
+/**
  * One chart request per symbol, kept for the trading day.
  *
  * Requested per visible cell rather than per row in the table, so a page of 50
@@ -596,8 +853,31 @@ export function latestSignal(rawBars: Candle[], cfg = UT_BOT): Signal | null {
  * Stored as a positional tuple: ~2,400 of these share a 5 MB localStorage quota
  * with the screen's own caches, and the field names cost more than the numbers.
  */
-const store = dayCache<Signal | null>('utbot', {
-  encode: (s) =>
+/**
+ * The discontinued rule's store, deleted on load.
+ *
+ * `utbot-v2` is a new key because every entry the old one holds was produced by
+ * the pre-source rule — HMA as the source, the parameters the wrong way round —
+ * and a rename retires them at once, where bumping `VERSION` in dayCache.ts is
+ * global and would also throw away the thirty-day fundamentals cache at 1.2s a
+ * row to refill.
+ *
+ * But a renamed store is only unread, not gone: ~2,400 dead signals would sit in
+ * a 5 MB quota shared with the screen's caches until the browser was cleared,
+ * and nothing would ever collect them. The old rule is discontinued, so its
+ * entries go with it.
+ */
+try {
+  localStorage.removeItem('fivealpha:utbot:v4');
+} catch {
+  // Private mode, storage disabled, quota games — nothing to clean up then.
+}
+
+const store = dayCache<Reading>('utbot-v2', {
+  // A pair, so the outer length is also the version check: every entry written
+  // before MAPO existed is a bare tuple or a 0 and is rejected below rather
+  // than read back as a reading with no oscillator in it.
+  encode: ({ signal: s, mapo: m }) => [
     s === null
       ? 0
       : [
@@ -612,8 +892,21 @@ const store = dayCache<Signal | null>('utbot', {
           s.history ? [s.history.trades, s.history.wins, s.history.avgPct] : 0,
           s.score,
         ],
-  decode: (raw) => {
-    if (raw === 0) return null;
+    m === null ? 0 : [m.above, m.proximity],
+  ],
+  decode: (stored) => {
+    if (!Array.isArray(stored) || stored.length !== 2) return undefined;
+    const [raw, rawMapo] = stored;
+
+    const mapoPart: Mapo | null =
+      rawMapo === 0
+        ? null
+        : Array.isArray(rawMapo) && rawMapo.length === 2
+          ? { above: rawMapo[0] as number, proximity: rawMapo[1] as number }
+          : (undefined as unknown as Mapo);
+    if (mapoPart === undefined) return undefined;
+
+    if (raw === 0) return { signal: null, mapo: mapoPart };
     // Length is the version check: an entry written before the context existed
     // is rejected and refetched rather than read as a signal with no stop.
     if (!Array.isArray(raw) || raw.length !== 10) return undefined;
@@ -630,32 +923,43 @@ const store = dayCache<Signal | null>('utbot', {
       number,
     ];
     return {
-      side: side === 1 ? 'BUY' : 'SELL',
-      price,
-      date,
-      age,
-      stop,
-      trend,
-      volumeRatio,
-      turnover,
-      history: Array.isArray(history)
-        ? { trades: history[0], wins: history[1], avgPct: history[2] }
-        : null,
-      // Never stored — see `fetchSignal`, which does not cache one.
-      provisional: false,
-      score,
+      signal: {
+        side: side === 1 ? 'BUY' : 'SELL',
+        price,
+        date,
+        age,
+        stop,
+        trend,
+        volumeRatio,
+        turnover,
+        history: Array.isArray(history)
+          ? { trades: history[0], wins: history[1], avgPct: history[2] }
+          : null,
+        // Never stored — see `fetchReading`, which does not cache one.
+        provisional: false,
+        score,
+      },
+      mapo: mapoPart,
     };
   },
 });
 
 const gate = createGate(8);
-const inflight = new Map<string, Promise<Signal | null>>();
+const inflight = new Map<string, Promise<Reading>>();
 
 /** A cached answer if there is one, without starting a fetch. */
-export const peekSignal = (ticker: string): Signal | null | undefined => store.get(ticker);
+export const peekReading = (ticker: string): Reading | undefined => store.get(ticker);
 
-export function fetchSignal(ticker: string): Promise<Signal | null> {
-  if (store.has(ticker)) return Promise.resolve(store.get(ticker) ?? null);
+/** The flip alone, for the callers that only want that. */
+export const peekSignal = (ticker: string): Signal | null | undefined =>
+  store.get(ticker)?.signal;
+
+/** The oscillator alone. Present even where there is no flip to show. */
+export const peekMapo = (ticker: string): Mapo | null | undefined => store.get(ticker)?.mapo;
+
+export function fetchReading(ticker: string): Promise<Reading> {
+  const cached = store.get(ticker);
+  if (cached !== undefined) return Promise.resolve(cached);
 
   const hit = inflight.get(ticker);
   if (hit) return hit;
@@ -663,12 +967,14 @@ export function fetchSignal(ticker: string): Promise<Signal | null> {
   const pending = gate(() => fetchYahooBars(ticker, RANGE, INTERVAL))
     .then((bars) => {
       const signal = latestSignal(bars);
+      const reading: Reading = { signal, mapo: mapo(cleanBars(bars).map((b) => b.close as number)) };
       // A flip on a bar that is still trading is the one answer here that is
       // not settled for the day: it can be gone by the close. Caching it would
-      // freeze a maybe into a verdict until midnight.
-      if (!signal?.provisional) store.set(ticker, signal);
+      // freeze a maybe into a verdict until midnight — and MAPO reads the same
+      // unfinished close, so the pair is withheld together or not at all.
+      if (!signal?.provisional) store.set(ticker, reading);
       inflight.delete(ticker);
-      return signal;
+      return reading;
     })
     // A failed request is not an answer — drop it so the next look retries.
     .catch((err) => {
@@ -679,3 +985,8 @@ export function fetchSignal(ticker: string): Promise<Signal | null> {
   inflight.set(ticker, pending);
   return pending;
 }
+
+/** Back-compat for callers that only care about the flip. */
+export const fetchSignal = (ticker: string): Promise<Signal | null> =>
+  fetchReading(ticker).then((r) => r.signal);
+

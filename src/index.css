@@ -1,10 +1,19 @@
 /* ==========================================================================
-   SALPHA — Google Finance / Material structure.
-   Neutral graphite surfaces and an indigo accent taken from the cold end of
-   the logo's gradient. The mark keeps the full pink→indigo sweep and is the
-   one saturated thing on screen; the UI around it stays out of the way.
-   Green/red are the market's colours, not the brand's, and are left alone.
-   Type: Manrope (a free stand-in for Google Sans), Roboto, Roboto Mono.
+   SALPHA — modern-tool register (Linear / Raycast lineage).
+
+   What changed and why: this used to be Google Finance — Material elevation,
+   Roboto, full-pill controls, a raised white card on grey. It read as someone
+   else's product with our mark stuck on it. The structure was right; the
+   costume was borrowed.
+
+   Now: hairlines instead of shadows, a warm near-black ground instead of
+   graphite, modest radii instead of pills, and one accent — the indigo the
+   brand gradient already ends on — carried on under 5% of the pixels. The
+   figures are the product, so they are set in a real mono and everything
+   else gets out of their way.
+
+   Green/red stay the market's colours, retuned for the darker ground.
+   Type: Inter Tight (display), Inter (body), JetBrains Mono (figures).
    ========================================================================== */
 
 :root {
@@ -13,44 +22,115 @@
      no duplicated dark block to keep in sync. */
   color-scheme: light dark;
 
-  /* surfaces — plain graphite. Any hue here and the whole page takes on a
-     cast; the mark is the only place colour is meant to come from. */
-  --canvas: light-dark(#f7f8f9, #16181b);
-  --surface: light-dark(#ffffff, #1e2125);
-  --surface-2: light-dark(#eef0f2, #292d32);
-  --surface-hover: light-dark(#f7f8f9, #24272c);
+  /* ---- surfaces ----------------------------------------------------------
+     Dark is warm off-black. It started at #08090A — the Linear ground — and
+     that read as a hole in the screen on a real monitor rather than as a dark
+     surface, so the whole ramp moved up one step. Still unmistakably dark
+     (the canvas reflects about 0.6% of white), but there is now something
+     under the hairlines for them to sit on.
 
-  /* outlines */
-  --outline: light-dark(#d7dade, #363b41);
-  --outline-faint: light-dark(#e6e8eb, #292d32);
+     The steps are what matter, not the absolute values: canvas < surface <
+     hover < surface-2 < surface-3, each about seven points apart, so a raised
+     thing always reads as raised. Move one and move them all.
 
-  /* content */
-  --on-surface: light-dark(#16181c, #e6e8eb);
-  --on-surface-variant: light-dark(#565b63, #9aa0a8);
-  /* Was one value for both themes and cleared 4.5:1 in neither. It is real
-     text in ~25 places, so it splits like the rest of the palette. */
-  --on-surface-faint: light-dark(#63686f, #949aa3);
+     Light is a near-white that is *not* #fff, so the surfaces sitting on it
+     have something to be lighter than. */
+  --canvas: light-dark(#fbfbfc, #101114);
+  --surface: light-dark(#ffffff, #17181c);
+  --surface-2: light-dark(#f1f2f4, #232429);
+  --surface-hover: light-dark(#f6f7f8, #1e1f24);
+  /* Raised: menus and the drawer, the only things allowed to float. */
+  --surface-3: light-dark(#ffffff, #2a2b31);
 
-  /* accent — the indigo the logo's gradient ends on, which is the one stop of
-     it that reads as an interface colour rather than as decoration. */
-  --primary: light-dark(#4f60e8, #a4afff);
-  --primary-hover: light-dark(#3c4dd4, #bcc4ff);
-  --primary-container: light-dark(#f0f2fe, #262c4a);
-  --on-primary: light-dark(#ffffff, #10121f);
-  --up: light-dark(#137333, #81c995);
-  --up-container: light-dark(#e6f4ea, #1d3626);
-  --down: light-dark(#c5221f, #f28b82);
-  --down-container: light-dark(#fce8e6, #3f2422);
+  /* ---- outlines ----------------------------------------------------------
+     Alpha, not solid hex. A hairline that is a *tint of whatever is under it*
+     stays a hairline when it crosses from canvas onto a surface; a solid one
+     changes weight at every boundary. This is the single detail that carries
+     the register — panels are separated by light, not by shadow. */
+  --outline: light-dark(rgba(9, 9, 11, 0.11), rgba(255, 255, 255, 0.105));
+  --outline-faint: light-dark(rgba(9, 9, 11, 0.065), rgba(255, 255, 255, 0.065));
 
-  /* Material elevation. `light-dark()` returns a colour, not a whole shadow
-     list, so the switchable part is the two shadow colours. */
-  --shadow-key: light-dark(rgba(22, 24, 28, 0.3), rgba(0, 0, 0, 0.5));
-  --shadow-ambient: light-dark(rgba(22, 24, 28, 0.14), rgba(0, 0, 0, 0.34));
-  --elev-1: 0 1px 2px 0 var(--shadow-key), 0 1px 3px 1px var(--shadow-ambient);
-  --elev-2: 0 1px 2px 0 var(--shadow-key), 0 2px 6px 2px var(--shadow-ambient);
-  --elev-3: 0 4px 8px 3px var(--shadow-ambient), 0 1px 3px var(--shadow-key);
-  --scrim: light-dark(rgba(22, 24, 28, 0.5), rgba(0, 0, 0, 0.65));
+  /* ---- content -----------------------------------------------------------
+     All three clear 4.5:1 against every surface they are used on, in both
+     themes. `faint` is real text in ~25 places and is the one that historically
+     failed, so it is measured against the *worst* of the three grounds rather
+     than against the page: on light that is --surface-2 (chips, the segmented
+     track, the search field), where it lands at 4.64:1, and on dark the same
+     surface, where lifting the ramp brought it down to 4.68:1.
 
+     Both are now the binding constraint — `npm run check:contrast` before
+     lightening the dark ground any further, because this is the pair that goes
+     under 4.5 first. */
+  --on-surface: light-dark(#101113, #f7f8f8);
+  --on-surface-variant: light-dark(#5a616b, #9ca3af);
+  --on-surface-faint: light-dark(#666d7c, #858e9c);
+
+  /* ---- accent ------------------------------------------------------------
+     The indigo the brand gradient ends on — kept, not swapped for the recipe's
+     purple. It is the one stop of the mark that reads as an interface colour,
+     and borrowing another product's accent is how you end up back where this
+     file started. Containers are alpha in dark so a tinted chip sits *in* the
+     surface rather than on a second opaque slab. */
+  --primary: light-dark(#4e5ad4, #a5aeff);
+  --primary-hover: light-dark(#3f4bc4, #bfc5ff);
+  --primary-container: light-dark(#eef0fd, rgba(165, 174, 255, 0.13));
+  --on-primary: light-dark(#ffffff, #0d0f1c);
+
+  /* ---- market ------------------------------------------------------------
+     Not the brand's to choose. Retuned only for legibility on the new ground. */
+  --up: light-dark(#0f7b45, #4ed08a);
+  --up-container: light-dark(#e7f5ec, rgba(78, 208, 138, 0.13));
+  --down: light-dark(#c42d3c, #ff6b76);
+  --down-container: light-dark(#fdecec, rgba(255, 107, 118, 0.14));
+
+  /* ---- elevation ---------------------------------------------------------
+     Barely there, and only on things that genuinely float. Material's two-part
+     key+ambient stack is gone: on a near-black ground a cast shadow is
+     invisible anyway, so depth is carried by the hairline and the surface step.
+     `--elev-3` is the exception — a drawer over a scrim has to read as above
+     the page, and that is the one place a real shadow earns its cost. */
+  --shadow-tint: light-dark(rgba(9, 9, 11, 0.09), rgba(0, 0, 0, 0.5));
+  --elev-1: 0 1px 2px var(--shadow-tint);
+  --elev-2: 0 2px 6px -1px var(--shadow-tint);
+  --elev-3: 0 16px 40px -12px light-dark(rgba(9, 9, 11, 0.22), rgba(0, 0, 0, 0.72));
+  --scrim: light-dark(rgba(9, 9, 11, 0.42), rgba(0, 0, 0, 0.68));
+
+  /* ---- radius ------------------------------------------------------------
+     Modest, precise, never gummy — and never above 16. The 999px pills that
+     used to be on every button and chip were the loudest Material tell in the
+     file; 8px is what replaces them. Genuinely round things (dots, avatars,
+     the progress track) still use 999px, which is why it stays as a token. */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-full: 999px;
+
+  /* ---- motion ------------------------------------------------------------
+     Bare `ease` was on 18 declarations and it is too weak to read as intent —
+     it looks like lag. These are the curves that make the same duration feel
+     deliberate. Nothing here is bouncy: this is a scanning tool, and a
+     spring on a filter chip is a distraction with a physics engine. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --t-press: 110ms;
+  --t-fast: 130ms;
+  --t: 170ms;
+  --t-slow: 240ms;
+
+  /**
+   * The detail panel's width — and, when it docks, exactly the space the shell
+   * holds open for it. Two readings of one number: if they ever disagree the
+   * panel either overlaps the table or leaves a stripe of canvas beside it.
+   */
+  --drawer-w: clamp(520px, 40vw, 680px);
+
+  /* The `#` track. Read twice: once as the first grid track, once as the `left`
+     the frozen Symbol column sticks at. They were two typed numbers and drifted
+     the moment one changed — 4px of Symbol slid under `#`. One token now. */
+  --col-idx-w: 56px;
   --row-h: 48px;
   --gutter: 20px;
   /* The least the table may be squeezed to before the page scrolls instead —
@@ -63,11 +143,15 @@
   --brand-gradient: linear-gradient(100deg,
       light-dark(#d64c86, #fad0e7) 0%,
       light-dark(#8b5cf6, #e0c6fb) 45%,
-      light-dark(#4f60e8, #a4afff) 100%);
+      light-dark(#4e5ad4, #a5aeff) 100%);
 
-  --font-display: 'Google Sans', 'Manrope', 'Product Sans', Roboto, Arial, sans-serif;
-  --font-sans: 'Google Sans Text', Roboto, -apple-system, 'Segoe UI', Arial, sans-serif;
-  --font-mono: 'Roboto Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  /* Inter Tight for display only — plain Inter at default weight is the
+     AI-default look, and the tight cut at 600 is what stops it reading that
+     way. The mono is not decoration: every figure in the table is set in it,
+     so columns of numbers line up on the digit rather than on luck. */
+  --font-display: 'Inter Tight', 'Inter', -apple-system, 'Segoe UI', Arial, sans-serif;
+  --font-sans: 'Inter', -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 }
 
 /* The toggle writes `data-theme`; no attribute means follow the OS. */
@@ -102,6 +186,9 @@ body {
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.45;
+  /* Inter runs a touch loose at UI sizes; this is the tracking the tight cut
+     already has, applied to the body so the two faces agree. */
+  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -127,7 +214,7 @@ body {
 :focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
 }
 
 /* Slim, unobtrusive scrollbars — the Workspace/Finance signature. */
@@ -148,7 +235,7 @@ body {
 *::-webkit-scrollbar-thumb {
   background: var(--outline);
   border: 3px solid var(--surface);
-  border-radius: 999px;
+  border-radius: var(--r-full);
 }
 
 *::-webkit-scrollbar-thumb:hover {
@@ -165,6 +252,36 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   background: var(--canvas);
+}
+
+/**
+ * Docked: the panel becomes a second column instead of a lid.
+ *
+ * Overlaying the table and dimming it spent the larger half of a wide screen on
+ * nothing — the rows were still there, still the thing being described, and
+ * none of them could be clicked. Past 1400px the shell simply keeps that much
+ * width clear and the panel sits in it.
+ *
+ * Padding on the shell rather than a width on the columns: `.topbar`,
+ * `.subbar`, `.summary`, `.content` and `.statusbar` are siblings in a flex
+ * column and every one of them has to stop at the same line. One declaration
+ * does all five.
+ *
+ * Deliberately not transitioned. `padding` is a layout property, and animating
+ * it would re-lay-out a virtualised table of two thousand rows on every frame
+ * for 240ms. It snaps to the new width instead, and the panel slides into the
+ * slot that is already waiting for it.
+ */
+.app[data-docked] {
+  padding-right: var(--drawer-w);
+}
+
+/* No scrim behind it, so the edge is the only thing separating two live
+   columns — it earns a full-strength hairline rather than the faint one, and
+   loses the shadow, which only ever made sense over something. */
+.app[data-docked] .drawer {
+  box-shadow: none;
+  border-left: 1px solid var(--outline);
 }
 
 /* ---------- app bar ---------- */
@@ -230,29 +347,34 @@ body {
   width: 100%;
   height: 44px;
   padding: 0 16px 0 46px;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  border: 1px solid var(--outline-faint);
+  border-radius: var(--r-md);
   background: var(--surface-2);
   color: var(--on-surface);
   font-family: inherit;
   font-size: 14px;
-  transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  transition: background var(--t-fast) var(--ease-out),
+    border-color var(--t-fast) var(--ease-out),
+    box-shadow var(--t-fast) var(--ease-out);
 }
 
 .search input::placeholder {
   color: var(--on-surface-variant);
 }
 
-.search input:hover {
-  background: var(--surface-2);
-  box-shadow: var(--elev-1);
+@media (hover: hover) and (pointer: fine) {
+  .search input:hover {
+    border-color: var(--outline);
+  }
 }
 
+/* Focus is a tinted hairline plus a 3px halo of the accent at low alpha —
+   the field grows a ring rather than lifting off the page. */
 .search input:focus {
   outline: none;
   background: var(--surface);
-  border-color: transparent;
-  box-shadow: var(--elev-2);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
 }
 
 .search svg {
@@ -302,21 +424,30 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 36px;
-  padding: 0 16px;
+  height: 34px;
+  padding: 0 14px;
   border: 1px solid var(--outline);
-  border-radius: 999px;
+  border-radius: var(--r-md);
   background: transparent;
   color: var(--on-surface);
   font-family: inherit;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition: background var(--t-fast) var(--ease-out),
+    border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    transform var(--t-press) var(--ease-out);
 }
 
-.filter-trigger:hover {
-  background: var(--surface-2);
+@media (hover: hover) and (pointer: fine) {
+  .filter-trigger:hover {
+    background: var(--surface-2);
+    border-color: var(--on-surface-faint);
+  }
+}
+
+.filter-trigger:active {
+  transform: scale(0.97);
 }
 
 .filter-trigger[data-active='true'] {
@@ -328,14 +459,15 @@ body {
 .filter-count {
   display: grid;
   place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: var(--r-sm);
   background: var(--primary);
   color: var(--on-primary);
-  font-size: 11px;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
@@ -346,7 +478,7 @@ body {
   inset: 0;
   background: var(--scrim);
   z-index: 50;
-  animation: fade-in 0.2s ease;
+  animation: fade-in var(--t) var(--ease-out);
 }
 
 .sheet {
@@ -364,7 +496,7 @@ body {
   background: var(--surface);
   border-radius: 16px 16px 0 0;
   box-shadow: var(--elev-3);
-  animation: sheet-up 0.26s cubic-bezier(0.2, 0, 0, 1);
+  animation: sheet-up 260ms var(--ease-drawer);
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
@@ -374,7 +506,7 @@ body {
   width: 36px;
   height: 4px;
   margin: 8px auto 0;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: var(--outline);
   flex: none;
 }
@@ -480,7 +612,7 @@ body {
   flex: none;
   padding: 3px;
   border: 1px solid var(--outline-faint);
-  border-radius: 999px;
+  border-radius: var(--r-md);
   background: var(--surface-2);
 }
 
@@ -500,23 +632,30 @@ body {
 
 .segmented button {
   height: 28px;
-  padding: 0 13px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--on-surface-variant);
   font-family: inherit;
   font-size: 13px;
   font-weight: 500;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    transform var(--t-press) var(--ease-out);
 }
 
-.segmented button:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--on-surface);
+@media (hover: hover) and (pointer: fine) {
+  .segmented button:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--on-surface);
+  }
+}
+
+.segmented button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 /* Tonal rather than a raised white pill: in dark mode --surface sits *below*
@@ -534,34 +673,39 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 40px;
-  padding: 0 22px;
+  height: 36px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--r-md);
   background: var(--primary);
   color: var(--on-primary);
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
   cursor: pointer;
-  box-shadow: var(--elev-1);
-  transition: background 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  /* No elevation. On a near-black ground a cast shadow is invisible, and on
+     the light one it was the last Material tell left on the primary control. */
+  transition: background var(--t-fast) var(--ease-out),
+    opacity var(--t-fast) var(--ease-out), transform var(--t-press) var(--ease-out);
 }
 
-.btn:hover:not(:disabled) {
-  background: var(--primary-hover);
-  box-shadow: var(--elev-2);
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover:not(:disabled) {
+    background: var(--primary-hover);
+  }
 }
 
+/* The only press feedback in the file used to be a shadow swap nobody could
+   see. A 3% scale is the whole difference between a button that responds and
+   one that merely works. */
 .btn:active:not(:disabled) {
-  box-shadow: var(--elev-1);
+  transform: scale(0.97);
 }
 
 .btn:disabled {
   background: var(--surface-2);
   color: var(--on-surface-faint);
-  box-shadow: none;
   cursor: default;
 }
 
@@ -569,9 +713,10 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 28px;
-  padding: 0 12px;
-  border-radius: 999px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--outline-faint);
+  border-radius: var(--r-sm);
   background: var(--surface-2);
   color: var(--on-surface-variant);
   font-size: 12px;
@@ -659,7 +804,7 @@ body {
   align-items: stretch;
   height: 32px;
   border: 1px solid var(--outline-faint);
-  border-radius: 999px;
+  border-radius: var(--r-md);
   background: var(--surface-2);
   overflow: hidden;
 }
@@ -725,9 +870,10 @@ body {
 .stat {
   background: var(--surface);
   border: 1px solid var(--outline-faint);
-  border-radius: 12px;
-  padding: 12px 16px;
-  transition: box-shadow 0.15s ease;
+  border-radius: var(--r-lg);
+  padding: 12px 14px;
+  transition: border-color var(--t-fast) var(--ease-out),
+    background var(--t-fast) var(--ease-out), transform var(--t-press) var(--ease-out);
   /* They are buttons now — undo the UA's font, alignment and colour. */
   font: inherit;
   color: inherit;
@@ -736,14 +882,20 @@ body {
   cursor: pointer;
 }
 
-.stat:hover {
-  box-shadow: var(--elev-1);
+@media (hover: hover) and (pointer: fine) {
+  .stat:hover {
+    border-color: var(--outline);
+    background: var(--surface-hover);
+  }
+}
+
+.stat:active {
+  transform: scale(0.99);
 }
 
 .stat.active {
   border-color: var(--primary);
   background: var(--primary-container);
-  box-shadow: var(--elev-1);
 }
 
 .stat-label {
@@ -759,11 +911,14 @@ body {
 
 .stat-value {
   margin-top: 3px;
-  font-family: var(--font-display);
-  font-size: clamp(19px, 2.4vw, 24px);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  /* The figure is the point of the tile, so it is set in the same mono the
+     table's columns use — the number reads as data, not as a headline. */
+  font-family: var(--font-mono);
+  font-size: clamp(19px, 2.4vw, 23px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
   line-height: 1.15;
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-sub {
@@ -807,7 +962,7 @@ body {
   flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--outline-faint);
-  border-radius: 16px;
+  border-radius: var(--r-lg);
   overflow: hidden;
 }
 
@@ -824,52 +979,182 @@ body {
   align-items: center;
 }
 
-/* Desktop: # · Symbol · Company · Type · LTP · Chg% · Listed · Side · At · Gap.
-   The last three sit under one "Signal" heading. No min-width anywhere below —
-   the point of these templates is that nothing side-scrolls; Company takes
-   whatever is left over. */
-.table-wrap[data-layout='wide'] .grid-row {
-  /* Every track flexes, with a floor. One `1fr` column and the rest fixed is
-     what left a hand's width of nothing between Company and LTP on a wide
-     monitor: all the slack went to one place. Weighted shares spread it, so the
-     table scales as a whole instead of one column ballooning. */
+/* One track per visible column, in order, or the row wraps.
+   ============================================================
+   These templates are positional and the column list is not: a column added in
+   StockTable with no track added here overflows the last cell onto a second
+   line under the row — the market cap reading as a stray "2…" beneath every
+   symbol. Grid has no `grid-auto-flow: column` here, so surplus cells become
+   implicit *rows*. The dev-only guard in StockTable counts both sides and says
+   so; keep it working rather than trusting these comments.
+
+   Every track is `minmax(floor, share)`. Above the sum of the floors the
+   shares spread the slack so the table scales as a whole; below it the floors
+   hold and the table scrolls sideways instead of squeezing. That is the whole
+   trade: a column at 66px is a column you cannot read, and the previous answer
+   to a narrow window was to delete six of them.
+
+   ## Where the floors come from
+
+   They used to be set by what would *fit* a 1240px window, which is why the
+   table still truncated after it gained a sideways scroll: the constraint they
+   were solving for no longer existed, but the numbers stayed. A cell that
+   ellipsises a figure is worse than a table you have to scroll — `-0.23%` and
+   `-0.2…` are different readings, and `17 F…` is not a date.
+
+   So each floor is now its column's **widest real value**, plus the 24px the
+   cell spends on padding, rounded up for headroom:
+
+     #        4 digits at 11px mono                            ~50 → 56
+     Symbol   star + 10–12 char ticker + one exception badge   ~189 → 210
+     Company  free text, genuinely unbounded — see below       → 260
+     LTP      `1,50,000.00` at 13.5px tabular                  ~100 → 112
+     Chg%     the chip: arrow + `-100.00%` + 18px of padding   ~125 → 132
+     Side     `SELL` + `17 Feb 2026` + a 3-digit score         ~174 → 184
+     At       same worst case as LTP                           ~100 → 112
+     Gap      `+1,234.5%`                                       ~92 → 100
+     MAPO     `100%`, sometimes chipped                         ~70 → 88
+     RSI(M)   header `RSI(M)` is wider than `100.0`             ~62 → 88
+     ROCE     `-123.4%`                                         ~80 → 96
+     M.Cap    `20,00,000` — Reliance sets this one              ~88 → 112
+
+   Two of those are set by the *header*, not the data (RSI(M), and `vs 10Y
+   high` below): a clipped column heading is the same fault as a clipped value.
+
+   Company is the one column that still ellipsises, and deliberately — company
+   names run past 60 characters and no floor fixes that without making every
+   other column unreachable. It carries a `title` instead, so the full name is
+   one hover away. Everything else fits.
+
+   The floors now sum to ~1550px, so a 1440px laptop scrolls slightly and a
+   1920px screen does not. That is the intended trade, not a regression.
+
+   Symbol's floor is set by its worst case rather than its usual one: the cell
+   carries the star, then the ticker, then the exception badges (BSE for a row
+   not on NSE, the code for any series that is not EQ). It is also the frozen
+   column, so a clipped badge sits permanently at the freeze line rather than
+   scrolling out of sight — a half-drawn chip parked on a hairline reads as a
+   rendering fault, not as an ellipsis.
+
+   # · Symbol · Company · LTP · Chg% · Side · At · Gap · MAPO · RSI(M) ·
+   ROCE · M.Cap — twelve. */
+.table-wrap[data-layout='desktop'] .grid-row {
   grid-template-columns:
-    48px minmax(140px, 0.9fr) minmax(170px, 2.4fr) minmax(104px, 0.8fr)
-    minmax(100px, 0.8fr) minmax(100px, 0.8fr) minmax(104px, 0.8fr)
-    minmax(124px, 1fr) minmax(96px, 0.8fr) minmax(88px, 0.7fr);
-  min-width: 0;
+    var(--col-idx-w) minmax(210px, 0.85fr) minmax(260px, 2.4fr) minmax(112px, 0.78fr)
+    minmax(132px, 0.78fr) minmax(184px, 1fr) minmax(112px, 0.74fr)
+    minmax(100px, 0.68fr) minmax(88px, 0.6fr) minmax(88px, 0.62fr)
+    minmax(96px, 0.66fr) minmax(112px, 0.78fr);
 }
 
-/* Screening swaps Type and Listed out for the four screen columns —
-   # · Symbol · Company · LTP · Chg% · Side · At · Gap · vs 10Y high · RSI(M) ·
-   ROCE · M.Cap. See WIDE_HIDDEN_SCREENING in StockTable.
-
-   Twelve tracks, tuned to still fit at 1240px — the narrow end of this layout.
-   Side keeps a small `fr` share of its own so the signal block breathes as the
-   window widens, instead of every spare pixel landing in Company. */
-.table-wrap[data-layout='wide'][data-screen='true'] .grid-row {
+/* A screen inserts `vs 10Y high` after MAPO — thirteen. Its floor is set by the
+   heading, which is wider than `at high` or `−12.3%`. */
+.table-wrap[data-layout='desktop'][data-screen='true'] .grid-row {
   grid-template-columns:
-    44px minmax(134px, 0.85fr) minmax(150px, 2.2fr) minmax(96px, 0.75fr)
-    minmax(98px, 0.75fr) minmax(118px, 0.95fr) minmax(88px, 0.7fr)
-    minmax(84px, 0.7fr) minmax(92px, 0.75fr) minmax(70px, 0.6fr)
-    minmax(76px, 0.65fr) minmax(96px, 0.75fr);
-  min-width: 0;
+    var(--col-idx-w) minmax(210px, 0.8fr) minmax(260px, 2.1fr) minmax(112px, 0.72fr)
+    minmax(132px, 0.72fr) minmax(184px, 0.92fr) minmax(112px, 0.66fr)
+    minmax(100px, 0.6fr) minmax(88px, 0.54fr) minmax(104px, 0.7fr)
+    minmax(88px, 0.56fr) minmax(96px, 0.6fr) minmax(112px, 0.72fr);
 }
 
-/* Tablet: Symbol · Company · LTP · Chg% · Side · Gap — see MEDIUM_HIDDEN. */
-.table-wrap[data-layout='medium'] .grid-row {
-  grid-template-columns: 128px minmax(90px, 1.4fr) 100px 108px 96px 88px;
-  min-width: 0;
+/**
+ * What makes the sideways scroll actually happen.
+ *
+ * `min-content` on a grid container is the sum of its tracks' floors — the one
+ * number that must never drift from the templates above, computed by the
+ * browser instead of typed in and re-typed every time a column moves.
+ *
+ * `min-width` beats `width`, so the `width: 100%` on `.tr` gives way to it and
+ * a row really is as wide as its columns rather than as wide as the box it is
+ * absolutely placed in. That is the trap: an absolutely positioned child of a
+ * scroller measures the padding box, not the scrollable width, so without this
+ * the rows would go on quietly squeezing while the header scrolled.
+ */
+.table-wrap[data-layout='desktop'] .grid-row {
+  min-width: min-content;
 }
 
-/* Tablet while screening: seven columns, still no side-scroll —
-   Symbol · Company · LTP · Chg% · Signal · vs 10Y high · RSI(M). See
-   MEDIUM_HIDDEN_SCREENING in StockTable for what gives way and why. */
-.table-wrap[data-layout='medium'][data-screen='true'] .grid-row {
-  /* Tracks sized so the total still fits at 701px — the narrow end of this
-     layout — with the gutters. Any wider and the Company column takes it. */
-  grid-template-columns: 116px minmax(72px, 1.3fr) 88px 96px 92px 96px 72px;
-  min-width: 0;
+/**
+ * The frozen identity block: `#` and Symbol.
+ *
+ * A row of twelve figures scrolled away from its name is unreadable — the same
+ * argument the drawer's financial tables already make for their own first
+ * column. Two cells rather than one, because a gap between the frozen `#` and
+ * a frozen Symbol would show rows sliding through it.
+ *
+ * `data-col` on the header because header cells are placed by grid coordinates
+ * and DOM order is by header row, so `:nth-child` finds the wrong ones.
+ */
+.table-wrap[data-layout='desktop'] .td.idx,
+.table-wrap[data-layout='desktop'] .th[data-col='index'] {
+  position: sticky;
+  left: 0;
+}
+
+.table-wrap[data-layout='desktop'] .td.sym,
+.table-wrap[data-layout='desktop'] .th[data-col='symbol'] {
+  position: sticky;
+  left: var(--col-idx-w);
+  /* The edge of the frozen block. A hairline rather than a scroll-shadow: the
+     shadow needs JS to know whether anything is scrolled under it, and this
+     says the same thing for a rule in a stylesheet. */
+  box-shadow: inset -1px 0 0 var(--outline-faint);
+}
+
+/**
+ * Body cells sit above their neighbours as those slide under; the header is
+ * already a stacking context at z-index 2, so its own two only have to beat
+ * their siblings.
+ *
+ * `align-self: stretch` is what makes the background actually cover the row.
+ * The rows are grids with `align-items: center`, so a cell is only as tall as
+ * its own text — a 17px band of paint in a 48px row. Frozen, that left a gap
+ * above and below every frozen cell through which the scrolling columns were
+ * visibly sliding: fragments of the row above's change chip appearing inside
+ * the Symbol column.
+ */
+.table-wrap[data-layout='desktop'] .td.idx,
+.table-wrap[data-layout='desktop'] .td.sym {
+  z-index: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+}
+
+/* The index cell loses `text-align` by becoming a flex box, so its right
+   alignment has to be restated on the axis that now governs it. */
+.table-wrap[data-layout='desktop'] .td.idx.right {
+  justify-content: flex-end;
+}
+
+/* Same for the header pair, which spans both header rows. `align-items` keeps
+   the label on the baseline `.th-span` used to get from `align-self: end`. */
+.table-wrap[data-layout='desktop'] .th[data-col='index'],
+.table-wrap[data-layout='desktop'] .th[data-col='symbol'] {
+  z-index: 1;
+  align-self: stretch;
+  align-items: flex-end;
+  background: var(--surface);
+}
+
+/* A frozen cell paints its own background, so the row's states have to be
+   repainted onto it or hover and selection stop at the Company column. */
+.table-wrap[data-layout='desktop'] .tr:hover .td.idx,
+.table-wrap[data-layout='desktop'] .tr:hover .td.sym {
+  background: var(--surface-hover);
+}
+
+.table-wrap[data-layout='desktop'] .tr[data-selected='true'] .td.idx,
+.table-wrap[data-layout='desktop'] .tr[data-selected='true'] .td.sym {
+  background: var(--primary-container);
+}
+
+/* And the selected row's left bar has to move onto the frozen cell with it.
+   Drawn on `.tr`, it lands under `.td.idx` — which is opaque and one layer up,
+   so the indicator showed as a stub above and below the cell and nothing
+   beside it. */
+.table-wrap[data-layout='desktop'] .tr[data-selected='true'] .td.idx {
+  box-shadow: inset 3px 0 0 var(--primary);
 }
 
 .thead {
@@ -892,7 +1177,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  transition: color 0.12s ease;
+  transition: color var(--t-fast) var(--ease-out);
 }
 
 /* A column with no group heading takes both header rows. Bottom-aligned, so
@@ -955,8 +1240,10 @@ body {
   border-bottom: 1px solid var(--outline-faint);
 }
 
-.th:hover {
-  color: var(--on-surface);
+@media (hover: hover) and (pointer: fine) {
+  .th:hover {
+    color: var(--on-surface);
+  }
 }
 
 /* The sorted column is the only blue thing in the header. */
@@ -986,11 +1273,18 @@ body {
   height: var(--row-h);
   border-bottom: 1px solid var(--outline-faint);
   cursor: pointer;
-  transition: background 0.1s ease;
+  /* Deliberately the fastest thing in the file. A row highlight is seen
+     hundreds of times a minute while scanning; anything slower reads as the
+     table lagging behind the pointer. */
+  transition: background 90ms linear;
 }
 
-.tr:hover {
-  background: var(--surface-hover);
+/* Gated: on a touch screen this fires on tap and then stays lit, so the row
+   you last opened looks selected until you tap another one. */
+@media (hover: hover) and (pointer: fine) {
+  .tr:hover {
+    background: var(--surface-hover);
+  }
 }
 
 .tr[data-selected='true'] {
@@ -1055,8 +1349,8 @@ body {
 
 .badge {
   display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
+  padding: 2px 7px;
+  border-radius: var(--r-xs);
   background: var(--surface-2);
   color: var(--on-surface-variant);
   font-size: 11px;
@@ -1161,6 +1455,50 @@ body {
   line-height: 1;
 }
 
+/* ---------- price ticks ---------- */
+
+/**
+ * A price that just moved, marked for about half a second.
+ *
+ * The only motion in the table, and it earns the place by being information
+ * rather than decoration: on a grid of two thousand figures that refresh on a
+ * timer, "which of these just changed" is otherwise unanswerable without
+ * staring at every row. Every trading terminal does this, and for this reason.
+ *
+ * Colour only — nothing moves. The figures are what the reader is aiming at and
+ * they must not shift under the eye. That is also why it survives
+ * `prefers-reduced-motion` intact where a transform would not: this is a
+ * comprehension aid, and that setting asks for gentler motion, not less
+ * information.
+ *
+ * Snap in, fade out. The base transition carries the decay; the attribute rule
+ * sets 0ms so arrival is instant. A tick that faded in as slowly as it fades
+ * out would read as a glow rather than as a print.
+ *
+ * The padding is cancelled by an equal negative margin: without that the chip
+ * would inset the figure four pixels from the right edge of its cell and LTP
+ * would stop lining up with every other right-aligned column.
+ */
+.tick {
+  display: inline-block;
+  padding: 1px 4px;
+  margin: 0 -4px;
+  border-radius: var(--r-xs);
+  transition: background-color 620ms var(--ease-out);
+}
+
+.tick[data-tick] {
+  transition-duration: 0ms;
+}
+
+.tick[data-tick='up'] {
+  background-color: var(--up-container);
+}
+
+.tick[data-tick='down'] {
+  background-color: var(--down-container);
+}
+
 /* ---------- UT Bot signal ---------- */
 
 .td.sig-td {
@@ -1247,17 +1585,18 @@ body {
   gap: 8px;
   flex: none;
   min-width: 0;
-  height: 36px;
-  padding: 0 10px 0 14px;
+  height: 34px;
+  padding: 0 8px 0 12px;
   border: 1px solid var(--outline);
-  border-radius: 999px;
+  border-radius: var(--r-md);
   background: var(--surface);
   color: var(--on-surface);
   font-family: inherit;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background var(--t-fast) var(--ease-out),
+    border-color var(--t-fast) var(--ease-out), transform var(--t-press) var(--ease-out);
 }
 
 .menu-btn span {
@@ -1266,8 +1605,15 @@ body {
   white-space: nowrap;
 }
 
-.menu-btn:hover {
-  background: var(--surface-2);
+@media (hover: hover) and (pointer: fine) {
+  .menu-btn:hover {
+    background: var(--surface-2);
+    border-color: var(--on-surface-faint);
+  }
+}
+
+.menu-btn:active {
+  transform: scale(0.98);
 }
 
 .menu-btn[data-open='true'] {
@@ -1278,7 +1624,7 @@ body {
 .menu-btn svg {
   flex: none;
   color: var(--on-surface-variant);
-  transition: transform 0.18s ease;
+  transition: transform var(--t) var(--ease-out);
 }
 
 .menu-btn[data-open='true'] svg {
@@ -1293,36 +1639,63 @@ body {
   /* Without this, reaching the end of the list hands the remaining scroll to
      the table underneath — the menu stays put and the page moves instead. */
   overscroll-behavior: contain;
-  padding: 6px;
-  border-radius: 12px;
-  background: var(--surface);
-  border: 1px solid var(--outline-faint);
+  padding: 5px;
+  border-radius: var(--r-lg);
+  background: var(--surface-3);
+  border: 1px solid var(--outline);
   box-shadow: var(--elev-3);
-  animation: menu-in 0.14s ease;
+
+  /* Grows out of the control that opened it, not out of its own middle.
+     `data-drop` is written by PopMenu/SelectMenu, which already know which way
+     they flipped — so a menu forced upward by a low trigger scales from its
+     bottom edge and still appears to come from the button. */
+  transform-origin: var(--menu-origin, top left);
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+}
+
+.menu[data-drop='down'] {
+  --menu-origin: top left;
+}
+
+.menu[data-drop='up'] {
+  --menu-origin: bottom left;
+}
+
+/* Replaces `@keyframes menu-in`. A keyframe restarts from zero when it is
+   re-triggered; these menus are opened and closed in quick succession from the
+   sort bar and the filter row, and a transition retargets instead of stuttering.
+   Where `@starting-style` is unsupported the menu simply appears, which is a
+   fine outcome for a 130ms fade. */
+@starting-style {
+  .menu {
+    opacity: 0;
+    /* Not scale(0) — nothing in the world appears out of nothing. */
+    transform: scale(0.96);
+  }
 }
 
 .menu:focus {
   outline: none;
 }
 
-@keyframes menu-in {
-  from {
-    opacity: 0;
-    transform: scale(0.97);
-  }
-}
-
 .menu-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 40px;
-  padding: 0 12px;
-  border-radius: 8px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
   font-size: 13px;
   color: var(--on-surface);
   cursor: pointer;
   white-space: nowrap;
+  transition: transform var(--t-press) var(--ease-out);
+}
+
+.menu-item:active {
+  transform: scale(0.98);
 }
 
 /* Keyboard and pointer share one highlight, so arrowing through the list looks
@@ -1383,17 +1756,24 @@ body {
   height: 36px;
   flex: none;
   border: 1px solid var(--outline);
-  border-radius: 50%;
+  border-radius: var(--r-md);
   background: transparent;
   color: var(--on-surface-variant);
   font-size: 15px;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    transform var(--t-press) var(--ease-out);
 }
 
-.sortbar .dir:hover {
-  background: var(--surface-2);
-  color: var(--on-surface);
+@media (hover: hover) and (pointer: fine) {
+  .sortbar .dir:hover {
+    background: var(--surface-2);
+    color: var(--on-surface);
+  }
+}
+
+.sortbar .dir:active {
+  transform: scale(0.92);
 }
 
 /**
@@ -1413,18 +1793,21 @@ body {
 }
 
 /**
- * The bottom band: the screen's numbers in fixed columns at the left, the
- * signal at the right — the same two rails as the lines above, identity down
- * one edge and today's numbers down the other.
+ * The bottom band: the verdict, then the figures behind it, each on its own
+ * full-width line.
  *
- * The hairline is what turns three stacked lines into a card with a head and a
- * body. Fainter than the rule between rows, or the list stops reading as rows.
+ * They used to share a line — metrics left, signal right — which on a 320px
+ * phone is about 110px each, and 110px is where `10Y HIGH` starts clipping.
+ * Stacking them costs one line of card height and buys both of them the width
+ * they need.
+ *
+ * The hairline is what turns stacked lines into a card with a head and a body.
+ * Fainter than the rule between rows, or the list stops reading as rows.
  */
 .stack-foot {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 6px 14px;
+  flex-direction: column;
+  gap: 9px;
   min-width: 0;
   margin-top: 2px;
   padding-top: 9px;
@@ -1466,14 +1849,33 @@ body {
  *
  * Laid out inline, each metric started wherever the one before it ended, so
  * `10Y HIGH` sat at a different x on every row and the list had nothing to scan
- * down. Fixed widths give a card list the thing that actually reads as
- * professional: a column edge.
+ * down. A column edge is the thing that actually reads as professional in a
+ * list of cards.
+ *
+ * `auto-fill` rather than a hand-counted track list: the rail carries three
+ * metrics normally and four while a screen is on show, and the tracks are
+ * decided by the width available rather than by how many items landed in it —
+ * so the edges stay put when a run finishes and `vs 10Y high` appears. Four
+ * tracks fit a 320px phone, which is the narrowest case.
  */
 .stack-screen {
   display: grid;
-  grid-template-columns: 54px 32px 40px;
-  gap: 0 10px;
+  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+  gap: 8px 6px;
+  min-width: 0;
+}
+
+/* Where the row sits in the result. Quiet — it is an index, not a figure the
+   row is being read for — and fixed-width so the symbols below each other line
+   up rather than stepping right as the numbers gain a digit. */
+.stack-rank {
   flex: none;
+  min-width: 22px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--on-surface-faint);
 }
 
 .metric {
@@ -1528,25 +1930,78 @@ body {
  * says nothing. Colour marks the exception here: the side badge and the move
  * since the flip carry it, everything else is ink.
  */
+/**
+ * The signal band on a phone card, now that it has the card's full width
+ * rather than a right-hand gutter.
+ *
+ * It was right-aligned because it used to hang off the right edge beside the
+ * metric rail. On its own line that reads as a stray fragment, so the verdict
+ * starts at the card's left rail with everything else — and the MAPO chip goes
+ * to the right of the first line, where the day's change chip sits two lines
+ * above it. Left rail for what the row *is*, right rail for what it is doing.
+ */
+/* Three stacked lines now — verdict, the bar, the sentence — rather than a
+   two-column grid holding a chip out to the right. MAPO moved to the metric row
+   where it belongs, and with it went the only thing that needed a second
+   column. */
 .sig-strip {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 1px;
-  flex: 0 1 auto;
+  gap: 6px;
   min-width: 0;
   font-size: 12.5px;
   line-height: 1.35;
-  text-align: right;
+}
+
+/* The signal price sits beside its own badge and needs no colour of its own —
+   the badge already carries the side. */
+.sig-strip-at {
+  color: var(--on-surface);
+  font-weight: 600;
+}
+
+/**
+ * The confidence in the flip, banded.
+ *
+ * Was a grey chip reading `37 Weak` next to a green chip reading `MAPO 77` —
+ * two 0-100 scores in two different visual languages, the weaker one of which
+ * looked the calmer. Now the word leads and the number follows it, and the
+ * colour is a tint of the band rather than a fill: a score is a caveat on the
+ * verdict, not a second verdict.
+ *
+ * The word is always present. Colour never carries this alone.
+ */
+.sig-conf-strong {
+  color: var(--up);
+  background: var(--up-container);
+}
+
+.sig-conf-good {
+  color: var(--up);
+  background: var(--up-container);
+  opacity: 0.85;
+}
+
+.sig-conf-mixed {
+  color: var(--on-surface-variant);
+  background: var(--surface-2);
+}
+
+.sig-conf-weak {
+  color: var(--down);
+  background: var(--down-container);
 }
 
 .sig-strip-head {
   display: flex;
   align-items: baseline;
-  justify-content: flex-end;
   gap: 7px;
   min-width: 0;
   font-weight: 600;
+}
+
+.sig-strip-head .sig-score {
+  margin-left: auto;
 }
 
 .sig-strip.up .sig-badge {
@@ -1559,14 +2014,17 @@ body {
   color: var(--down);
 }
 
-/* The move since the flip is the one number that can disagree with the side —
-   a BUY can be underwater — so it is the one that keeps its own colour. */
-.sig-strip-gap {
-  font-weight: 700;
+/* The second line of the signal, matching the metric labels beside it in size
+   and weight so the band reads as one object. Both text lines keep the card's
+   left rail; only the MAPO chip crosses to the right. */
+/* The sentence under the bar. It says in words what the bar says in length,
+   which is the point: the drawing is the scan and the sentence is the reading.
+   `+24.9%` used to appear here with no idea attached to it, two lines from a
+   `-0.45%` that meant something else entirely. */
+.sig-strip-when b {
+  font-weight: 600;
 }
 
-/* The second line of the signal, matching the metric labels beside it in size
-   and weight so the band reads as one object. */
 .sig-strip-when {
   font-size: 10.5px;
   color: var(--on-surface-faint);
@@ -1585,7 +2043,7 @@ body {
   display: inline-block;
   width: 52px;
   height: 10px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: linear-gradient(
     90deg,
     var(--outline-faint) 25%,
@@ -1600,6 +2058,76 @@ body {
   to {
     background-position: -200% 0;
   }
+}
+
+/**
+ * The gap bar: how far price has run from the signal that called it.
+ *
+ * A baseline bar, not a meter — the quantity is a distance from a reference
+ * (the signal price) with a meaningful sign, so it grows out of a marked zero
+ * rather than filling from the left. Ticks sit on the app's own gap bands, so a
+ * mark past the second tick is the same ">15%" the filter above the table
+ * offers, read without a number.
+ *
+ * The whole thing is 5px tall and has no axis, no labels and no numbers on it.
+ * It is scanned down a column of fifty cards, where its only job is to let one
+ * row be compared with the next; the exact figure is printed in words directly
+ * underneath.
+ */
+.gapbar {
+  position: relative;
+  display: block;
+  height: 5px;
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+/* The band edges at +5% and +15%. Recessive: they are a scale, not data. */
+.gapbar-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--canvas);
+  opacity: 0.9;
+}
+
+/* The signal price. The one reference the bar is measured from, so it is the
+   only mark here allowed to be full-strength ink. */
+.gapbar-zero {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 1.5px;
+  background: var(--on-surface-faint);
+}
+
+.gapbar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--r-full);
+}
+
+/* Square where it meets the baseline, rounded at the far end — so the bar reads
+   as growing *from* the signal rather than floating near it. */
+.gapbar-fill[data-side='right'] {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.gapbar-fill[data-side='left'] {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.gapbar-fill.up {
+  background: var(--up);
+}
+
+.gapbar-fill.down {
+  background: var(--down);
 }
 
 /* ---------- pagination ---------- */
@@ -1643,20 +2171,29 @@ body {
 .page-btn {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   flex: none;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--on-surface-variant);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    transform var(--t-press) var(--ease-out);
 }
 
-.page-btn:hover:not(:disabled) {
-  background: var(--surface-2);
-  color: var(--on-surface);
+@media (hover: hover) and (pointer: fine) {
+  .page-btn:hover:not(:disabled) {
+    background: var(--surface-2);
+    color: var(--on-surface);
+  }
+}
+
+/* Small targets take a harder press than large ones — at 30px a 3% scale is
+   under a pixel and reads as nothing. */
+.page-btn:active:not(:disabled) {
+  transform: scale(0.92);
 }
 
 .page-btn:disabled {
@@ -1686,17 +2223,24 @@ body {
 .progress {
   width: 140px;
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: var(--surface-2);
   overflow: hidden;
 }
 
 .progress i {
   display: block;
+  width: 100%;
   height: 100%;
-  border-radius: 999px;
+  /* No radius of its own — the track clips, and a rounded fill under scaleX
+     becomes an ellipse. */
   background: var(--primary);
-  transition: width 0.25s ease;
+  /* Driven by `--p` (0–1) from the status bar rather than by `width`: width is
+     a layout property and animating it re-lays-out the footer 60 times a
+     second while a refresh runs. A transform is composited and free. */
+  transform-origin: left center;
+  transform: scaleX(var(--p, 0));
+  transition: transform var(--t-slow) var(--ease-out);
 }
 
 /* ---------- detail drawer ---------- */
@@ -1706,7 +2250,7 @@ body {
   inset: 0;
   background: var(--scrim);
   z-index: 40;
-  animation: fade-in 0.2s ease;
+  animation: fade-in var(--t) var(--ease-out);
 }
 
 /**
@@ -1725,14 +2269,18 @@ body {
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(600px, 100vw);
+  /* Wider than it was. The financial tables inside scroll sideways at 600px
+     on almost every company, and the panel is the one place in the app with
+     room to spend. Capped so it never becomes the page on an ultrawide. */
+  width: var(--drawer-w);
+  max-width: 100vw;
   background: var(--surface);
   box-shadow: var(--elev-3);
   z-index: 41;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: slide-in 0.24s cubic-bezier(0.2, 0, 0, 1);
+  animation: slide-in var(--t-slow) var(--ease-drawer);
 }
 
 /* The header stays put; the document under it scrolls. On a sheet this is the
@@ -1741,6 +2289,11 @@ body {
 .drawer-body {
   flex: 1;
   min-height: 0;
+  /* Everything inside sizes against the panel, not the window. A laptop with a
+     680px drawer and a phone with a 380px one are the same viewport-relative
+     width and want completely different layouts, which is precisely the case
+     media queries cannot see. */
+  container-type: inline-size;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -1755,20 +2308,127 @@ body {
   }
 }
 
+/* Percentages, not pixels: the drawer is 600px on a laptop and full-width on a
+   phone, and `100%` is its own width in both. The old 24px nudge read as a
+   panel twitching into place rather than sliding in from the edge. */
 @keyframes slide-in {
   from {
-    transform: translateX(24px);
+    transform: translateX(100%);
+  }
+}
+
+/**
+ * Leaving.
+ *
+ * The panel used to slide in and then vanish — React drops the node the moment
+ * the selection clears, and a node out of the document cannot animate. The
+ * `data-closing` attribute is `useClosing` holding it for exactly one
+ * animation; `forwards` keeps it parked off-screen for the frame between the
+ * animation ending and the unmount landing.
+ *
+ * Out is faster than in (200 vs 240) and leaves by the edge it arrived at —
+ * that symmetry is what makes the drawer read as a thing with a position
+ * rather than a layer that fades.
+ */
+.drawer[data-closing] {
+  animation: slide-out 200ms var(--ease-drawer) forwards;
+}
+
+.drawer-scrim[data-closing],
+.sheet-scrim[data-closing] {
+  animation: fade-out 200ms var(--ease-out) forwards;
+}
+
+@keyframes slide-out {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes fade-out {
+  to {
     opacity: 0;
   }
 }
 
+/**
+ * Title, live price and controls — and on a phone, the grab bar.
+ *
+ * `touch-action: none` is what makes the drag possible at all: without it the
+ * browser claims the vertical gesture for scrolling before the pointer handlers
+ * ever see it. Scoped to this bar only, so the body underneath still scrolls
+ * normally — the two never contend for the same pixels.
+ */
 .drawer-head {
   flex: none;
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 20px 24px 16px;
+  padding: 18px 20px 14px;
   border-bottom: 1px solid var(--outline-faint);
+}
+
+.drawer-id {
+  flex: 1;
+  min-width: 0;
+}
+
+/* What the share *is*. Off the control line, because "what can I do to this"
+   and "what is this" are different questions and six items in one row made
+   both hard to find. */
+.drawer-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+/**
+ * The price, once the real one has scrolled out from under the header.
+ *
+ * The body runs to five screens on a company with financials; past the chart
+ * the header alone said only which share you were reading, not what it cost —
+ * the number the panel was opened for. This is the large-title-to-inline-title
+ * collapse, and it is why the header is worth keeping fixed at all.
+ *
+ * `visibility` rather than `display` so the box keeps its width and the actions
+ * beside it do not jump sideways as it arrives.
+ */
+.drawer-live {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+  font-size: 14px;
+  font-weight: 600;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--t) var(--ease-out), transform var(--t) var(--ease-out),
+    visibility var(--t);
+}
+
+.drawer-live[data-shown] {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+}
+
+/* Zero-height mark under the price block. The observer watches this rather than
+   the scroll position, so it fires twice a visit instead of once a frame. */
+.drawer-sentinel {
+  height: 1px;
+  margin-top: -1px;
 }
 
 .drawer-head h2 {
@@ -1792,19 +2452,26 @@ body {
   border: 0;
   background: transparent;
   color: var(--on-surface-variant);
-  border-radius: 50%;
+  border-radius: var(--r-md);
   width: 36px;
   height: 36px;
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
   flex: none;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    transform var(--t-press) var(--ease-out);
 }
 
-.icon-btn:hover {
-  background: var(--surface-2);
-  color: var(--on-surface);
+@media (hover: hover) and (pointer: fine) {
+  .icon-btn:hover {
+    background: var(--surface-2);
+    color: var(--on-surface);
+  }
+}
+
+.icon-btn:active {
+  transform: scale(0.92);
 }
 
 .drawer-price {
@@ -1812,16 +2479,26 @@ body {
   align-items: baseline;
   flex-wrap: wrap;
   gap: 12px;
-  padding: 22px 24px 8px;
+  padding: 20px 20px 6px;
+  /* So the headline below can size against this panel rather than the window. */
+  container-type: inline-size;
 }
 
-/* The headline number, in display type at Finance's quote size. */
+/**
+ * The headline number.
+ *
+ * `cqi` (1% of the container's inline size), not `vw`. It was `clamp(30px, 8vw,
+ * 38px)`, and `vw` is the *viewport* — on a 1920px screen that resolved to
+ * 153px and pinned to the 38px ceiling every time, so the fluid middle term
+ * never once ran. Against the panel it actually does.
+ */
 .drawer-price .ltp {
-  font-family: var(--font-display);
-  font-size: clamp(30px, 8vw, 38px);
-  font-weight: 700;
-  letter-spacing: -0.025em;
+  font-family: var(--font-mono);
+  font-size: clamp(30px, 7cqi, 40px);
+  font-weight: 600;
+  letter-spacing: -0.04em;
   line-height: 1.05;
+  font-variant-numeric: tabular-nums;
 }
 
 .chart-box {
@@ -1877,7 +2554,55 @@ body {
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
-  padding: 10px 24px 20px;
+  padding: 10px 20px 18px;
+}
+
+.range-return {
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.range-over {
+  color: var(--on-surface-variant);
+  font-weight: 400;
+}
+
+/* The series fades in when the range changes. `PriceChart` is keyed on the
+   range so it genuinely remounts, which is what gives `@starting-style`
+   something to start from — otherwise a 5Y line would snap into the space a 1M
+   line just left. */
+.chart-box {
+  opacity: 1;
+  transition: opacity 220ms var(--ease-out);
+}
+
+@starting-style {
+  .chart-box {
+    opacity: 0;
+  }
+}
+
+/**
+ * A named group of facts.
+ *
+ * Thirteen tiles at one weight meant the reader scanned all of them to find any
+ * of them, and the three questions they answer — what it did today, what kind
+ * of share it is, what the registry holds — were interleaved with nothing to
+ * separate them. The heading is small and quiet on purpose: it is a signpost,
+ * not a section title competing with the price.
+ */
+.factset + .factset {
+  margin-top: 4px;
+}
+
+.factset-label {
+  margin: 0;
+  padding: 16px 20px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--on-surface-faint);
 }
 
 .facts {
@@ -1886,11 +2611,48 @@ body {
   gap: 1px;
   background: var(--outline-faint);
   border-top: 1px solid var(--outline-faint);
+  border-bottom: 1px solid var(--outline-faint);
 }
 
 .fact {
   background: var(--surface);
-  padding: 14px 24px;
+  padding: 13px 20px;
+}
+
+/**
+ * Three columns once the panel is wide enough to hold them.
+ *
+ * At two, a 680px drawer gave each of `2.77 L` and `531.80` a 340px tile and
+ * left three quarters of it empty, and any group with an odd count spent a
+ * whole row on one value. Both groups above now hold exactly three facts, so
+ * each is a single filled row, and the panel is a screen shorter.
+ *
+ * 620px is where the third column stops being cramped. It leaves ~166px of
+ * content per tile, and the widest thing in this grid is a four-figure day
+ * range — `1,310.60 – 1,368.00` — at about 160px once set in mono. Below that
+ * the range wraps to two lines and drags its whole row taller with it.
+ */
+@container (min-width: 620px) {
+  .facts {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  /* The two-column orphan rule below does not apply at three. */
+  .facts > .fact:last-child:nth-child(odd) {
+    grid-column: auto;
+  }
+
+  /* Same idea, counted in threes: a last fact alone on its row takes the row,
+     and one sitting second takes the two cells that are left. Without these the
+     empty cells show the grid's own background through the 1px gaps and read as
+     a solid block where a value should be. */
+  .facts > .fact:last-child:nth-child(3n + 1) {
+    grid-column: span 3;
+  }
+
+  .facts > .fact:last-child:nth-child(3n + 2) {
+    grid-column: span 2;
+  }
 }
 
 /* An odd number of facts left a dead half-cell at the end of the grid, which
@@ -1914,6 +2676,23 @@ body {
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+/**
+ * The figures, in the same mono the price headline and the table columns use.
+ * Only the ones marked `.num`: half these values are words — `Cash only`,
+ * `Micro cap`, `NSE + BSE` — and setting those in a monospace would be a
+ * costume rather than a purpose.
+ *
+ * A step smaller than the prose beside it, because mono runs wider per
+ * character and matching the nominal size would make the numbers shout.
+ * Deliberately not `nowrap`: a five-figure day range wraps to two lines here,
+ * which is a legible answer, where an ellipsis would be a lost one.
+ */
+.fact dd.num {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  letter-spacing: -0.02em;
 }
 
 /* ---------- screener.in panel ---------- */
@@ -2254,7 +3033,8 @@ body {
   font-size: 16px;
   letter-spacing: normal;
   text-transform: none;
-  transition: background 0.15s ease, box-shadow 0.15s ease;
+  transition: background var(--t-fast) var(--ease-out),
+    border-color var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out);
 }
 
 .login-field input:focus {
@@ -2292,14 +3072,17 @@ body {
   font-weight: 600;
   letter-spacing: 0.01em;
   cursor: pointer;
-  box-shadow: var(--elev-1);
-  transition: box-shadow 0.15s ease, filter 0.15s ease, translate 0.15s ease;
+  transition: filter var(--t-fast) var(--ease-out), transform var(--t-press) var(--ease-out);
 }
 
-.login-submit:hover:not(:disabled) {
-  filter: saturate(1.1) brightness(1.05);
-  box-shadow: var(--elev-2);
-  translate: 0 -1px;
+@media (hover: hover) and (pointer: fine) {
+  .login-submit:hover:not(:disabled) {
+    filter: saturate(1.08) brightness(1.06);
+  }
+}
+
+.login-submit:active:not(:disabled) {
+  transform: scale(0.985);
 }
 
 .login-submit:disabled {
@@ -2681,22 +3464,56 @@ body {
     height: 92vh;
     height: 92dvh;
     border-radius: 16px 16px 0 0;
-    animation: sheet-up 0.26s cubic-bezier(0.2, 0, 0, 1);
+    animation: sheet-up 260ms var(--ease-drawer);
   }
 
-  .drawer::before {
+  /* Overrides the sideways exit above: at this width the drawer arrived from
+     the bottom, so it leaves that way. Declared beside the entry it mirrors —
+     the two are one decision. */
+  .drawer[data-closing] {
+    animation: sheet-down 200ms var(--ease-drawer) forwards;
+  }
+
+  /**
+   * The grab bar.
+   *
+   * `touch-action: none` is the line that makes the gesture possible at all:
+   * without it the browser claims the vertical drag for scrolling before the
+   * pointer handlers ever see it. Scoped to this bar, so the body below still
+   * scrolls normally and the two never contend for the same pixels.
+   */
+  .drawer-head {
+    position: relative;
+    padding: 20px 16px 14px;
+    touch-action: none;
+  }
+
+  /* The handle itself. It used to hang off `.drawer`, above the header and
+     outside the only element that listens — an affordance pointing at a place
+     where nothing happens. Now it sits on the surface you actually drag. */
+  .drawer-head::before {
     content: '';
-    display: block;
+    position: absolute;
+    top: 8px;
+    left: 50%;
     width: 36px;
     height: 4px;
-    margin: 8px auto 0;
-    border-radius: 999px;
+    margin-left: -18px;
+    border-radius: var(--r-full);
     background: var(--outline);
-    flex: none;
+    transition: background var(--t-fast) var(--ease-out);
   }
 
-  .drawer-head {
-    padding: 12px 16px 14px;
+  /* Confirms the bar is live the moment it is touched, before the sheet has
+     moved far enough to say so itself. */
+  .drawer-head:active::before {
+    background: var(--on-surface-faint);
+  }
+
+  /* The panel is under a finger for the length of the drag, so it gets its own
+     layer rather than being re-rasterised on every move. */
+  .drawer {
+    will-change: transform;
   }
 
   .drawer-price,
@@ -2722,10 +3539,23 @@ body {
   }
 }
 
+/* Its own height, not 28px. Both things that use this — the filter sheet and
+   the drawer once it becomes a bottom sheet on a phone — sit on `bottom: 0`,
+   so `100%` puts them exactly off the bottom edge and the sheet rises from
+   where a sheet comes from. The old nudge was a fade with a twitch in it. */
 @keyframes sheet-up {
   from {
-    transform: translateY(28px);
-    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+.sheet[data-closing] {
+  animation: sheet-down 200ms var(--ease-drawer) forwards;
+}
+
+@keyframes sheet-down {
+  to {
+    transform: translateY(100%);
   }
 }
 
@@ -2774,13 +3604,105 @@ body {
   }
 }
 
+/**
+ * Reduced motion is not *no* motion.
+ *
+ * What makes people ill is travel — things flying in, sliding, scaling. Colour
+ * and opacity are not that, and here they carry meaning: a row lighting under
+ * the pointer, a chip turning accent when it engages, a figure going red when
+ * the price is stale. Blanking those out costs comprehension and helps nobody,
+ * which is what the previous blanket 0.01ms rule did.
+ *
+ * So: transform and travel go, fades and colour stay, and the spinner is
+ * exempt because a spinner that does not spin communicates nothing at all.
+ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-property: opacity, color, background-color, border-color, box-shadow !important;
+    transition-duration: 120ms !important;
+  }
+
+  .spinner {
+    animation-duration: 0.8s !important;
+    animation-iteration-count: infinite !important;
+  }
+
+  /* Press feedback is movement too. */
+  .btn:active,
+  .filter-trigger:active,
+  .segmented button:active,
+  .menu-btn:active,
+  .menu-item:active,
+  .page-btn:active,
+  .wl-tab:active,
+  .star:active,
+  .stat:active {
+    transform: none;
+  }
+
+  /* Entrances become fades in place rather than slides. */
+  .drawer,
+  .sheet {
+    animation-name: fade-in !important;
+    animation-duration: 140ms !important;
+  }
+
+  /* ...and so do exits. Without this the rule above would run a dialog's *entry*
+     fade while it was on its way out. `useClosing` also drops its wait to zero
+     here, so this is the belt to that brace. */
+  .drawer[data-closing],
+  .sheet[data-closing] {
+    animation-name: fade-out !important;
+  }
+
+  /* The price tick is exempt from the 120ms blanket above. It is colour with no
+     movement in it, and it is the table's only indication of what just changed
+     — shortening it to a blink would remove information from the readers least
+     able to spare it. */
+  .tick {
+    transition-duration: 620ms !important;
+  }
+
+  .tick[data-tick] {
+    transition-duration: 0ms !important;
+  }
+
+  @starting-style {
+    .menu {
+      transform: none;
+    }
+  }
+}
+
+/**
+ * Notices that appear while you are already looking at the page.
+ *
+ * All three arrive in response to something the reader did — a filter engaged,
+ * a run started, a run failed — and appearing between two frames reads as the
+ * layout glitching rather than as an answer. A 160ms fade is enough to say
+ * "this is new" without being a thing that has to finish before you can read it.
+ *
+ * `@starting-style` only fires on mount, which is exactly the moment meant:
+ * these elements are conditionally rendered, so they mount when the condition
+ * turns true and are otherwise absent. A count going 1 → 2 is not a mount and
+ * correctly does not re-run.
+ */
+.filter-count,
+.subbar-note,
+.screen-error {
+  opacity: 1;
+  transition: opacity 160ms var(--ease-out);
+}
+
+@starting-style {
+  .filter-count,
+  .subbar-note,
+  .screen-error {
+    opacity: 0;
   }
 }
 
@@ -2835,14 +3757,6 @@ body {
 }
 
 /* Inside the phone row's second line it is part of a sentence, not a chip. */
-.sig-strip-when .sig-score {
-  margin-left: 0;
-  padding: 0;
-  background: none;
-  font-size: inherit;
-  font-weight: 600;
-}
-
 /* That line carries three facts now, not two, so on a narrow phone it wraps
    rather than ellipsing away the newest of them. */
 .sig-strip-when {
@@ -2945,13 +3859,22 @@ body {
   background: none;
   color: var(--on-surface-faint);
   cursor: pointer;
-  transition: color 0.12s ease, background 0.12s ease;
+  transition: color var(--t-fast) var(--ease-out), background var(--t-fast) var(--ease-out),
+    transform var(--t-press) var(--ease-out);
   vertical-align: middle;
 }
 
-.star:hover {
-  background: var(--surface-2);
-  color: var(--on-surface-variant);
+@media (hover: hover) and (pointer: fine) {
+  .star:hover {
+    background: var(--surface-2);
+    color: var(--on-surface-variant);
+  }
+}
+
+/* Starring is a commit — it writes to a list. The press wants to be felt more
+   than a filter chip's does, so it scales harder. */
+.star:active {
+  transform: scale(0.86);
 }
 
 .star[data-on='true'] {
@@ -3017,7 +3940,8 @@ body {
   min-width: 17px;
   margin-left: 6px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
   /* Tinted from the button's own colour, so it is accent on the active tab and
      muted on the other without a second rule for each state. */
   background: color-mix(in srgb, currentColor 14%, transparent);
@@ -3057,11 +3981,11 @@ body {
   align-items: center;
   gap: 7px;
   flex: none;
-  height: 34px;
+  height: 32px;
   max-width: 220px;
-  padding: 0 14px;
+  padding: 0 12px;
   border: 1px solid var(--outline);
-  border-radius: 999px;
+  border-radius: var(--r-md);
   background: var(--surface);
   color: var(--on-surface-variant);
   font-family: var(--font-sans);
@@ -3071,12 +3995,20 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  transition: background var(--t-fast) var(--ease-out),
+    border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    transform var(--t-press) var(--ease-out);
 }
 
-.wl-tab:hover {
-  background: var(--surface-hover);
-  color: var(--on-surface);
+@media (hover: hover) and (pointer: fine) {
+  .wl-tab:hover {
+    background: var(--surface-hover);
+    color: var(--on-surface);
+  }
+}
+
+.wl-tab:active {
+  transform: scale(0.97);
 }
 
 /* The active tab is where the star writes, so it is marked the way the star
@@ -3098,10 +4030,12 @@ body {
   color: var(--on-surface-faint);
 }
 
-.wl-new:hover {
-  border-style: solid;
-  border-color: var(--primary);
-  color: var(--primary);
+@media (hover: hover) and (pointer: fine) {
+  .wl-new:hover {
+    border-style: solid;
+    border-color: var(--primary);
+    color: var(--primary);
+  }
 }
 
 /* The list's own actions. The menu itself is portalled and placed by `PopMenu`,
@@ -3133,7 +4067,7 @@ body {
   min-width: 180px;
   padding: 0 12px;
   border: 1px solid var(--primary);
-  border-radius: 999px;
+  border-radius: var(--r-md);
   background: var(--surface);
   color: var(--on-surface);
   font-family: inherit;
@@ -3245,7 +4179,8 @@ body {
   border: 1.5px solid var(--outline);
   border-radius: 5px;
   color: transparent;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  transition: background var(--t-fast) var(--ease-out),
+    border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
 }
 
 .wl-box[data-on='true'] {
@@ -3324,4 +4259,90 @@ body {
   background: var(--surface-2);
   color: var(--primary);
   opacity: 1;
+}
+
+/* ---------- keyboard reach ---------- */
+
+/**
+ * The row and the sortable header are focusable now — a row opens the drawer
+ * and a header sorts, and both were `div`s with an `onClick`, which is a
+ * control no keyboard can get to.
+ *
+ * The ring goes *inside* rather than around: a virtualised row is a full-width
+ * absolutely-placed box in an `overflow: auto` scroller, so an outline sitting
+ * 2px outside it is clipped on both edges and reads as two stray marks.
+ */
+.tr:focus-visible,
+.th:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+/* The one row that is the list's tab stop should look like an ordinary row
+   until it is actually focused — a permanent mark on row 1 reads as a
+   selection nobody made. */
+.tr:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ---------- touch targets ---------- */
+
+/**
+ * 44×44 for anything a finger has to hit.
+ *
+ * Keyed on the pointer rather than on the viewport: the dense sizing above is
+ * right for a mouse and wrong for a thumb, and which one is in use has nothing
+ * to do with how wide the window is. A touch laptop at 1400px needs the big
+ * targets; a 700px browser window on a desktop does not.
+ *
+ * The type and the spacing do not change with it — only the boxes grow. A
+ * dashboard that reflows into a phone app the moment you touch it is a
+ * different product, not a bigger one.
+ */
+@media (pointer: coarse) {
+  .icon-btn,
+  .page-btn,
+  .sortbar .dir {
+    width: 44px;
+    height: 44px;
+  }
+
+  .btn,
+  .filter-trigger,
+  .wl-tab,
+  .sortbar .menu-btn,
+  .screenbar-row .menu-btn,
+  .screenbar-row .btn,
+  .pagebar .menu-btn {
+    height: 44px;
+  }
+
+  /* Inside a segmented track, which adds its own 2px of padding either side. */
+  .segmented button,
+  .sheet-group .segmented button,
+  .screenbar-row .segmented button {
+    height: 40px;
+  }
+
+  /**
+   * The star keeps its 24px glyph and gets its hit area from an overlay: it
+   * sits inside the symbol cell of a row that is itself clickable, so growing
+   * the box would push the symbol off its column, and a 44px star beside a
+   * 14px ticker reads as the star being the point of the row.
+   *
+   * The overlay is the reason for the z-index — without it the row's own click
+   * target is on top and the star is unhittable at its new size.
+   */
+  .star {
+    position: relative;
+  }
+
+  .star::after {
+    content: '';
+    position: absolute;
+    /* 24px glyph + 10px each side = 44. */
+    inset: -10px;
+    border-radius: 50%;
+  }
 }

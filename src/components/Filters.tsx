@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { SelectMenu } from './SelectMenu';
+import { useFocusTrap } from '../hooks/useFocusTrap';
+import { useClosing } from '../hooks/useClosing';
 
 export interface FilterOption {
   value: string;
@@ -110,11 +112,18 @@ export function Filters({ groups, advanced = [], resultCount }: Props) {
     setOpen(false);
   }, [compact]);
 
+  const sheetRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(sheetRef, open);
+
+  // Stable, so the Escape listener below is not torn down every render.
+  const hide = useCallback(() => setOpen(false), []);
+  const { closing, close } = useClosing(open, hide);
+
   useEffect(() => {
     if (!open) return;
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') close();
     };
     window.addEventListener('keydown', onKey);
 
@@ -126,7 +135,7 @@ export function Filters({ groups, advanced = [], resultCount }: Props) {
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = previous;
     };
-  }, [open]);
+  }, [open, close]);
 
   const clearAll = () => {
     for (const g of sheetGroups) {
@@ -166,14 +175,22 @@ export function Filters({ groups, advanced = [], resultCount }: Props) {
       {open &&
         createPortal(
           <>
-            <div className="sheet-scrim" onClick={() => setOpen(false)} />
-            <div className="sheet" role="dialog" aria-modal="true" aria-label="Filters">
+            <div className="sheet-scrim" data-closing={closing || undefined} onClick={close} />
+            <div
+              ref={sheetRef}
+              className="sheet"
+              data-closing={closing || undefined}
+              role="dialog"
+              aria-modal="true"
+              tabIndex={-1}
+              aria-label="Filters"
+            >
               <div className="sheet-head">
                 <h3>{compact ? 'Filters' : 'More filters'}</h3>
                 <button
                   type="button"
                   className="icon-btn"
-                  onClick={() => setOpen(false)}
+                  onClick={close}
                   aria-label="Close filters"
                 >
                   ✕
@@ -195,7 +212,7 @@ export function Filters({ groups, advanced = [], resultCount }: Props) {
                 >
                   Clear all
                 </button>
-                <button type="button" className="btn" onClick={() => setOpen(false)}>
+                <button type="button" className="btn" onClick={close}>
                   Show {resultCount.toLocaleString('en-IN')}
                 </button>
               </div>

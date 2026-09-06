@@ -29,6 +29,12 @@ import {
 } from '../lib/format';
 import {
   SIGNAL_FILTER_MAX,
+  MAPO,
+  MAPO_HIGH,
+  MAPO_LOW,
+  MAPO_MID,
+  peekMapo,
+  SIGNAL_RANGE_LABEL,
   UT_BOT,
   formatGap,
   peekSignal,
@@ -51,7 +57,7 @@ import type { Classification, SecurityWithQuote } from '../types';
  * Everything cut (series, exchanges, ISIN, face value, prev close, rupee
  * change) is in the detail drawer, one click away on the row.
  */
-type Layout = 'wide' | 'medium' | 'mobile';
+type Layout = 'desktop' | 'mobile';
 
 /**
  * Names for the mobile sort menu, where a column header is read on its own
@@ -69,40 +75,23 @@ const SORT_LABEL: Record<string, string> = {
  * mobile figure is only a floor: those rows size to their content (see
  * `virtualise`), and the CSS carries the same number as `min-height`.
  */
-const ROW_HEIGHT: Record<Layout, number> = { wide: 48, medium: 48, mobile: 64 };
+const ROW_HEIGHT: Record<Layout, number> = { desktop: 48, mobile: 64 };
 
 const NONE: Set<string> = new Set();
 
 /**
- * Wide: RSI, ROCE and market cap are permanent columns now that the server
- * precomputes them, so the two weakest identity columns leave to pay for the
- * width. Unconditional where this used to apply only while screening — the
- * columns it was making room for no longer come and go.
- */
-const WIDE_HIDDEN = new Set(['segment', 'listingDate']);
-
-/**
- * `medium` keeps Symbol · Company · LTP · Chg% · RSI · Side · Gap.
+ * The only columns cut on a desktop: both are one-row-at-a-time questions that
+ * the drawer answers better than a column does.
  *
- * RSI survives the cut and the other two metrics do not: it is three characters
- * and the one of the three that is read by scanning down the column. ROCE and
- * market cap are both wider and both questions asked about one row at a time,
- * so they belong in the drawer at this width.
+ * There used to be a third layout between this and the phone that dropped six
+ * more — index, signal date, ROCE, market cap — to keep a tablet from
+ * side-scrolling. It is gone: the table scrolls sideways now, so a narrow
+ * window shows the same thirteen columns at their proper width instead of a
+ * different, quietly poorer table. Nothing disappears because the window got
+ * smaller; you scroll to it, and Symbol stays frozen at the left so a row of
+ * figures always has its name attached.
  */
-const MEDIUM_HIDDEN = new Set([
-  'index',
-  'segment',
-  'listingDate',
-  'sigAt',
-  'rocePct',
-  'marketCapCr',
-]);
-
-/**
- * …and a screen adds `vs 10Y high`, paid for with the signal's gap. The side
- * and its date stay: a screen shortlist with no verdict on it is half an answer.
- */
-const MEDIUM_HIDDEN_SCREENING = new Set([...MEDIUM_HIDDEN, 'sigGap']);
+const DESKTOP_HIDDEN = new Set(['segment', 'listingDate']);
 
 const PAGE_SIZES = [25, 50, 100, 250];
 
@@ -145,9 +134,60 @@ function Missing({ loaded }: { loaded: boolean }) {
   return loaded ? <span className="num muted-dash">—</span> : <span className="skeleton" />;
 }
 
-function PriceCell({ value, loaded }: { value: number | null | undefined; loaded: boolean }) {
+/**
+ * The last price this table painted for each symbol.
+ *
+ * Module scope rather than component state, and that is the whole trick. Rows
+ * are virtualised, so scrolling one out of view and back mounts a *fresh*
+ * PriceCell holding the price it already had. Compared against state that reads
+ * as a change and the row flashes for having been scrolled past — which is
+ * worse than no flash at all, because it stops the flash meaning "this moved".
+ *
+ * Keyed by symbol, so the reading survives the component that made it.
+ */
+const lastPrice = new Map<string, number>();
+
+/** 'up' | 'down' for one beat after a real change, else null. */
+function usePriceTick(symbol: string, value: number | null | undefined) {
+  const [tick, setTick] = useState<'up' | 'down' | null>(null);
+  const timer = useRef<number>();
+
+  useEffect(() => {
+    if (value === null || value === undefined) return;
+    const previous = lastPrice.get(symbol);
+    lastPrice.set(symbol, value);
+    // No previous reading is a first paint, not a move. Equal is a re-render or
+    // a poll that returned the same number — neither is news.
+    if (previous === undefined || previous === value) return;
+
+    setTick(value > previous ? 'up' : 'down');
+    // The attribute comes straight back off; the visible half is the CSS
+    // transition that decays after it. See `.tick` in index.css.
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setTick(null), 90);
+  }, [symbol, value]);
+
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  return tick;
+}
+
+function PriceCell({
+  symbol,
+  value,
+  loaded,
+}: {
+  symbol: string;
+  value: number | null | undefined;
+  loaded: boolean;
+}) {
+  const tick = usePriceTick(symbol, value);
   if (value === null || value === undefined) return <Missing loaded={loaded} />;
-  return <span className="num">{formatPrice(value)}</span>;
+  return (
+    <span className="num tick" data-tick={tick ?? undefined}>
+      {formatPrice(value)}
+    </span>
+  );
 }
 
 function ChevronIcon({ d }: { d: string }) {
@@ -205,10 +245,23 @@ function TypeCell({ cls }: { cls: Classification | undefined }) {
  * fixed columns now, and a missing one that rendered nothing would shift the
  * two beside it — which is the alignment the columns exist for.
  */
-function Metric({ label, value }: { label: string; value: string | undefined }) {
+function Metric({
+  label,
+  value,
+  tone,
+  title,
+}: {
+  label: string;
+  value: string | undefined;
+  /** Colours the figure where the figure has a direction. Most do not. */
+  tone?: 'up' | 'down';
+  title?: string;
+}) {
   return (
-    <span className="metric">
-      <b className={value === undefined ? 'num muted-dash' : 'num'}>{value ?? '—'}</b>
+    <span className="metric" title={title}>
+      <b className={`num${value === undefined ? ' muted-dash' : ''}${tone ? ` ${tone}` : ''}`}>
+        {value ?? '—'}
+      </b>
       {label}
     </span>
   );
@@ -285,7 +338,7 @@ function ScreenCell({
 function signalHint(signal: Signal): string {
   return [
     `Score ${signal.score} · ${scoreLabel(signal.score)}`,
-    `UT Bot (ATR ${UT_BOT.atrPeriod} × ${UT_BOT.keyValue}) on HMA ${UT_BOT.hmaLength}, daily bars`,
+    `UT Bot on close · ${UT_BOT.keyValue}× ATR ${UT_BOT.atrPeriod}, daily bars`,
     `${signal.side} at ${formatPrice(signal.price)} on ${formatDate(signal.date)}, ${
       signal.age === 0 ? 'today' : `${signal.age} bars ago`
     }`,
@@ -293,8 +346,8 @@ function signalHint(signal: Signal): string {
     signal.trend === 0
       ? 'Trend unknown — short history'
       : signal.trend === 1
-        ? 'With the 200-day trend'
-        : 'Against the 200-day trend',
+        ? `With the Hull ${UT_BOT.hmaLength} trend`
+        : `Against the Hull ${UT_BOT.hmaLength} trend`,
     signal.volumeRatio === null
       ? 'No volume reported'
       : `Flip volume ${signal.volumeRatio.toFixed(1)}× its 20-day average`,
@@ -310,6 +363,52 @@ function signalHint(signal: Signal): string {
     .join('\n');
 }
 
+/**
+ * Where the price now sits relative to the flip, drawn.
+ *
+ * The card used to print `+24.9%` two lines above `-0.45%` in opposite colours
+ * with nothing saying they measure different things — one is the distance from
+ * the signal price, the other is today's move. Labelling both fixes the
+ * ambiguity; drawing one of them answers the question the reader actually has,
+ * which is *how much of this move has already happened*.
+ *
+ * The domain and its ticks are not invented. They are the app's own
+ * `SIGNAL_GAP_BANDS` — Below 0 / 0-5 / 5-15 / >15 — the same edges the FROM
+ * SIGNAL filter offers, so a row's mark lands in the band the reader may have
+ * filtered on. Clamped to [-15, +35]: past that the exact number stops mattering
+ * and only "far" does, and an unbounded axis would squash every ordinary row
+ * into the first few pixels.
+ *
+ * `aria-hidden`, deliberately. It re-encodes the percentage printed beside it,
+ * so a screen reader that announced both would read the same fact twice.
+ */
+const GAP_MIN = -15;
+const GAP_MAX = 35;
+/** Where a gap sits across the track, 0-100. */
+const gapAt = (pct: number) =>
+  ((Math.max(GAP_MIN, Math.min(GAP_MAX, pct)) - GAP_MIN) / (GAP_MAX - GAP_MIN)) * 100;
+
+function GapBar({ gap }: { gap: number }) {
+  const zero = gapAt(0);
+  const now = gapAt(gap);
+  const [from, to] = now >= zero ? [zero, now] : [now, zero];
+  return (
+    <span className="gapbar" aria-hidden>
+      {/* The band edges, so the bar is a scale and not just a length. */}
+      {[5, 15].map((t) => (
+        <i key={t} className="gapbar-tick" style={{ left: `${gapAt(t)}%` }} />
+      ))}
+      {/* The signal price itself — the baseline everything here is measured from. */}
+      <i className="gapbar-zero" style={{ left: `${zero}%` }} />
+      <i
+        className={`gapbar-fill ${gap >= 0 ? 'up' : 'down'}`}
+        data-side={gap >= 0 ? 'right' : 'left'}
+        style={{ left: `${from}%`, width: `${Math.max(to - from, 1.5)}%` }}
+      />
+    </span>
+  );
+}
+
 function SignalStrip({ ticker, price }: { ticker: string; price: number | null | undefined }) {
   const { signal, loaded } = useSignal(ticker);
 
@@ -323,29 +422,72 @@ function SignalStrip({ ticker, price }: { ticker: string; price: number | null |
 
   // Stated rather than left blank. A row that simply stopped after the company
   // name read as a row still loading, which is a different thing entirely.
-  if (!signal) return <div className="sig-strip muted">No signal in the last year</div>;
+  if (!signal) {
+    return (
+      <div className="sig-strip muted">
+        <span className="sig-strip-when">No signal in {SIGNAL_RANGE_LABEL}</span>
+      </div>
+    );
+  }
 
   const gap = signalGapPct(signal, price);
   return (
     <div className={`sig-strip ${signal.side === 'BUY' ? 'up' : 'down'}`}>
       <span className="sig-strip-head">
         <span className="sig-badge">{signal.side}</span>
-        <span className="num">{formatPrice(signal.price)}</span>
-        {gap !== null && (
-          <span className={`num sig-strip-gap ${gap >= 0 ? 'up' : 'down'}`}>{formatGap(gap)}</span>
-        )}
+        <span className="num sig-strip-at">{formatPrice(signal.price)}</span>
+        {/* The confidence in the flip, banded. Never colour alone — the word is
+            the reading and the number is the detail behind it. */}
+        <span
+          className={`sig-score sig-conf-${scoreLabel(signal.score).toLowerCase()}`}
+          title={signalHint(signal)}
+        >
+          {scoreLabel(signal.score)} {signal.score}
+        </span>
       </span>
+
+      {gap !== null && <GapBar gap={gap} />}
+
       <span className="sig-strip-when">
+        {gap !== null && (
+          <>
+            <b className={`num ${gap >= 0 ? 'up' : 'down'}`}>{formatGap(gap)}</b> from signal ·{' '}
+          </>
+        )}
         {/* Bars, not days: 20 sessions is a calendar month. The column used to
             print "20d" for both. */}
         {formatDate(signal.date)} ·{' '}
-        {signal.age === 0 ? 'today' : `${signal.age} ${signal.age === 1 ? 'bar' : 'bars'}`} ·{' '}
-        <span className="sig-score" title={signalHint(signal)}>
-          {signal.score} {scoreLabel(signal.score)}
-        </span>
+        {signal.age === 0 ? 'today' : `${signal.age} ${signal.age === 1 ? 'bar' : 'bars'}`}
         {signal.provisional && ' · live'}
       </span>
     </div>
+  );
+}
+
+/**
+ * MAPO as one of the metrics rather than a green chip on the signal.
+ *
+ * It never belonged to the flip — it rides the same request but measures
+ * something else entirely, and sitting inside the signal block it read as part
+ * of the verdict. Beside RSI and ROCE it reads as what it is: another number
+ * about the share.
+ *
+ * The hook is the same one the strip above calls, which is one fetch and not
+ * two — `fetchSignal` collapses concurrent callers onto a single promise.
+ */
+function MapoMetric({ ticker }: { ticker: string }) {
+  const { mapo } = useSignal(ticker);
+  return (
+    <Metric
+      label="MAPO"
+      value={mapo ? mapo.above.toFixed(0) : undefined}
+      tone={mapo ? (mapo.above > MAPO_MID ? 'up' : 'down') : undefined}
+      title={
+        mapo
+          ? `Above ${mapo.above.toFixed(1)}% of its ${MAPO.minLength}–${MAPO.maxLength} day averages`
+          : undefined
+      }
+    />
   );
 }
 
@@ -375,6 +517,38 @@ function SignalSide({ ticker }: { ticker: string }) {
       {/* Two digits, because a BUY against the trend on no volume is not the
           same row as a BUY with both, and the badge alone said they were. */}
       <span className={`sig-score ${signal.score >= 60 ? 'strong' : ''}`}>{signal.score}</span>
+    </span>
+  );
+}
+
+/**
+ * MAPO's "Price Above MA's", the histogram half of the oscillator.
+ *
+ * The percentage, not the proximity index: breadth ranks a table, and "which
+ * average is nearest" does not. Coloured on the script's own `histbase` of 50
+ * and marked at its `hline`s, so a row reads the same way the pane does.
+ */
+function MapoCell({ ticker }: { ticker: string }) {
+  const { mapo, loaded } = useSignal(ticker);
+  if (!loaded) return <span className="skeleton" />;
+  if (!mapo) return <span className="num muted-dash">—</span>;
+
+  const extreme = mapo.above >= MAPO_HIGH || mapo.above <= MAPO_LOW;
+  return (
+    <span
+      className={`num ${mapo.above > MAPO_MID ? 'up' : 'down'}${extreme ? ' sig-score strong' : ''}`}
+      title={[
+        `MAPO [LuxAlgo] ${MAPO.minLength} ${MAPO.maxLength} ${MAPO.smooth} close`,
+        `Above ${mapo.above.toFixed(1)}% of its ${MAPO.minLength}–${MAPO.maxLength} day averages`,
+        `Nearest average sits at ${mapo.proximity.toFixed(1)} on the 0–100 fan`,
+        mapo.above >= MAPO_HIGH
+          ? `Over ${MAPO_HIGH} — above nearly the whole fan`
+          : mapo.above <= MAPO_LOW
+            ? `Under ${MAPO_LOW} — below nearly the whole fan`
+            : `Between the ${MAPO_LOW}/${MAPO_HIGH} bands`,
+      ].join('\n')}
+    >
+      {mapo.above.toFixed(0)}
     </span>
   );
 }
@@ -429,8 +603,7 @@ export function StockTable({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isMobile = useMediaQuery('(max-width: 700px)');
-  const isMedium = useMediaQuery('(max-width: 1239px)');
-  const layout: Layout = isMobile ? 'mobile' : isMedium ? 'medium' : 'wide';
+  const layout: Layout = isMobile ? 'mobile' : 'desktop';
   const rowHeight = ROW_HEIGHT[layout];
 
   /**
@@ -504,8 +677,13 @@ export function StockTable({
         header: 'Symbol',
         cell: (ctx) => <SymbolCell row={ctx.row.original} />,
       }),
+      // The one column that still ellipsises — company names run well past what
+      // any workable track can hold. The title is the compensation: the full
+      // name is one hover away rather than lost. Every other column is wide
+      // enough for its worst real value; see the floors in index.css.
       helper.accessor('name', {
         header: 'Company',
+        cell: (ctx) => <span title={ctx.row.original.name}>{ctx.row.original.name}</span>,
       }),
       // Sorted on a rank rather than a label, so the order is F&O-first and then
       // largest-to-smallest instead of alphabetical.
@@ -522,7 +700,13 @@ export function StockTable({
         header: 'LTP',
         sortUndefined: 'last',
         sortingFn: numericSort,
-        cell: (ctx) => <PriceCell value={ctx.row.original.quote?.price} loaded={quotesLoaded} />,
+        cell: (ctx) => (
+          <PriceCell
+            symbol={ctx.row.original.symbol}
+            value={ctx.row.original.quote?.price}
+            loaded={quotesLoaded}
+          />
+        ),
       }),
       helper.accessor((r) => r.quote?.changePercent ?? undefined, {
         id: 'changePercent',
@@ -597,6 +781,17 @@ export function StockTable({
               ),
             },
           ),
+          // Same request, same day-cache, so this column is free — see `mapo`
+          // in src/lib/signals.ts. It sits in the signal group because it is
+          // read alongside the flip, not because the study produces it.
+          helper.accessor((r) => peekMapo(r.ticker)?.above, {
+            id: 'mapo',
+            header: 'MAPO',
+            enableSorting: signalSortable,
+            sortUndefined: 'last',
+            sortingFn: numericSort,
+            cell: (ctx) => <MapoCell ticker={ctx.row.original.ticker} />,
+          }),
         ],
       }),
       // The screen's own numbers, appended so they read as an extra section
@@ -738,6 +933,47 @@ export function StockTable({
     virtualizer.measure();
   }, [rowHeight, virtualizer]);
 
+  /**
+   * Which row is the list's tab stop.
+   *
+   * A row opens the drawer on click and there was no other way in, so the list
+   * was unreachable without a mouse. One stop for the whole list with arrows
+   * between rows, not one stop per row: 250 tab stops between the sort bar and
+   * the pager is worse than none.
+   */
+  const [focusRow, setFocusRow] = useState(0);
+  useEffect(() => setFocusRow(0), [pagination.pageIndex, sorting]);
+
+  const moveFocus = (to: number) => {
+    const next = Math.max(0, Math.min(tableRows.length - 1, to));
+    setFocusRow(next);
+    // Home/End can land far outside what is rendered; the virtualiser has to
+    // put the row in the DOM before there is anything to focus.
+    if (virtualise) virtualizer.scrollToIndex(next);
+    requestAnimationFrame(() =>
+      scrollRef.current?.querySelector<HTMLElement>(`[data-row="${next}"]`)?.focus(),
+    );
+  };
+
+  const onRowKey = (e: React.KeyboardEvent<HTMLDivElement>, at: number, row: Row<SecurityWithQuote>) => {
+    // The star inside the symbol cell is a control of its own; its keys are its
+    // own business.
+    if (e.target !== e.currentTarget) return;
+    const jump: Record<string, number | undefined> = {
+      ArrowDown: at + 1,
+      ArrowUp: at - 1,
+      Home: 0,
+      End: tableRows.length - 1,
+    };
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onSelect(row.original);
+    } else if (jump[e.key] !== undefined) {
+      e.preventDefault();
+      moveFocus(jump[e.key]!);
+    }
+  };
+
   const RIGHT_ALIGNED = new Set([
     'index',
     'price',
@@ -753,14 +989,7 @@ export function StockTable({
   // Column visibility is filtered at render rather than through TanStack's
   // visibility state, so hidden columns stay fully sortable from the mobile
   // sort control.
-  const hidden =
-    layout === 'medium'
-      ? screenResults
-        ? MEDIUM_HIDDEN_SCREENING
-        : MEDIUM_HIDDEN
-      : layout === 'wide'
-        ? WIDE_HIDDEN
-        : NONE;
+  const hidden = layout === 'desktop' ? DESKTOP_HIDDEN : NONE;
   const isVisible = (id: string) => !hidden.has(id);
 
   /**
@@ -820,6 +1049,16 @@ export function StockTable({
     // this one virtualises, would be the one attribute that must not go
     // astray. It is passed explicitly at both call sites below.
     const shared = {
+      // Rows are `div`s in a CSS grid, so nothing about them is a table to a
+      // screen reader unless it is said out loud. On a phone they are cards,
+      // which is a list.
+      role: layout === 'mobile' ? 'listitem' : 'row',
+      'aria-rowindex': layout === 'mobile' ? undefined : pageOffset + 2,
+      'aria-selected': layout === 'mobile' ? undefined : row.original.symbol === selectedSymbol,
+      'data-row': pageOffset,
+      tabIndex: pageOffset === focusRow ? 0 : -1,
+      onFocus: () => setFocusRow(pageOffset),
+      onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => onRowKey(e, pageOffset, row),
       'data-selected': row.original.symbol === selectedSymbol,
       // Only meaningful when the screen's non-matches are on show; the CSS dims
       // everything that isn't a pass so the matches stay findable in a mixed
@@ -832,28 +1071,33 @@ export function StockTable({
 
     if (layout === 'mobile') {
       const q = row.original.quote;
+      const rsi = metricOf(row.original, 'monthlyRsi14');
+      const roce = metricOf(row.original, 'rocePct');
+      const mcap = metricOf(row.original, 'marketCapCr');
       return (
         /**
-         * Three bands down the card rather than two columns across it.
+         * Bands down the card rather than columns across it.
          *
          * The two-column shape put the price, the day's change and the whole
          * signal into a right-hand gutter about a third of the row wide, which
          * is what was cramming `+83.13% 774.25 BUY` onto one line. Stacked, each
          * band gets the full width: identity over price, name over change, then
-         * the signal as its own strip, then the screen's numbers.
+         * the signal, then the numbers.
          */
         <div key={row.id} {...shared} className="tr row-stack">
           <div className="stack-line">
             <span className="stack-sym">
+              {/* Position in the result, as on the desktop row. Sorted by
+                  change or by market cap, "where in the list am I" is half the
+                  reading, and the phone was the one place it was missing. */}
+              <span className="stack-rank num">
+                {pagination.pageIndex * pagination.pageSize + pageOffset + 1}
+              </span>
               <SymbolCell row={row.original} />
               {row.original.cls?.fno && <span className="badge fno">F&amp;O</span>}
             </span>
             <span className="stack-price num">
-              {q?.price === null || q?.price === undefined ? (
-                <Missing loaded={quotesLoaded} />
-              ) : (
-                formatPrice(q.price)
-              )}
+              <PriceCell symbol={row.original.symbol} value={q?.price} loaded={quotesLoaded} />
             </span>
           </div>
 
@@ -862,30 +1106,34 @@ export function StockTable({
             <ChangeChip value={q?.changePercent} loaded={quotesLoaded} />
           </div>
 
-          {/* The bottom band, on the same two rails as the lines above it: what
-              the company *is* down the left, what it is doing today down the
-              right. The screen's metrics join the symbol and name on the left;
-              the signal joins the price and the day's change on the right. */}
+          {/**
+            * The bottom band: the verdict, then the figures behind it.
+            *
+            * Both take the full width on their own line. Side by side they had
+            * ~110px each on a 320px phone, which is where the metric labels
+            * were being clipped — and the rail only existed at all once a
+            * screen had run, so the card changed shape underneath the reader
+            * mid-session.
+            *
+            * The rail is unconditional now. RSI, ROCE and market cap are
+            * columns of the dataset (see `metricOf`), so every row has them
+            * from load; only `vs 10Y high` is a by-product of a run.
+            */}
           <div className="stack-foot">
-            {result && (
-              <span className="stack-screen">
+            <SignalStrip ticker={row.original.ticker} price={q?.price} />
+
+            <span className="stack-screen">
+              {result && (
                 <Metric
                   label="10Y high"
                   value={`${result.approx ? '≈' : ''}${formatFromHigh(result.metrics.pctOfHigh)}`}
                 />
-                <Metric label="RSI" value={result.metrics.monthlyRsi14?.toFixed(0)} />
-                <Metric
-                  label="ROCE"
-                  value={
-                    result.metrics.rocePct === null || result.metrics.rocePct === undefined
-                      ? undefined
-                      : `${result.metrics.rocePct.toFixed(0)}%`
-                  }
-                />
-              </span>
-            )}
-
-            <SignalStrip ticker={row.original.ticker} price={q?.price} />
+              )}
+              <Metric label="RSI(M)" value={rsi?.toFixed(0)} />
+              <Metric label="ROCE" value={roce === undefined ? undefined : `${roce.toFixed(0)}%`} />
+              <Metric label="M.Cap ₹Cr" value={mcap === undefined ? undefined : formatCrore(mcap)} />
+              <MapoMetric ticker={row.original.ticker} />
+            </span>
           </div>
         </div>
       );
@@ -897,7 +1145,7 @@ export function StockTable({
           .getVisibleCells()
           .filter((cell) => isVisible(cell.column.id))
           .map((cell) => (
-            <div key={cell.id} className={cellClass(cell.column.id)}>
+            <div key={cell.id} role="gridcell" className={cellClass(cell.column.id)}>
               {cell.column.id === 'index'
                 ? // Position in the whole result, not within the page.
                   pagination.pageIndex * pagination.pageSize + pageOffset + 1
@@ -944,6 +1192,13 @@ export function StockTable({
 
       <div
         className="table-wrap"
+        // `grid` rather than `table`: the rows are the thing you operate, and
+        // arrow keys move between them.
+        role={layout === 'mobile' ? 'list' : 'grid'}
+        aria-label="Shares"
+        // The grid holds one page, and the pager below says which.
+        aria-rowcount={layout === 'mobile' ? undefined : tableRows.length + 1}
+        aria-colcount={layout === 'mobile' ? undefined : headers.length}
         data-layout={layout}
         // Widths differ once the screen columns are in, and the grid template
         // lives in CSS, so the condition has to be visible from there too.
@@ -959,7 +1214,7 @@ export function StockTable({
            * from `leafIndex`, so auto-placement never has to guess around the
            * spans.
            */
-          <div className="thead grid-row">
+          <div className="thead grid-row" role="row" aria-rowindex={1}>
             {table.getHeaderGroups().flatMap((group, depth) =>
               group.headers.map((header) => {
                 // A placeholder is the empty slot under an ungrouped column;
@@ -976,17 +1231,41 @@ export function StockTable({
 
                 const grouped = header.subHeaders.length > 0;
                 const sorted = header.column.getIsSorted();
+                const sortable = header.column.getCanSort();
                 const end = start + leaves.length;
+                const toggleSort = header.column.getToggleSortingHandler();
                 return (
                   <div
                     key={header.id}
+                    role="columnheader"
+                    // What the frozen-column rule in the stylesheet selects on:
+                    // header cells are placed by grid coordinates, so there is
+                    // no structural selector that finds the first two.
+                    data-col={grouped ? undefined : header.column.id}
+                    aria-colindex={start + 1}
+                    aria-colspan={leaves.length > 1 ? leaves.length : undefined}
+                    aria-sort={
+                      !sortable ? undefined : sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'
+                    }
+                    // A sortable header is a control; it was a `div` with an
+                    // onClick, which is a control nobody can reach.
+                    tabIndex={sortable ? 0 : undefined}
+                    onKeyDown={
+                      sortable
+                        ? (e) => {
+                            if (e.key !== 'Enter' && e.key !== ' ') return;
+                            e.preventDefault();
+                            toggleSort?.(e);
+                          }
+                        : undefined
+                    }
                     className={[
                       'th',
                       RIGHT_ALIGNED.has(header.column.id) ? 'right' : '',
                       grouped ? 'th-group group-start group-end' : '',
                       // The signal columns above the row cap: still a heading,
                       // just not a button.
-                      header.column.getCanSort() ? '' : 'th-static',
+                      sortable ? '' : 'th-static',
                       // An ungrouped column has no label in the second row, so
                       // it takes both — sat on the same baseline as the ones
                       // that do, not floating in the middle of the band.
@@ -1001,13 +1280,13 @@ export function StockTable({
                       gridColumn: `${start + 1} / span ${leaves.length}`,
                       gridRow: depth === 0 && !grouped ? '1 / span 2' : depth + 1,
                     }}
-                    onClick={header.column.getToggleSortingHandler()}
+                    onClick={toggleSort}
                     title={
-                      header.column.getCanSort()
+                      sortable
                         ? `Sort by ${String(header.column.columnDef.header)}`
                         : // The group heading, and the signal columns while the
                           // list is too long to have fetched all of them.
-                          `UT Bot on HMA, daily bars — sorts on lists of ${SIGNAL_FILTER_MAX} rows or fewer`
+                          `UT Bot on close, daily bars — sorts on lists of ${SIGNAL_FILTER_MAX} rows or fewer`
                     }
                   >
                     {flexRender(header.column.columnDef.header, header.getContext())}
@@ -1019,7 +1298,11 @@ export function StockTable({
           </div>
         )}
 
-        <div className="tbody" style={virtualise ? { height: virtualizer.getTotalSize() } : undefined}>
+        <div
+          className="tbody"
+          role={layout === 'mobile' ? undefined : 'rowgroup'}
+          style={virtualise ? { height: virtualizer.getTotalSize() } : undefined}
+        >
           {virtualise
             ? virtualizer
                 .getVirtualItems()

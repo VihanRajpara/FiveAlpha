@@ -1,11 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { activeSource } from '../lib/dataSource';
 import { CAP_LABEL } from '../lib/classification';
 import { formatDate, formatPercent, formatPrice, formatVolume } from '../lib/format';
 import type { Candle, ChartRange, Classification, Quote, Security } from '../types';
 import { useSignal } from '../hooks/useSignal';
+import { useFocusTrap } from '../hooks/useFocusTrap';
+import { useClosing } from '../hooks/useClosing';
+import { useSheetDrag } from '../hooks/useSheetDrag';
 import { WatchPicker } from './WatchPicker';
 import {
+  MAPO,
+  MAPO_HIGH,
+  MAPO_LOW,
+  MAPO_MID,
+  SIGNAL_RANGE_LABEL,
   UT_BOT,
   formatGap,
   scoreLabel,
@@ -33,9 +42,9 @@ const RANGE_LABEL: Record<ChartRange, string> = {
  * nothing — the answer is in the day-cache.
  */
 function SignalPanel({ ticker, price }: { ticker: string; price: number | null | undefined }) {
-  const { signal, loaded } = useSignal(ticker);
+  const { signal, mapo, loaded } = useSignal(ticker);
 
-  const study = `UT Bot · ATR ${UT_BOT.atrPeriod} × ${UT_BOT.keyValue} on HMA ${UT_BOT.hmaLength}, daily bars`;
+  const study = `UT Bot on close · ${UT_BOT.keyValue}× ATR ${UT_BOT.atrPeriod}, daily bars`;
 
   if (!loaded) {
     return (
@@ -62,10 +71,40 @@ function SignalPanel({ ticker, price }: { ticker: string; price: number | null |
         <span className="sig-study">{study}</span>
       </div>
 
+      {/* Its own block, below the flip: MAPO is a second indicator that
+          happens to ride the same request, not another fact about the UT Bot.
+          Shown even where there is no flip, because it does not depend on one. */}
+      {mapo && (
+        <>
+          <p className="sig-study">
+            MAPO [LuxAlgo] {MAPO.minLength} {MAPO.maxLength} {MAPO.smooth} close
+          </p>
+          <dl className="facts">
+            <div className="fact">
+              <dt>MAPO · above</dt>
+              <dd className={`num ${mapo.above > MAPO_MID ? 'up' : 'down'}`}>
+                {mapo.above.toFixed(1)}
+                {mapo.above >= MAPO_HIGH ? ` · over ${MAPO_HIGH}` : mapo.above <= MAPO_LOW ? ` · under ${MAPO_LOW}` : ''}
+              </dd>
+            </div>
+            <div className="fact">
+              <dt>MAPO · proximity</dt>
+              <dd className="num">{mapo.proximity.toFixed(1)}</dd>
+            </div>
+            <div className="fact">
+              <dt>Moving average fan</dt>
+              <dd className="num">
+                {MAPO.minLength}–{MAPO.maxLength}d, smoothed {MAPO.smooth}
+              </dd>
+            </div>
+          </dl>
+        </>
+      )}
+
       {!signal ? (
         <p className="sig-none">
-          No flip in the last year of daily bars — the history is too short, or the trailing stop
-          has not been crossed.
+          No flip in {SIGNAL_RANGE_LABEL} of daily bars — the history is too short, or the
+          trailing stop has not been crossed.
         </p>
       ) : (
         <>
@@ -128,8 +167,8 @@ function SignalPanel({ ticker, price }: { ticker: string; price: number | null |
                 {signal.trend === 0
                   ? 'Too little history'
                   : signal.trend === 1
-                    ? 'With the 200-day'
-                    : 'Against the 200-day'}
+                    ? `With the Hull ${UT_BOT.hmaLength}`
+                    : `Against the Hull ${UT_BOT.hmaLength}`}
               </dd>
             </div>
             <div className="fact">
@@ -148,7 +187,7 @@ function SignalPanel({ ticker, price }: { ticker: string; price: number | null |
                 is the same rule's record on this name — evidence, not a
                 backtest: no costs, no slippage, one year of bars. */}
             <div className="fact">
-              <dt>This rule here (1y)</dt>
+              <dt>This rule here ({SIGNAL_RANGE_LABEL})</dt>
               <dd className="num">
                 {signal.history
                   ? `${signal.history.wins}/${signal.history.trades} won · avg ${formatGap(signal.history.avgPct)}`
@@ -168,29 +207,92 @@ interface Props {
   /** Undefined until the NSE segment/index lists have loaded. */
   cls?: Classification;
   onClose: () => void;
+  /** Beside the table rather than over it — see `docked` in App. */
+  docked?: boolean;
 }
 
-export function StockDetail({ security, quote, cls, onClose }: Props) {
+export function StockDetail({ security, quote, cls, onClose, docked = false }: Props) {
   const [range, setRange] = useState<ChartRange>('1y');
   const [candles, setCandles] = useState<Candle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const drawerRef = useRef<HTMLElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Trapped only while it is actually modal.
+   *
+   * Docked, this is a second column, not a dialog over one — trapping focus
+   * would strand a keyboard user in a panel they never asked to be moved into,
+   * and it would kill the best thing about the docked mode: arrow keys keep
+   * driving the table while the panel follows the highlighted row.
+   */
+  useFocusTrap(drawerRef, !docked);
+
+  // Every way out routes through `close` rather than `onClose`, so the panel
+  // leaves the way it arrived instead of blinking out. See useClosing.
+  const { closing, close } = useClosing(true, onClose);
+
+  const scrimRef = useRef<HTMLDivElement>(null);
+  const isPhone = useMediaQuery('(max-width: 700px)');
+  // Dismissal by drag skips `close`: the sheet is already part-way down under
+  // the finger, and the keyframe exit would snap it back to nought first.
+  const drag = useSheetDrag(drawerRef, scrimRef, onClose, isPhone);
+
+  /**
+   * Whether the price has scrolled out from under the header.
+   *
+   * The body runs to five screens on a company with financials, and the header
+   * alone says only *which* share you are reading — not what it costs, which is
+   * the number the panel was opened for. Past the price block the header grows
+   * one, the way a large title collapses into an inline one.
+   *
+   * An observer on a sentinel rather than a scroll listener: this fires twice
+   * per visit instead of on every frame of every scroll.
+   */
+  const [condensed, setCondensed] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const mark = sentinelRef.current;
+    const root = bodyRef.current;
+    if (!mark || !root) return;
+    const io = new IntersectionObserver(([e]) => setCondensed(!e.isIntersecting), { root });
+    io.observe(mark);
+    return () => io.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
     window.addEventListener('keydown', onKey);
 
     // The page behind this scrolls on a phone, where the drawer is a bottom
     // sheet — without the lock the list moves under the finger while the sheet
     // is open, and closing it lands somewhere else entirely.
+    //
+    // Docked, the page behind is the point: locking it would freeze the table
+    // the panel exists to describe.
     const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    if (!docked) document.body.style.overflow = 'hidden';
 
     return () => {
       window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = previous;
+      if (!docked) document.body.style.overflow = previous;
     };
-  }, [onClose]);
+  }, [close, docked]);
+
+  /**
+   * Back to the top when the subject changes.
+   *
+   * Docked, the panel is not remounted between symbols — the same component
+   * takes new props — so without this, arrowing from a row you had scrolled to
+   * the financials on lands you in the middle of the next company's, with its
+   * price somewhere above the fold.
+   */
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 });
+    setCondensed(false);
+  }, [security.symbol]);
 
   useEffect(() => {
     let cancelled = false;
@@ -226,23 +328,62 @@ export function StockDetail({ security, quote, cls, onClose }: Props) {
 
   return (
     <>
-      <div className="drawer-scrim" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-label={`${security.symbol} details`}>
-        <header className="drawer-head">
-          <div style={{ flex: 1, minWidth: 0 }}>
+      {/* No scrim when docked: nothing behind is being blocked, and dimming a
+          table the reader is still using would be a lie about its state. */}
+      {!docked && (
+        <div
+          ref={scrimRef}
+          className="drawer-scrim"
+          data-closing={closing || undefined}
+          onClick={close}
+        />
+      )}
+      <aside
+        ref={drawerRef}
+        className="drawer"
+        data-closing={closing || undefined}
+        role="dialog"
+        // Docked it is genuinely not modal, and claiming otherwise tells a
+        // screen reader the rest of the page is unavailable when it is not.
+        aria-modal={!docked}
+        tabIndex={-1}
+        aria-label={`${security.symbol} details`}
+      >
+        {/* The grab bar as well as the title. Everything the drag needs is on
+            this element and nothing below it, so the gesture and the scroller
+            never contend for the same pixels. */}
+        <header className="drawer-head" {...drag}>
+          <div className="drawer-id">
             <h2>{security.symbol}</h2>
             <p>{security.name}</p>
+            {/* Off the control line and onto their own: these are what the
+                share *is*, which is a different question from what you can do
+                to it, and six items on one row made both hard to find. */}
+            <div className="drawer-meta">
+              {cls?.fno && <span className="badge fno">F&amp;O</span>}
+              <ExchangeBadges exchanges={security.exchanges} />
+              <span className={`badge ${security.series}`}>{security.series}</span>
+            </div>
           </div>
-          {cls?.fno && <span className="badge fno">F&amp;O</span>}
-          <ExchangeBadges exchanges={security.exchanges} />
-          <span className={`badge ${security.series}`}>{security.series}</span>
-          {/* The same star as the row behind it, and the visible half of the
-              `w` shortcut — a keystroke with nothing on screen to point at is a
-              keystroke only its author knows about. */}
-          <WatchPicker symbol={security.symbol} size="lg" />
-          <button className="icon-btn" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
+
+          {/* The price, once the real one has scrolled away. `aria-hidden` while
+              it is invisible so a screen reader is not read two prices. */}
+          <div className="drawer-live" data-shown={condensed || undefined} aria-hidden={!condensed}>
+            <span className="num">{formatPrice(quote?.price)}</span>
+            {change !== null && (
+              <span className={`num ${trendClass}`}>{formatPercent(quote?.changePercent)}</span>
+            )}
+          </div>
+
+          <div className="drawer-actions">
+            {/* The same star as the row behind it, and the visible half of the
+                `w` shortcut — a keystroke with nothing on screen to point at is
+                a keystroke only its author knows about. */}
+            <WatchPicker symbol={security.symbol} size="lg" />
+            <button className="icon-btn" onClick={close} aria-label="Close">
+              ✕
+            </button>
+          </div>
         </header>
 
         {/* Everything below the header scrolls, in normal block flow.
@@ -253,7 +394,7 @@ export function StockDetail({ security, quote, cls, onClose }: Props) {
             crushed: sections painted over one another, taps landed on whichever
             crushed box happened to lie under the finger, and the last table had
             no height at all. */}
-        <div className="drawer-body">
+        <div className="drawer-body" ref={bodyRef}>
           <div className="drawer-price">
             <span className="ltp num">{formatPrice(quote?.price)}</span>
             {change === null ? (
@@ -270,6 +411,8 @@ export function StockDetail({ security, quote, cls, onClose }: Props) {
             )}
           </div>
 
+          <div ref={sentinelRef} className="drawer-sentinel" aria-hidden />
+
           {loading ? (
             <div className="center-msg" style={{ padding: '56px 12px' }}>
               <div className="spinner" />
@@ -280,7 +423,11 @@ export function StockDetail({ security, quote, cls, onClose }: Props) {
               Couldn’t load history — {error}
             </div>
           ) : (
-            <PriceChart candles={candles} positive={windowReturn === null || windowReturn >= 0} />
+            <PriceChart
+              key={range}
+              candles={candles}
+              positive={windowReturn === null || windowReturn >= 0}
+            />
           )}
 
           <div className="range-row">
@@ -292,89 +439,104 @@ export function StockDetail({ security, quote, cls, onClose }: Props) {
               ))}
             </div>
             {windowReturn !== null && (
-              <span
-                className={`num ${windowReturn >= 0 ? 'up' : 'down'}`}
-                style={{ fontWeight: 600 }}
-              >
+              <span className={`range-return num ${windowReturn >= 0 ? 'up' : 'down'}`}>
                 {formatPercent(windowReturn)}
-                <span
-                  style={{
-                    color: 'var(--on-surface-variant)',
-                    fontWeight: 400,
-                  }}
-                >
-                  {' '}
-                  over {RANGE_LABEL[range]}
-                </span>
+                <span className="range-over"> over {RANGE_LABEL[range]}</span>
               </span>
             )}
           </div>
 
-          <dl className="facts">
-            <div className="fact">
-              <dt>Previous close</dt>
-              <dd className="num">{formatPrice(quote?.previousClose)}</dd>
-            </div>
-            <div className="fact">
-              <dt>Day range</dt>
-              <dd className="num">
-                {last?.low && last?.high
-                  ? `${formatPrice(last.low)} – ${formatPrice(last.high)}`
-                  : '—'}
-              </dd>
-            </div>
-            <div className="fact">
-              <dt>Volume</dt>
-              <dd className="num">{formatVolume(last?.volume)}</dd>
-            </div>
-            <div className="fact">
-              <dt>Segment</dt>
-              <dd>
-                {cls ? cls.fno ? <span className="up">F&amp;O + Cash</span> : 'Cash only' : '—'}
-              </dd>
-            </div>
-            <div className="fact">
-              <dt>Cap band</dt>
-              <dd>{cls ? CAP_LABEL[cls.capBand] : '—'}</dd>
-            </div>
-            <div className="fact">
-              <dt>Exchanges</dt>
-              <dd>{security.exchanges.join(' + ')}</dd>
-            </div>
-            {/* Which book the price above came from. For a dual-listed name the two
-              exchanges quote within a few paise of each other, but saying so
-              beats leaving the reader to guess. */}
-            <div className="fact">
-              <dt>Price feed</dt>
-              <dd className="num">{security.ticker}</dd>
-            </div>
-            {security.bseCode && (
+          {/* Three groups, not thirteen tiles.
+              Ungrouped, ISIN carried the same weight as Day range and the reader
+              had to scan all thirteen to find either. These are three different
+              questions — what it did today, what kind of share it is, and what
+              the registry says — asked at different times. Today comes first,
+              because it is why the panel was opened. */}
+          <div className="factset">
+            <h3 className="factset-label">Today</h3>
+            <dl className="facts">
               <div className="fact">
-                <dt>BSE scrip code</dt>
-                <dd className="num">{security.bseCode}</dd>
+                <dt>Previous close</dt>
+                <dd className="num">{formatPrice(quote?.previousClose)}</dd>
               </div>
-            )}
-            <div className="fact">
-              <dt>ISIN</dt>
-              <dd className="num">{security.isin || '—'}</dd>
-            </div>
-            <div className="fact">
-              <dt>Listed on</dt>
-              <dd>{formatDate(security.listingDate)}</dd>
-            </div>
-            <div className="fact">
-              <dt>Face value</dt>
-              <dd className="num">{formatPrice(security.faceValue)}</dd>
-            </div>
-            <div className="fact">
-              <dt>Paid up value</dt>
-              <dd className="num">{formatPrice(security.paidUpValue)}</dd>
-            </div>
-            <div className="fact">
-              <dt>Market lot</dt>
-              <dd className="num">{security.marketLot ?? '—'}</dd>
-            </div>
-          </dl>
+              <div className="fact">
+                <dt>Day range</dt>
+                <dd className="num">
+                  {last?.low && last?.high
+                    ? `${formatPrice(last.low)} – ${formatPrice(last.high)}`
+                    : '—'}
+                </dd>
+              </div>
+              <div className="fact">
+                <dt>Volume</dt>
+                <dd className="num">{formatVolume(last?.volume)}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="factset">
+            <h3 className="factset-label">Classification</h3>
+            <dl className="facts">
+              <div className="fact">
+                <dt>Segment</dt>
+                <dd>
+                  {cls ? cls.fno ? <span className="up">F&amp;O + Cash</span> : 'Cash only' : '—'}
+                </dd>
+              </div>
+              <div className="fact">
+                <dt>Cap band</dt>
+                <dd>{cls ? CAP_LABEL[cls.capBand] : '—'}</dd>
+              </div>
+              <div className="fact">
+                <dt>Exchanges</dt>
+                <dd>{security.exchanges.join(' + ')}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="factset">
+            <h3 className="factset-label">Listing</h3>
+            <dl className="facts">
+              {/* Which book the price above came from. For a dual-listed name the
+                  two exchanges quote within a few paise of each other, but saying
+                  so beats leaving the reader to guess.
+
+                  Filed under Listing rather than Classification because it names
+                  a *feed*, not a property of the share — and because it leaves
+                  both of the groups above at exactly three, which is one full
+                  row at the width a laptop gives this panel. */}
+              <div className="fact">
+                <dt>Price feed</dt>
+                <dd className="num">{security.ticker}</dd>
+              </div>
+              <div className="fact">
+                <dt>ISIN</dt>
+                <dd className="num">{security.isin || '—'}</dd>
+              </div>
+              <div className="fact">
+                <dt>Listed on</dt>
+                <dd>{formatDate(security.listingDate)}</dd>
+              </div>
+              {security.bseCode && (
+                <div className="fact">
+                  <dt>BSE scrip code</dt>
+                  <dd className="num">{security.bseCode}</dd>
+                </div>
+              )}
+              <div className="fact">
+                <dt>Face value</dt>
+                <dd className="num">{formatPrice(security.faceValue)}</dd>
+              </div>
+              <div className="fact">
+                <dt>Paid up value</dt>
+                <dd className="num">{formatPrice(security.paidUpValue)}</dd>
+              </div>
+              <div className="fact">
+                <dt>Market lot</dt>
+                <dd className="num">{security.marketLot ?? '—'}</dd>
+              </div>
+            </dl>
+          </div>
 
           {/* Sits between the listing facts and screener.in's: it is derived from
             the same price history as the chart above, not fetched from either. */}
