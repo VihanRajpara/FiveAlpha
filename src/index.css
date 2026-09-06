@@ -1807,7 +1807,7 @@ body {
 .stack-foot {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 12px;
   min-width: 0;
   margin-top: 2px;
   padding-top: 9px;
@@ -1858,12 +1858,106 @@ body {
  * so the edges stay put when a run finishes and `vs 10Y high` appears. Four
  * tracks fit a 320px phone, which is the narrowest case.
  */
+/**
+ * Four figures, four columns, always.
+ *
+ * `auto-fill` was the bug the fifth item exposed: at 387px it fits five across,
+ * at 360px it fits four and drops the last one onto a row of its own, and a
+ * lone metric under a full row does not read as the end of a list — it reads as
+ * a different section. A fixed count cannot do that. Four at 320px is 62px a
+ * column, which is what the widest label here (`M.CAP ₹CR`) needs.
+ */
 .stack-screen {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px 6px;
   min-width: 0;
 }
+
+/**
+ * MAPO's meter.
+ *
+ * A share of a bounded whole, so it fills from the left — unlike the gap bar
+ * above it, which is a signed distance from a reference and grows out of a
+ * marked zero. Two different shapes for two different questions, deliberately:
+ * if both were drawn the same way the card would imply they were comparable.
+ *
+ * The track is a tint of the fill rather than neutral grey, which is what lets
+ * the state read across the whole bar at a glance and not just where the ink
+ * stops.
+ */
+.mapo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--on-surface-faint);
+}
+
+.mapo-label {
+  flex: none;
+}
+
+.mapo-track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 5px;
+  border-radius: var(--r-full);
+  overflow: hidden;
+}
+
+.mapo-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--r-full);
+}
+
+/* The histbase at 50 — the only threshold that changes the reading, so it is
+   the only one drawn. */
+.mapo-mid {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--canvas);
+  opacity: 0.85;
+}
+
+.mapo-value {
+  flex: none;
+  min-width: 22px;
+  text-align: right;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.mapo.up .mapo-track {
+  background: var(--up-container);
+}
+
+.mapo.up .mapo-fill {
+  background: var(--up);
+}
+
+.mapo-value {
+  color: var(--on-surface);
+}
+
+.mapo.down .mapo-track {
+  background: var(--down-container);
+}
+
+.mapo.down .mapo-fill {
+  background: var(--down);
+}
+
 
 /* Where the row sits in the result. Quiet — it is an index, not a figure the
    row is being read for — and fixed-width so the symbols below each other line
@@ -1902,7 +1996,7 @@ body {
  */
 .metric b {
   color: var(--on-surface-variant);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
@@ -1940,14 +2034,20 @@ body {
  * to the right of the first line, where the day's change chip sits two lines
  * above it. Left rail for what the row *is*, right rail for what it is doing.
  */
-/* Three stacked lines now — verdict, the bar, the sentence — rather than a
-   two-column grid holding a chip out to the right. MAPO moved to the metric row
-   where it belongs, and with it went the only thing that needed a second
-   column. */
+/**
+ * Two lines: the verdict, then the detail behind it.
+ *
+ * There was a bar between them plotting the gap against the filter's own bands.
+ * It went because it was the second bar in four lines — MAPO's meter sits
+ * directly below — and two tracks stacked read as one repeated idea rather than
+ * two different ones, which cost MAPO the emphasis it was supposed to have.
+ * With only one track left on the card, the meter is unmistakably the thing to
+ * look at, and the gap goes back to being a sentence.
+ */
 .sig-strip {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
   min-width: 0;
   font-size: 12.5px;
   line-height: 1.35;
@@ -1961,27 +2061,24 @@ body {
 }
 
 /**
- * The confidence in the flip, banded.
+ * The confidence in the flip, banded — and only the ends of the band are
+ * coloured.
  *
- * Was a grey chip reading `37 Weak` next to a green chip reading `MAPO 77` —
- * two 0-100 scores in two different visual languages, the weaker one of which
- * looked the calmer. Now the word leads and the number follows it, and the
- * colour is a tint of the band rather than a fill: a score is a caveat on the
- * verdict, not a second verdict.
+ * `Good` used to be green, which put a fourth green chip on a card that already
+ * had a green badge, a green bar and a green meter. Nothing stood out because
+ * everything was shouting. Green now means `Strong` and red means `Weak`, which
+ * are the two readings that should change what you do; `Good` and `Mixed` are
+ * the ordinary middle and wear ordinary ink.
  *
- * The word is always present. Colour never carries this alone.
+ * The word is always present. Colour never carries this alone — and now it
+ * carries it for the two cases in five where it is worth spending.
  */
 .sig-conf-strong {
   color: var(--up);
   background: var(--up-container);
 }
 
-.sig-conf-good {
-  color: var(--up);
-  background: var(--up-container);
-  opacity: 0.85;
-}
-
+.sig-conf-good,
 .sig-conf-mixed {
   color: var(--on-surface-variant);
   background: var(--surface-2);
@@ -2058,76 +2155,6 @@ body {
   to {
     background-position: -200% 0;
   }
-}
-
-/**
- * The gap bar: how far price has run from the signal that called it.
- *
- * A baseline bar, not a meter — the quantity is a distance from a reference
- * (the signal price) with a meaningful sign, so it grows out of a marked zero
- * rather than filling from the left. Ticks sit on the app's own gap bands, so a
- * mark past the second tick is the same ">15%" the filter above the table
- * offers, read without a number.
- *
- * The whole thing is 5px tall and has no axis, no labels and no numbers on it.
- * It is scanned down a column of fifty cards, where its only job is to let one
- * row be compared with the next; the exact figure is printed in words directly
- * underneath.
- */
-.gapbar {
-  position: relative;
-  display: block;
-  height: 5px;
-  border-radius: var(--r-full);
-  background: var(--surface-2);
-  overflow: hidden;
-}
-
-/* The band edges at +5% and +15%. Recessive: they are a scale, not data. */
-.gapbar-tick {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--canvas);
-  opacity: 0.9;
-}
-
-/* The signal price. The one reference the bar is measured from, so it is the
-   only mark here allowed to be full-strength ink. */
-.gapbar-zero {
-  position: absolute;
-  top: -1px;
-  bottom: -1px;
-  width: 1.5px;
-  background: var(--on-surface-faint);
-}
-
-.gapbar-fill {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  border-radius: var(--r-full);
-}
-
-/* Square where it meets the baseline, rounded at the far end — so the bar reads
-   as growing *from* the signal rather than floating near it. */
-.gapbar-fill[data-side='right'] {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-}
-
-.gapbar-fill[data-side='left'] {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-}
-
-.gapbar-fill.up {
-  background: var(--up);
-}
-
-.gapbar-fill.down {
-  background: var(--down);
 }
 
 /* ---------- pagination ---------- */
