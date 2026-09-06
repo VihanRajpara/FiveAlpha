@@ -18,7 +18,9 @@
     "check:listings": "node scripts/check-listings.mjs",
     "check:daycache": "node scripts/check-daycache.mjs",
     "check:quotepoll": "node scripts/check-quote-poll.mjs",
-    "check:upstox": "node scripts/upstox-check.mjs"
+    "check:upstox": "node scripts/upstox-check.mjs",
+    "check:contrast": "node scripts/check-contrast.mjs",
+    "check:sheet": "node scripts/check-sheet.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

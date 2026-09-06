@@ -43,6 +43,8 @@ export function SelectMenu({ id, value, options, onChange, ariaLabel, minMenuWid
     top: number;
     width: number;
     maxHeight: number;
+    /** Which way it flipped, so the menu can scale from the edge nearest its trigger. */
+    down: boolean;
   } | null>(null);
 
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -76,6 +78,7 @@ export function SelectMenu({ id, value, options, onChange, ariaLabel, minMenuWid
       top: dropDown ? r.bottom + 6 : r.top - maxHeight - 6,
       width,
       maxHeight,
+      down: dropDown,
     });
     setActive(selectedIndex);
     setOpen(true);
@@ -195,6 +198,7 @@ export function SelectMenu({ id, value, options, onChange, ariaLabel, minMenuWid
             aria-label={ariaLabel}
             tabIndex={-1}
             onKeyDown={onMenuKeyDown}
+            data-drop={pos.down ? 'down' : 'up'}
             style={{ left: pos.left, top: pos.top, width: pos.width, maxHeight: pos.maxHeight }}
           >
             {options.map((o, i) => (

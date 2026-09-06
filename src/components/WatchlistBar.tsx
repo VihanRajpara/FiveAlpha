@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useWatchlists } from '../hooks/useWatchlist';
 import { PopMenu } from './PopMenu';
 import { clearList, createList, deleteList, renameList, setActiveList } from '../lib/watchlist';
+import { onTabListKeys } from '../hooks/useFocusTrap';
 
 /**
  * The Watchlists section's control: which list you are looking at, and what you
@@ -58,13 +59,14 @@ export function WatchlistBar({ shown }: { shown: number }) {
       <div className="screenbar-row wl-row">
         <span className="filter-label">Watchlists</span>
 
-        <div className="wl-tabs" role="tablist" aria-label="Watchlists">
+        <div className="wl-tabs" role="tablist" aria-label="Watchlists" onKeyDown={onTabListKeys}>
           {lists.map((list) => (
             <button
               key={list.id}
               type="button"
               role="tab"
               className="wl-tab"
+              tabIndex={list.id === activeId ? 0 : -1}
               aria-selected={list.id === activeId}
               data-active={list.id === activeId}
               onClick={() => setActiveList(list.id)}

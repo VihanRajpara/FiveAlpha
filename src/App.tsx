@@ -24,6 +24,8 @@ import {
 import { ANY, NUMERIC_FILTERS, matchesBands } from './lib/filters';
 import type { User } from './lib/auth';
 import { useActiveList } from './hooks/useWatchlist';
+import { useMediaQuery } from './hooks/useMediaQuery';
+import { onTabListKeys } from './hooks/useFocusTrap';
 import { toggleWatch } from './lib/watchlist';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
 import { UNCLASSIFIED } from './lib/classification';
@@ -187,6 +189,21 @@ export default function App({
     const id = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(id);
   }, []);
+
+  /**
+   * Whether the detail panel docks beside the table instead of covering it.
+   *
+   * Overlaying a 1240px table with a scrim to show a 680px panel wastes the
+   * larger half of the screen: everything under the scrim is dimmed, and none
+   * of it can be clicked. Past this width there is room for both, so the panel
+   * becomes a second column and the table stays live — arrow down the rows and
+   * the panel follows.
+   *
+   * 1400 is where that stops being a trade: the panel takes 560px there and
+   * leaves the table 840, which is enough for the frozen symbol column plus
+   * several figures before it scrolls. Below it, the overlay is still right.
+   */
+  const docked = useMediaQuery('(min-width: 1400px)');
 
   const [search, setSearch] = useState('');
   // `/` focuses it from anywhere — see the shortcut handler below.
@@ -642,7 +659,7 @@ export default function App({
     breadth.priced === 0 ? '—' : `${Math.round((n / breadth.priced) * 100)}% of priced`;
 
   return (
-    <div className="app">
+    <div className="app" data-docked={selectedRow && docked ? '' : undefined}>
       <header className="topbar">
         <div className="brand">
           {/* The lockup, masked in over the brand gradient by .brand-logo, which
@@ -726,10 +743,18 @@ export default function App({
             out of room for it at laptop widths, where it landed on the brand.
             The count is of the active list: one you have to remember to go and
             look at is one you stop using. */}
-        <nav className="segmented viewnav" role="tablist" aria-label="Sections">
+        <nav
+          className="segmented viewnav"
+          role="tablist"
+          aria-label="Sections"
+          onKeyDown={onTabListKeys}
+        >
           <button
             type="button"
             role="tab"
+            // Roving: one tab stop for the pair, arrows between them. Two stops
+            // for two tabs is what `role="tab"` exists to avoid.
+            tabIndex={watchlistView ? -1 : 0}
             data-active={!watchlistView}
             aria-selected={!watchlistView}
             onClick={() => setView('screener')}
@@ -739,6 +764,7 @@ export default function App({
           <button
             type="button"
             role="tab"
+            tabIndex={watchlistView ? 0 : -1}
             data-active={watchlistView}
             aria-selected={watchlistView}
             onClick={() => setView('watchlist')}
@@ -888,7 +914,10 @@ export default function App({
         {refreshingQuotes && (
           <>
             <span className="progress" aria-hidden>
-              <i style={{ width: `${Math.round(quoteProgress * 100)}%` }} />
+              {/* A custom property, not `width` — the bar is scaled on the
+                  compositor rather than re-laying-out the footer on every
+                  progress tick. See `.progress i`. */}
+              <i style={{ '--p': quoteProgress } as React.CSSProperties} />
             </span>
             <span className="num">{Math.round(quoteProgress * 100)}%</span>
           </>
@@ -931,6 +960,7 @@ export default function App({
 
       {selectedRow && (
         <StockDetail
+          docked={docked}
           security={selectedRow}
           quote={selectedRow.quote}
           cls={selectedRow.cls}

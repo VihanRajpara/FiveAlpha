@@ -29,6 +29,8 @@ export interface Anchor {
   left: number;
   top: number;
   maxHeight: number;
+  /** Which way it flipped, so the menu can scale from the edge nearest its trigger. */
+  down: boolean;
 }
 
 /**
@@ -77,6 +79,7 @@ export function placeMenu(
     left: Math.max(EDGE, Math.min(trigger.left - 8, viewport.width - width - EDGE)),
     top: Math.max(EDGE, down ? trigger.bottom + GAP : trigger.top - maxHeight - GAP),
     maxHeight,
+    down,
   };
 }
 
@@ -160,6 +163,7 @@ export function PopMenu({
       role="menu"
       tabIndex={-1}
       aria-label={ariaLabel}
+      data-drop={anchor.down ? 'down' : 'up'}
       style={{ left: anchor.left, top: anchor.top, width, maxHeight: anchor.maxHeight }}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
