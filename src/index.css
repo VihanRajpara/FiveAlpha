@@ -2747,6 +2747,22 @@ body {
   white-space: nowrap;
 }
 
+/**
+ * In full screen the readout is the chart's own title bar, so it earns a rule
+ * under it and a little more room. In the panel it stays a caption.
+ */
+.chart-full[data-full] .chart-read {
+  gap: 2px 16px;
+  padding: 2px 6px 8px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--outline-faint);
+  font-size: 11.5px;
+}
+
+.chart-full[data-full] .chart-read b {
+  font-size: 12.5px;
+}
+
 .chart-read em {
   font-style: normal;
   color: var(--on-surface-faint);
@@ -2850,9 +2866,74 @@ body {
   z-index: 60;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  gap: 10px;
+  padding: 0 14px calc(14px + env(safe-area-inset-bottom, 0px));
   background: var(--canvas);
+  overflow: hidden;
+}
+
+/**
+ * The header the panel's own could not follow it into.
+ *
+ * Full screen drops everything above the chart, and a chart with no name on it
+ * is a chart of nothing — so the subject and its price come along, which are
+ * the two facts you cannot work without. It borrows the drawer header's
+ * proportions rather than inventing a second heading style.
+ */
+.chart-full-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: none;
+  padding: 12px 0 11px;
+  border-bottom: 1px solid var(--outline-faint);
+}
+
+.chart-full-id {
+  min-width: 0;
+}
+
+.chart-full-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.chart-full-head p {
+  margin: 1px 0 0;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-full-px {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  flex: none;
+}
+
+.chart-full-px > .num {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The plot gets a surface and an edge, so it reads as an instrument sitting on
+   the page rather than ink printed onto it. */
+.chart-full[data-full] .chart-box {
+  background: var(--surface);
+  border: 1px solid var(--outline-faint);
+  border-radius: var(--r-lg);
+  padding: 10px 4px 6px 10px;
   overflow: hidden;
 }
 
@@ -2862,7 +2943,6 @@ body {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  padding: 0;
 }
 
 .chart-full[data-full] .chart-stage {
@@ -2877,9 +2957,29 @@ body {
   height: 100%;
 }
 
+/**
+ * The bottom rail.
+ *
+ * Controls, the key and the sentence were three things floating loose on the
+ * page background, each at a different indent. One shelf holds them: it reads
+ * as the chart's own footer, and it stops the eye having to re-find the left
+ * margin three times over.
+ */
 .chart-full[data-full] .range-row {
-  padding: 0;
   flex: none;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--outline-faint);
+  border-radius: var(--r-lg);
+}
+
+.chart-full[data-full] .chart-legend {
+  padding: 0 2px;
+}
+
+.chart-full[data-full] .chart-plain {
+  margin: 0;
+  padding: 0 0 0 10px;
 }
 
 /* Below this the row cannot hold all three groups, so the break is chosen
@@ -2953,6 +3053,129 @@ body {
   line-height: 1.55;
   color: var(--on-surface-variant);
   text-wrap: pretty;
+}
+
+/* ---------- flip flags ---------- */
+
+/**
+ * The layer the badges live on.
+ *
+ * Transparent to the pointer, so the crosshair still reads the bar underneath a
+ * flag rather than the flag swallowing it. Clipped to the plot, so a badge
+ * anchored near the edge is cut at the frame instead of escaping onto the page.
+ */
+.flags {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 55;
+}
+
+/**
+ * A flip, as a label.
+ *
+ * The library draws markers as a circle, a square or an arrow in one flat
+ * colour with the text as bare glyphs — which is how this ended up a piece of
+ * clipart with `BUY` printed under it. In the DOM it can be what it should have
+ * been all along: a filled pill carrying the side *and* the price it fired at,
+ * set in the same type as everything else, with a stem down to the exact bar.
+ *
+ * Translated up by its own height plus the stem, so the anchor point given in
+ * `top` is the bar it belongs to and not the corner of the box.
+ */
+.flag {
+  position: absolute;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 3px 7px;
+  border-radius: var(--r-sm);
+  transform: translate(-50%, calc(-100% - 12px));
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  box-shadow: var(--elev-1);
+}
+
+/* The stem: a hairline from the pill down to the candle, so the label is
+   attached to a bar rather than hovering near one. */
+.flag::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 1px;
+  height: 8px;
+  transform: translateX(-50%);
+  background: currentColor;
+  opacity: 0.55;
+}
+
+/* And the point where it lands. */
+.flag::before {
+  content: '';
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  background: currentColor;
+}
+
+.flag b {
+  font-weight: 700;
+}
+
+/* The price it fired at, carried on the label — the one number that makes the
+   flag worth reading rather than merely spotting. */
+.flag i {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  opacity: 0.82;
+}
+
+/**
+ * Filled, not tinted.
+ *
+ * A tinted chip in `--up` was the failure that started this: it sat among
+ * green candles and disappeared. A solid fill with the canvas colour punched
+ * through it cannot collide with a candle, because no candle is that colour.
+ */
+.flag[data-side='BUY'] {
+  background: var(--up);
+  color: var(--canvas);
+}
+
+.flag[data-side='SELL'] {
+  background: var(--down);
+  color: var(--canvas);
+  /* A sell fires above the bar, so its label hangs below it — the stem and the
+     point flip with it. */
+  transform: translate(-50%, 12px);
+}
+
+.flag[data-side='SELL']::after {
+  top: auto;
+  bottom: 100%;
+}
+
+.flag[data-side='SELL']::before {
+  top: auto;
+  bottom: calc(100% + 8px);
+  transform: translate(-50%, 50%) rotate(45deg);
+}
+
+@media (max-width: 700px) {
+  /* Room is the scarce thing; the side alone still identifies the flag and the
+     price is one tap away in the panel. */
+  .flag i {
+    display: none;
+  }
 }
 
 /* ---------- chart tools ---------- */

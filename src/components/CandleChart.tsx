@@ -12,6 +12,7 @@ import {
   type HistogramData,
   type IChartApi,
   type ISeriesApi,
+  type IPriceLine,
   type LineData,
   type SeriesMarker,
   type Time,
@@ -103,6 +104,7 @@ function palette() {
     up: v('--up', '#4ed08a'),
     down: v('--down', '#ff6b76'),
     accent: v('--primary', '#a5aeff'),
+    ink: v('--on-surface', '#f7f8f8'),
     faint: v('--on-surface-faint', '#858e9c'),
     line: v('--outline-faint', 'rgba(255,255,255,0.065)'),
   };
@@ -193,10 +195,14 @@ export function CandleChart({
   const priceRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const fitRef = useRef<(() => void) | null>(null);
+  /** The entry rule at the latest visible flip; replaced whenever the data does. */
+  const entryRef = useRef<IPriceLine | null>(null);
   const stopRef = useRef<ISeriesApi<'Line'> | null>(null);
   const histRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const proxRef = useRef<ISeriesApi<'Line'> | null>(null);
   const [read, setRead] = useState<Readout | null>(null);
+  /** Flip flags, in pixels, recomputed whenever the view moves. */
+  const [flags, setFlags] = useState<{ key: string; x: number; y: number; side: Flip['side']; price: number }[]>([]);
 
   // --- create once ---------------------------------------------------------
   useEffect(() => {
@@ -377,27 +383,120 @@ export function CandleChart({
     price.setData(candles);
     vol.setData(showVolume ? volume : []);
 
+    /**
+     * The anchor only. The label itself is HTML — see `flags` below.
+     *
+     * The library's markers can be a circle, a square or an arrow, in one flat
+     * colour, with the text drawn as bare glyphs beneath. That is the whole
+     * vocabulary, and it is why every attempt at making these legible on the
+     * canvas ended up as a chunky clipart arrow: there is no filled label, no
+     * radius, no two-tone type, nothing the rest of this interface is built
+     * from. So the canvas keeps the one thing it is good at — a precise dot on
+     * the exact bar — and the badge is drawn in the DOM where the design system
+     * already lives.
+     */
     createSeriesMarkers(
       price,
       flips.map(
         (f): SeriesMarker<Time> => ({
           time: asTime(f.date),
-          position: f.side === 'BUY' ? 'belowBar' : 'aboveBar',
-          shape: f.side === 'BUY' ? 'arrowUp' : 'arrowDown',
-          color: f.side === 'BUY' ? c.up : c.down,
-          text: f.side === 'BUY' ? 'Buy' : 'Sell',
+          position: 'inBar',
+          shape: 'circle',
+          color: c.ink,
+          size: 1,
         }),
       ),
+      { zOrder: 'top', autoScale: true },
     );
+
+    /**
+     * ...and the price it fired at, carried across the whole chart.
+     *
+     * A marker says *when*. This says *from where* — the one number that makes
+     * every candle to its right readable at a glance as above or below the
+     * entry. It is the same figure the table's `At` column prints, so the chart
+     * and the row agree without the reader having to compare them.
+     */
+    if (entryRef.current) {
+      price.removePriceLine(entryRef.current);
+      entryRef.current = null;
+    }
+    const latest = flips[flips.length - 1];
+    if (latest) {
+      entryRef.current = price.createPriceLine({
+        price: latest.price,
+        color: latest.side === 'BUY' ? c.up : c.down,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: latest.side,
+      });
+    }
 
     api.timeScale().fitContent();
   }, [bars, flips, showVolume]);
+
+  /**
+   * Put the flags where their bars are, and keep them there.
+   *
+   * Two coordinate lookups the library exposes for exactly this: the time scale
+   * maps a bar to an x, the series maps a price to a y. Both return `null` once
+   * a point is scrolled out of view, which doubles as the cull — a flag off the
+   * left edge simply stops being rendered rather than being clipped.
+   *
+   * Recomputed on every visible-range change, which is every frame of a pan.
+   * That is affordable because there are rarely more than a handful of flips in
+   * a window; it would not be if this were per-bar.
+   */
+  useEffect(() => {
+    const api = chart.current;
+    const price = priceRef.current;
+    if (!api || !price) return;
+
+    const place = () => {
+      const ts = api.timeScale();
+      setFlags(
+        flips
+          .map((f) => {
+            const x = ts.timeToCoordinate(asTime(f.date));
+            const y = price.priceToCoordinate(f.price);
+            return x === null || y === null
+              ? null
+              : { key: `${f.date}-${f.side}`, x, y, side: f.side, price: f.price };
+          })
+          .filter((v): v is NonNullable<typeof v> => v !== null),
+      );
+    };
+
+    place();
+    const ts = api.timeScale();
+    ts.subscribeVisibleLogicalRangeChange(place);
+    return () => ts.unsubscribeVisibleLogicalRangeChange(place);
+  }, [flips, bars, showMapo, log]);
 
   useEffect(() => {
     chart.current
       ?.priceScale('right')
       .applyOptions({ mode: log ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal });
   }, [log]);
+
+  /**
+   * Refit after the box changes size.
+   *
+   * `autoSize` resizes the canvas but keeps the bar spacing it was measured
+   * with, so a chart laid out in a 680px panel and then re-parented into a
+   * 1400px one drew its bars at the old width and left the right third of the
+   * frame empty — with the price axis pushed out past the edge. Growing the
+   * canvas is not the same as refitting the content.
+   *
+   * A frame late on purpose: on the tick `full` flips, the element is in the
+   * new tree but has not been laid out at its new size yet, so measuring now
+   * would fit it to the box it just left.
+   */
+  useEffect(() => {
+    const id = requestAnimationFrame(() => fitRef.current?.());
+    return () => cancelAnimationFrame(id);
+  }, [full]);
 
   // --- the trailing stop ---------------------------------------------------
   useEffect(() => {
@@ -585,6 +684,22 @@ export function CandleChart({
 
       <div className="chart-stage">
         <div ref={host} className="tv-chart" data-mapo={showMapo || undefined} />
+
+        {/* The flips, as labels rather than glyphs. `pointer-events: none` on
+            the layer so the crosshair still reads the bar underneath a flag. */}
+        <div className="flags" aria-hidden>
+          {flags.map((f) => (
+            <span
+              key={f.key}
+              className="flag"
+              data-side={f.side}
+              style={{ left: `${f.x}px`, top: `${f.y}px` }}
+            >
+              <b>{f.side}</b>
+              <i className="num">{formatPrice(f.price)}</i>
+            </span>
+          ))}
+        </div>
 
         {/* Over the plot, top right, where a chart's own tools sit. Only three,
             and each is here because panning and zooming created the need for
