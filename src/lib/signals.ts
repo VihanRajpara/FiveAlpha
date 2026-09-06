@@ -513,7 +513,7 @@ export function cleanBars(rawBars: Candle[]): Candle[] {
 }
 
 /** One crossing of the trailing stop, as the run produces it. */
-interface Flip {
+export interface Flip {
   index: number;
   side: 'BUY' | 'SELL';
   price: number;
@@ -875,19 +875,33 @@ export function mapo(closes: number[], cfg = MAPO): Mapo | null {
  * is drawn on demand for one symbol. The single-reading `mapo` above stays
  * separate precisely because it runs for thousands of them.
  */
-export function mapoSeries(closes: number[], cfg = MAPO): (number | null)[] {
+export function mapoSeries(closes: number[], cfg = MAPO): (Mapo | null)[] {
   const { minLength: min, maxLength: max, smooth } = cfg;
   const span = max - min + 1;
-  const out: (number | null)[] = new Array(closes.length).fill(null);
+  const out: (Mapo | null)[] = new Array(closes.length).fill(null);
   if (closes.length < max + smooth - 1) return out;
 
   const sma = smaOver(closes);
   const per: number[] = [];
+  const len: number[] = [];
 
   for (let n = max - 1; n < closes.length; n++) {
-    per.push(mapoBar(closes, sma, n, cfg).per);
-    if (per.length > smooth) per.shift();
-    if (per.length === smooth) out[n] = (meanOf(per) / span) * 100;
+    const bar = mapoBar(closes, sma, n, cfg);
+    per.push(bar.per);
+    len.push(bar.len);
+    if (per.length > smooth) {
+      per.shift();
+      len.shift();
+    }
+    // Both outputs, because the script plots both: `per` is the histogram and
+    // `len` is the line drawn over it. A pane with only the histogram is half
+    // the indicator, and the table's single reading already carries the pair.
+    if (per.length === smooth) {
+      out[n] = {
+        above: (meanOf(per) / span) * 100,
+        proximity: ((meanOf(len) - min) / span) * 100,
+      };
+    }
   }
 
   return out;
@@ -1079,8 +1093,18 @@ export interface ChartData {
   bars: Candle[];
   /** UT Bot trailing stop at every bar, aligned by index. */
   stop: (number | null)[];
-  /** MAPO `above` at every bar, aligned by index. */
-  above: (number | null)[];
+  /** Both MAPO outputs at every bar, aligned by index. */
+  mapo: (Mapo | null)[];
+  /**
+   * Every crossing in the full history.
+   *
+   * Carried rather than recomputed by the chart, because the trailing stop is
+   * path-dependent: run the rule over a one-month slice and it starts from a
+   * stop seeded at zero, so the flips it reports near the left edge are ones
+   * that never happened. These are the flips of the whole series, filtered to
+   * the window by date.
+   */
+  flips: Flip[];
 }
 
 /** Trading days per display window. `null` means the whole history. */
@@ -1116,10 +1140,12 @@ export function fetchChartSeries(ticker: string): Promise<ChartData> {
   const pending = gate(() => fetchYahooBars(ticker, CHART_RANGE, INTERVAL))
     .then((raw) => {
       const bars = cleanBars(raw);
+      const run = runUtBot(bars);
       const data: ChartData = {
         bars,
-        stop: runUtBot(bars).stops,
-        above: mapoSeries(bars.map((b) => b.close as number)),
+        stop: run.stops,
+        flips: run.flips,
+        mapo: mapoSeries(bars.map((b) => b.close as number)),
       };
       chartStore.set(ticker, data);
       chartInflight.delete(ticker);
@@ -1139,10 +1165,14 @@ export function windowChart(data: ChartData, range: string): ChartData {
   const take = CHART_WINDOW[range] ?? null;
   if (take === null || take >= data.bars.length) return data;
   const from = data.bars.length - take;
+  // By index for the aligned series, by date for the flips — their `index`
+  // points into the full history and would be meaningless after a slice.
+  const firstDate = data.bars[from].date;
   return {
     bars: data.bars.slice(from),
     stop: data.stop.slice(from),
-    above: data.above.slice(from),
+    mapo: data.mapo.slice(from),
+    flips: data.flips.filter((f) => f.date >= firstDate),
   };
 }
 

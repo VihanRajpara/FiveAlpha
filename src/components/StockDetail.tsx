@@ -451,7 +451,8 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
               <CandleChart
                 bars={shown.bars}
                 stop={shown.stop}
-                above={shown.above}
+                mapo={shown.mapo}
+                flips={shown.flips}
                 showStop={showStop}
                 showMapo={showMapo}
               />

@@ -63,9 +63,15 @@ const single = mapo(closes);
 assert.ok(single, 'the fixture must be long enough for a reading');
 assert.equal(series.length, closes.length, 'series is aligned to closes by index');
 assert.ok(
-  Math.abs(series.at(-1) - single.above) < 1e-9,
-  `mapoSeries tail ${series.at(-1)} must equal mapo().above ${single.above} — ` +
+  Math.abs(series.at(-1).above - single.above) < 1e-9,
+  `mapoSeries tail above ${series.at(-1).above} must equal mapo().above ${single.above} — ` +
     'the pane and the column would disagree',
+);
+// The oscillator plots both outputs; both have to agree, not just the one the
+// table happens to read.
+assert.ok(
+  Math.abs(series.at(-1).proximity - single.proximity) < 1e-9,
+  'mapoSeries tail proximity must equal mapo().proximity',
 );
 
 // Warm-up: nothing before the fan plus its smoothing can exist, and the first
@@ -81,7 +87,9 @@ assert.ok(
   'no reading is invented before the fan has its history',
 );
 assert.ok(
-  series.slice(firstAt).every((v) => v !== null && v >= 0 && v <= 100),
+  series
+    .slice(firstAt)
+    .every((v) => v !== null && v.above >= 0 && v.above <= 100 && v.proximity >= 0 && v.proximity <= 100),
   'every drawn value is a real percentage',
 );
 
@@ -92,7 +100,8 @@ for (let i = 0; i < N - 30; i++) {
   const a = series[i];
   const b = shorter[i];
   assert.ok(
-    a === b || (a !== null && b !== null && Math.abs(a - b) < 1e-9),
+    (a === null && b === null) ||
+      (a !== null && b !== null && Math.abs(a.above - b.above) < 1e-9),
     `bar ${i} changed when later bars were removed — the series is not causal`,
   );
 }
@@ -119,18 +128,41 @@ for (const f of flips) {
 }
 
 // --- 3. windowing keeps the three arrays in step ----------------------------
-const data = { bars, stop: stops, above: series };
+const data = { bars, stop: stops, mapo: series, flips };
 for (const [range, take] of Object.entries(CHART_WINDOW)) {
   const w = windowChart(data, range);
   const want = take === null ? bars.length : Math.min(take, bars.length);
   assert.equal(w.bars.length, want, `${range}: window length`);
   assert.equal(w.stop.length, want, `${range}: stop stayed aligned`);
-  assert.equal(w.above.length, want, `${range}: above stayed aligned`);
+  assert.equal(w.mapo.length, want, `${range}: mapo stayed aligned`);
   // The tail is what a window keeps, and the arrays must be the *same* tail.
   assert.equal(w.bars.at(-1).date, bars.at(-1).date, `${range}: window ends at the last bar`);
   assert.equal(w.stop.at(-1), stops.at(-1), `${range}: stop tail matches`);
-  assert.equal(w.above.at(-1), series.at(-1), `${range}: above tail matches`);
+  assert.equal(w.mapo.at(-1), series.at(-1), `${range}: mapo tail matches`);
+
+  // Flips are filtered by date, not sliced by index — their `index` points into
+  // the full history. Every surviving flip must fall inside the window, and none
+  // outside it may be dropped: a marker is the visible half of the verdict.
+  const firstDate = w.bars[0].date;
+  const expected = flips.filter((f) => f.date >= firstDate);
+  assert.equal(w.flips.length, expected.length, `${range}: flip count`);
+  assert.ok(
+    w.flips.every((f) => f.date >= firstDate),
+    `${range}: no flip survives from before the window`,
+  );
 }
+
+// The whole point of carrying flips rather than recomputing them: the trailing
+// stop is path-dependent, so running the rule on a slice is not the same rule.
+// If these ever agree by accident the guard is worthless, so assert they differ.
+const sliced = runUtBot(bars.slice(-60)).flips;
+const windowed = windowChart(data, '1mo').flips;
+assert.notDeepEqual(
+  sliced.map((f) => f.date),
+  windowed.map((f) => f.date),
+  'recomputing on a slice must differ from filtering the full run — otherwise ' +
+    'this fixture cannot prove the path-dependence it exists to guard',
+);
 
 // An unknown range must not silently return an empty chart.
 assert.equal(windowChart(data, 'nonsense').bars.length, bars.length);

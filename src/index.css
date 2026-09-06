@@ -2532,25 +2532,6 @@ body {
   padding: 8px 16px 4px;
 }
 
-.chart-plot {
-  position: relative;
-}
-
-.chart-plot svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  overflow: visible;
-}
-
-.chart-dates {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 6px 0;
-  font-size: 11px;
-  color: var(--on-surface-faint);
-}
-
 .range-row {
   display: flex;
   gap: 10px 12px;
@@ -2701,55 +2682,18 @@ body {
 /* ---------- candles & studies ---------- */
 
 /**
- * The candle body and its wick share one colour, set on the group.
+ * The chart's box.
  *
- * Filled bodies both ways rather than hollow-for-up: hollow candles rely on a
- * 1px outline to carry the direction, and at the widths a drawer gives this —
- * often two or three pixels a candle — that outline *is* the whole body. Solid
- * survives the squeeze.
+ * `autoSize` measures this element, so it must have a real height of its own —
+ * a canvas in an auto-height parent measures zero and draws nothing. The MAPO
+ * pane is created inside the same canvas rather than as a second element, so
+ * the box grows when it is on instead of the pane overflowing.
  */
-.candle.up {
-  fill: var(--up);
-  stroke: var(--up);
-}
-
-.candle.down {
-  fill: var(--down);
-  stroke: var(--down);
-}
-
-/* The trailing stop. Dashed and in the accent, so it never reads as a third
-   price series sitting alongside the candles — it is the rule, not the market. */
-.ut-stop {
-  stroke: var(--primary);
-}
-
-/* The oscillator's own 20–80 channel, from its `hline`s. A wash rather than a
-   fill: it is the backdrop the line is read against. */
-.mapo-band {
-  fill: var(--primary);
-  opacity: 0.05;
-}
-
-.mapo-line {
-  stroke: var(--primary);
-}
-
-.chart-axis {
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-
 /**
- * The OHLC readout.
- *
- * Above the chart rather than in a bubble on it. A floating tooltip has to be
- * chased with the pointer and covers the very candles it describes; a fixed
- * strip that updates as you scrub keeps the whole series visible, which is what
- * TradingView's own header row does and for the same reason.
- *
- * It shows the last bar when nothing is hovered, so the row is never empty and
- * the layout never jumps as the pointer arrives.
+ * The status line above the plot — TradingView's own arrangement, and for its
+ * reason: a floating bubble has to be chased with the pointer and covers the
+ * candles it is describing, while a fixed row that updates as you scrub keeps
+ * the whole series visible.
  */
 .chart-read {
   display: flex;
@@ -2788,18 +2732,47 @@ body {
   color: var(--on-surface);
 }
 
-/* Said out loud when the candles are no longer one session each — a five-year
-   view is drawn in weeks, and a reader counting bars deserves to know. */
-.chart-agg {
+/* The oscillator's second output. Present, but never competing with the first —
+   `above` is the reading, `proximity` is the detail under it. */
+.chart-read-dim {
+  color: var(--on-surface-faint) !important;
+  font-weight: 500 !important;
+}
+
+.tv-chart {
+  width: 100%;
+  height: 300px;
+  /* The library paints its own crosshair and reads the wheel; letting the panel
+     scroll at the same time fights it. Vertical drags still reach the page. */
+  touch-action: pan-y;
+}
+
+.tv-chart[data-mapo] {
+  height: 400px;
+}
+
+/* Required by the Apache-2.0 terms Lightweight Charts ships under: TradingView
+   named as the creator, with a link. Quiet, but never hidden. */
+.tv-attrib {
+  margin-left: auto;
   color: var(--on-surface-faint);
+  text-decoration: none;
+  border-bottom: 1px solid var(--outline);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .tv-attrib:hover {
+    color: var(--on-surface-variant);
+  }
 }
 
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px 14px;
   margin: 0;
-  padding: 0 2px;
+  padding: 8px 2px 0;
   font-size: 10.5px;
   color: var(--on-surface-faint);
 }
@@ -2824,10 +2797,6 @@ body {
 
 .key-stop {
   border-top-style: dashed;
-}
-
-.chart-empty {
-  padding: 48px 12px;
 }
 
 /* ---------- study toggles ---------- */
