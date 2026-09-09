@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createColumnHelper,
   flexRender,
@@ -22,7 +22,6 @@ import { SelectMenu } from './SelectMenu';
 import {
   formatCrore,
   formatDate,
-  formatFromHigh,
   formatPercent,
   formatPrice,
   formatVolume,
@@ -42,7 +41,6 @@ import {
   signalGapPct,
   type Signal,
 } from '../lib/signals';
-import type { ScreenResult } from '../lib/screens';
 import type { Classification, SecurityWithQuote } from '../types';
 
 /**
@@ -268,43 +266,26 @@ function ChangeChip({ value, loaded }: { value: number | null | undefined; loade
 }
 
 /**
- * The screen's numbers for one row, or a dash once the run has passed it by.
+ * A precomputed figure for one row: the number, a dash where the server has no
+ * answer, and a shimmer while the load is still in flight.
  *
- * A blank here is not the same absence as a missing price: the row was either
- * screened or it wasn't, and `screened` says which. While a run is in flight
- * most rows are simply not reached yet.
+ * `loaded` is what separates the two absences. They look identical in the data
+ * — both `undefined` — and reading a dash as "no figure exists" while the first
+ * quote pass is still landing is how an empty column reads as a broken one.
  */
 function ScreenCell({
   value,
-  screened,
+  loaded,
   format,
-  tone,
-  approx,
 }: {
   value: number | null | undefined;
-  screened: boolean;
+  loaded: boolean;
   format: (v: number) => string;
-  tone?: 'up' | 'down' | null;
-  /** See `ScreenResult.approx` — a bound from the scan pass, not a measured high. */
-  approx?: boolean;
 }) {
   if (value === null || value === undefined) {
-    return screened ? <span className="num muted-dash">—</span> : <span className="skeleton" />;
+    return loaded ? <span className="num muted-dash">—</span> : <span className="skeleton" />;
   }
-  return (
-    <span
-      className={`num${tone ? ` ${tone}` : ''}`}
-      title={
-        approx
-          ? 'Approximate: measured against the highest monthly close rather than the true high, ' +
-            'which the screen only pays for on rows it cannot otherwise decide. The real figure is this or lower.'
-          : undefined
-      }
-    >
-      {approx && '≈'}
-      {format(value)}
-    </span>
-  );
+  return <span className="num">{format(value)}</span>;
 }
 
 /**
@@ -532,12 +513,6 @@ interface Props {
   rows: SecurityWithQuote[];
   /** False until the first quote pass settles — see `Missing`. */
   quotesLoaded: boolean;
-  /**
-   * Screen output keyed by symbol, or null when no screen has been run. Its
-   * presence is what adds the screen columns — the table has no opinion about
-   * which screen produced them.
-   */
-  screenResults: Map<string, ScreenResult> | null;
   sorting: SortingState;
   onSortingChange: React.Dispatch<React.SetStateAction<SortingState>>;
   /**
@@ -553,7 +528,6 @@ interface Props {
 export function StockTable({
   rows,
   quotesLoaded,
-  screenResults,
   sorting,
   onSortingChange,
   signalSortable,
@@ -607,26 +581,18 @@ export function StockTable({
   }, [rows.length, sorting]);
 
   /**
-   * RSI, ROCE and market cap for a row — a running screen's figure first, the
-   * stored one behind it.
+   * RSI, ROCE and market cap for a row.
    *
-   * These three used to come only from `screenResults`, which is why they read
-   * as broken: a screen answers RSI for the rows it scans and ROCE only for the
-   * handful that survive every technical leg, so the two columns were an em dash
-   * on ~95% of the table and empty entirely until someone clicked Run. They are
-   * now precomputed for the whole universe and arrive with the quote (see
-   * supabase/functions/sync-technicals and sync-fundamentals), so the stored
-   * value is the normal case and the screen's is the exception.
-   *
-   * The screen still wins where it has one: a run recomputes against live
-   * intra-day prices, and the column should not disagree with the verdict
-   * sitting next to it.
+   * These used to be read from a screen run first and the stored figure second,
+   * which is why they read as broken: a run answered RSI only for the rows it
+   * scanned and ROCE only for the handful surviving every technical leg, so
+   * both columns were an em dash on ~95% of the table and empty entirely until
+   * someone clicked Run. They are precomputed for the whole universe now
+   * (supabase/functions/sync-technicals and sync-fundamentals) and arrive with
+   * the quote, so there is one source and every row has it from load.
    */
-  const metricOf = useCallback(
-    (row: SecurityWithQuote, key: 'monthlyRsi14' | 'rocePct' | 'marketCapCr') =>
-      screenResults?.get(row.symbol)?.metrics[key] ?? row.quote?.[key] ?? undefined,
-    [screenResults],
-  );
+  const metricOf = (row: SecurityWithQuote, key: 'monthlyRsi14' | 'rocePct' | 'marketCapCr') =>
+    row.quote?.[key] ?? undefined;
 
   const columns = useMemo(
     () => [
@@ -754,47 +720,8 @@ export function StockTable({
           }),
         ],
       }),
-      // The screen's own numbers, appended so they read as an extra section
-      // rather than interleaving with the listing data. Present only while a
-      // screen is loaded: four permanently empty columns would be worse than
-      // none, and the widths in index.css are keyed on the same condition.
-      ...(screenResults
-        ? [
-            helper.accessor((r) => screenResults.get(r.symbol)?.metrics.pctOfHigh ?? undefined, {
-              id: 'pctOfHigh',
-              header: 'vs 10Y high',
-              sortUndefined: 'last',
-              sortingFn: numericSort,
-              cell: (ctx) => {
-                const result = screenResults.get(ctx.row.original.symbol);
-                return (
-                  <ScreenCell
-                    value={result?.metrics.pctOfHigh}
-                    screened={result !== undefined}
-                    format={formatFromHigh}
-                    approx={result?.approx}
-                    // Within 5% of a decade high is the thing being looked for;
-                    // colouring it is the difference between a column of
-                    // numbers and a column you can skim. Never on an approximate
-                    // figure: those are bounds on rows the screen already
-                    // rejected, and a green one would read as a near miss.
-                    tone={
-                      !result?.approx &&
-                      result?.metrics.pctOfHigh !== undefined &&
-                      result.metrics.pctOfHigh >= 95
-                        ? 'up'
-                        : null
-                    }
-                  />
-                );
-              },
-            }),
-          ]
-        : []),
-      // RSI, ROCE and market cap, which are columns of the dataset rather than
-      // by-products of a run — see the note on `metricOf` above. Outside the
-      // conditional above for that reason: they have a value on every row from
-      // the moment the table loads.
+      // RSI, ROCE and market cap — columns of the dataset rather than
+      // by-products of a run; see the note on `metricOf` above.
       helper.accessor((r) => metricOf(r, 'monthlyRsi14'), {
         id: 'monthlyRsi14',
         header: 'RSI(M)',
@@ -804,10 +731,8 @@ export function StockTable({
           <ScreenCell
             value={metricOf(ctx.row.original, 'monthlyRsi14')}
             // The server computes this for every symbol it can, so a dash here
-            // is "Yahoo has no history for this scrip" — a real answer, not a
-            // row the run has yet to reach. Only shimmer while the load is
-            // still in flight.
-            screened={quotesLoaded}
+            // is "Yahoo has no history for this scrip" — a real answer.
+            loaded={quotesLoaded}
             format={(v) => v.toFixed(1)}
           />
         ),
@@ -824,7 +749,7 @@ export function StockTable({
             // the rolling scrape has not reached it yet — see
             // supabase/functions/sync-fundamentals, which fills the universe
             // over its first couple of days and then rotates.
-            screened={quotesLoaded}
+            loaded={quotesLoaded}
             format={(v) => `${v.toFixed(1)}%`}
           />
         ),
@@ -837,13 +762,13 @@ export function StockTable({
         cell: (ctx) => (
           <ScreenCell
             value={metricOf(ctx.row.original, 'marketCapCr')}
-            screened={quotesLoaded}
+            loaded={quotesLoaded}
             format={formatCrore}
           />
         ),
       }),
     ],
-    [metricOf, quotesLoaded, screenResults, signalSortable],
+    [quotesLoaded, signalSortable],
   );
 
   const table = useReactTable({
@@ -1003,7 +928,6 @@ export function StockTable({
     pageOffset: number,
     style?: React.CSSProperties,
   ) {
-    const result = screenResults?.get(row.original.symbol);
     // `key` is deliberately *not* in here. It is not a prop — React reads it
     // off the element before rendering — so spreading it warns and, in a list
     // this one virtualises, would be the one attribute that must not go
@@ -1020,11 +944,6 @@ export function StockTable({
       onFocus: () => setFocusRow(pageOffset),
       onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => onRowKey(e, pageOffset, row),
       'data-selected': row.original.symbol === selectedSymbol,
-      // Only meaningful when the screen's non-matches are on show; the CSS dims
-      // everything that isn't a pass so the matches stay findable in a mixed
-      // list.
-      'data-verdict': result?.verdict,
-      title: result?.decidedBy ? `Fails: ${result.decidedBy.label}` : undefined,
       style,
       onClick: () => onSelect(row.original),
     };
@@ -1067,17 +986,14 @@ export function StockTable({
           </div>
 
           {/**
-            * The bottom band: the verdict, then the figures behind it.
+            * The bottom band: the signal, then the figures behind it.
             *
             * Both take the full width on their own line. Side by side they had
             * ~110px each on a 320px phone, which is where the metric labels
-            * were being clipped — and the rail only existed at all once a
-            * screen had run, so the card changed shape underneath the reader
-            * mid-session.
+            * were being clipped.
             *
-            * The rail is unconditional now. RSI, ROCE and market cap are
-            * columns of the dataset (see `metricOf`), so every row has them
-            * from load; only `vs 10Y high` is a by-product of a run.
+            * The rail is unconditional: RSI, ROCE and market cap are columns of
+            * the dataset (see `metricOf`), so every row has them from load.
             */}
           <div className="stack-foot">
             <SignalStrip ticker={row.original.ticker} price={q?.price} />
@@ -1085,12 +1001,6 @@ export function StockTable({
             <MapoMeter ticker={row.original.ticker} />
 
             <span className="stack-screen">
-              {result && (
-                <Metric
-                  label="10Y high"
-                  value={`${result.approx ? '≈' : ''}${formatFromHigh(result.metrics.pctOfHigh)}`}
-                />
-              )}
               <Metric label="RSI(M)" value={rsi?.toFixed(0)} />
               <Metric label="ROCE" value={roce === undefined ? undefined : `${roce.toFixed(0)}%`} />
               <Metric label="M.Cap ₹Cr" value={mcap === undefined ? undefined : formatCrore(mcap)} />
@@ -1161,9 +1071,6 @@ export function StockTable({
         aria-rowcount={layout === 'mobile' ? undefined : tableRows.length + 1}
         aria-colcount={layout === 'mobile' ? undefined : headers.length}
         data-layout={layout}
-        // Widths differ once the screen columns are in, and the grid template
-        // lives in CSS, so the condition has to be visible from there too.
-        data-screen={screenResults ? 'true' : undefined}
         ref={scrollRef}
         style={{ '--row-h': `${rowHeight}px` } as React.CSSProperties}
       >

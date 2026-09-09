@@ -757,9 +757,9 @@ body {
 /* ---------- screen bar ---------- */
 
 /* Its own band under the filters rather than more chips inside them: a screen
-   costs hundreds of requests and produces a verdict, which is a different kind
-   of control from "show me EQ series only". Column, not row, because the clause
-   panel and any error unfold underneath the controls. */
+   is somebody else's shortlist, which is a different kind of control from
+   "show me EQ series only". Column, not row, because any error or note unfolds
+   underneath the controls. */
 .screenbar {
   display: flex;
   flex-direction: column;
@@ -784,6 +784,20 @@ body {
 .screenbar-row .btn {
   height: 36px;
   padding: 0 18px;
+}
+
+/* The screen's name, and a link to the screen itself. A shortlist taken from
+   somewhere else should say where from and be one click from being checked —
+   underlined only on hover so it reads as a heading first and a link second. */
+.screen-source {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--on-surface);
+  text-decoration: none;
+}
+
+.screen-source:hover {
+  text-decoration: underline;
 }
 
 /* The figure is the data, the word is its label — same line, different
@@ -1044,16 +1058,6 @@ body {
     minmax(132px, 0.78fr) minmax(184px, 1fr) minmax(112px, 0.74fr)
     minmax(100px, 0.68fr) minmax(88px, 0.6fr) minmax(88px, 0.62fr)
     minmax(96px, 0.66fr) minmax(112px, 0.78fr);
-}
-
-/* A screen inserts `vs 10Y high` after MAPO — thirteen. Its floor is set by the
-   heading, which is wider than `at high` or `−12.3%`. */
-.table-wrap[data-layout='desktop'][data-screen='true'] .grid-row {
-  grid-template-columns:
-    var(--col-idx-w) minmax(210px, 0.8fr) minmax(260px, 2.1fr) minmax(112px, 0.72fr)
-    minmax(132px, 0.72fr) minmax(184px, 0.92fr) minmax(112px, 0.66fr)
-    minmax(100px, 0.6fr) minmax(88px, 0.54fr) minmax(104px, 0.7fr)
-    minmax(88px, 0.56fr) minmax(96px, 0.6fr) minmax(112px, 0.72fr);
 }
 
 /**
@@ -1852,24 +1856,17 @@ body {
  * down. A column edge is the thing that actually reads as professional in a
  * list of cards.
  *
- * `auto-fill` rather than a hand-counted track list: the rail carries three
- * metrics normally and four while a screen is on show, and the tracks are
- * decided by the width available rather than by how many items landed in it —
- * so the edges stay put when a run finishes and `vs 10Y high` appears. Four
- * tracks fit a 320px phone, which is the narrowest case.
- */
-/**
- * Four figures, four columns, always.
+ * Three figures, three columns, always.
  *
- * `auto-fill` was the bug the fifth item exposed: at 387px it fits five across,
- * at 360px it fits four and drops the last one onto a row of its own, and a
- * lone metric under a full row does not read as the end of a list — it reads as
- * a different section. A fixed count cannot do that. Four at 320px is 62px a
- * column, which is what the widest label here (`M.CAP ₹CR`) needs.
+ * `auto-fill` was the bug this replaced: at one width it fits four across, at a
+ * slightly narrower one it fits three and drops the last onto a row of its own,
+ * and a lone metric under a full row does not read as the end of a list — it
+ * reads as a different section. A fixed count cannot do that. Three at 320px is
+ * ~83px a column, comfortably past what the widest label (`M.CAP ₹CR`) needs.
  */
 .stack-screen {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px 6px;
   min-width: 0;
 }
@@ -3960,27 +3957,19 @@ body {
   }
 
   /* Deliberate rows rather than whatever the wrap happens to produce. Left to
-     itself the bar broke as "picker + Run + counts" / "toggle + Clear", which
-     truncated the screen's name to "Near all-ti…" and left two ragged lines.
-     Each element that wants the width now takes the whole width. */
+     itself the bar broke mid-phrase, truncating the screen's name to
+     "Near all-ti…" and leaving two ragged lines. */
   .screenbar-row {
     gap: 8px;
     padding-top: 8px;
   }
 
-  /* The picker already names the screen; a small-caps "SCREEN" beside it is
-     one more thing competing for a line that has none to spare. */
-  .screenbar-row .filter-label {
-    display: none;
-  }
-
-  /* Only the picker takes a whole line — it carries a long name and is the one
-     thing that must not truncate. Everything else keeps its natural width and
-     shares: Run + counts, then the toggle + Clear. Four stacked full-width
-     slabs read as a form, not a toolbar. */
-  .screenbar-row .menu-btn {
+  /* The name takes a whole line: it is the longest thing here and the one thing
+     that must not truncate. Counts, toggle and Refresh keep their natural
+     widths and share the line under it — three stacked full-width slabs would
+     read as a form, not a toolbar. */
+  .screen-source {
     flex: 1 1 100%;
-    height: 34px;
   }
 
   .screenbar-row .btn {
@@ -4007,14 +3996,6 @@ body {
     height: 26px;
     padding: 0 12px;
     font-size: 12px;
-  }
-
-  /* On a phone the progress bar takes whatever width is left on the row rather
-     than a fixed 140px it may not have. */
-  .screenbar .progress {
-    flex: 1;
-    width: auto;
-    min-width: 72px;
   }
 
   /* Comfortable tap targets inside the sheet, where there is room for them. */
@@ -5006,7 +4987,6 @@ body {
   .filter-trigger,
   .wl-tab,
   .sortbar .menu-btn,
-  .screenbar-row .menu-btn,
   .screenbar-row .btn,
   .pagebar .menu-btn {
     height: 44px;

@@ -187,7 +187,7 @@ npx supabase link --project-ref <your-ref>
 # Shared secret so nobody who finds your function URLs can drive traffic on your project
 npx supabase secrets set SYNC_SECRET=$(openssl rand -hex 24)
 
-npx supabase functions deploy sync-securities sync-quotes sync-fundamentals
+npx supabase functions deploy sync-securities sync-quotes sync-fundamentals sync-screen
 ```
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected into functions automatically — don't set them.

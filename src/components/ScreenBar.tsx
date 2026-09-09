@@ -1,130 +1,71 @@
-import {
-  LARGE_RUN,
-  formatDuration,
-  formatEstimate,
-  type ScreenProgress,
-  type ScreenRun,
-} from '../hooks/useScreen';
+import { formatAge, formatIstDateTime } from '../lib/format';
+import type { ScreenMatches } from '../hooks/useScreenMatches';
 import type { ScreenDef } from '../lib/screens';
 
 /**
- * The screen control: run the one screen over whatever the filters currently
- * select, then read the verdict.
+ * The screen control: what the shortlist is, when it was taken, and whether the
+ * table is cut to it.
  *
- * It sits below the filters and above the table because that is the order the
- * work happens in — a screen is expensive per row (see useScreen) and the
- * filters are what make it affordable, so the bar reads as the second half of
- * one sentence rather than as an independent control.
+ * It used to be a progress bar. The screen was run in the browser — thousands of
+ * requests, a stage breakdown, an ETA, a cancel button — and this bar was where
+ * all of that was reported. The list now arrives already decided from Chartink
+ * (see useScreenMatches), so there is no run to narrate: the bar states the
+ * result, says how old it is, and offers the one toggle that still means
+ * anything.
  */
-
-/**
- * Named after what each stage is *doing to the rows*, not after the endpoint it
- * calls: the scan reads twenty symbols a request and settles most of them, the
- * confirm stage buys the true intra-month highs for the few it could not, and
- * the last one scrapes the survivors.
- *
- * All three run at once, so all three are shown at once — with a stage's count
- * appearing only once it has work, which is what stops "0 of 0" standing in for
- * "not started" on a bar that has no sequence to it any more.
- */
-const STAGE_LABEL = {
-  cap: 'Market cap',
-  scan: 'Scanning',
-  confirm: 'Confirming highs',
-  fundamental: 'ROCE',
-} as const;
-
-const STAGE_HINT =
-  'Market cap for every row, two hundred symbols a request, so the band’s rejects cost nothing ' +
-  'further · then ten years of monthly closes, twenty symbols a request · then the true 10-year ' +
-  'high for the rows that bound could not decide · then a screener.in page per survivor, paced.';
-
-/** "Scanning 1,204/1,450 · ROCE 3/8" — only the stages with work. */
-function stageLine(progress: ScreenProgress): string {
-  return (['cap', 'scan', 'confirm', 'fundamental'] as const)
-    .filter((key) => progress[key].total > 0)
-    .map(
-      (key) =>
-        `${STAGE_LABEL[key]} ${progress[key].done.toLocaleString('en-IN')}/${progress[
-          key
-        ].total.toLocaleString('en-IN')}`,
-    )
-    .join(' · ');
-}
 
 interface Props {
-  /** The screen this bar runs — not necessarily one that has been run yet. */
-  selected: ScreenDef | null;
-  run: ScreenRun;
-  /** How many rows the current filters select — the run's universe. */
-  universeCount: number;
-  onRun: () => void;
+  screen: ScreenDef;
+  matches: ScreenMatches;
+  /** Matches that are also rows of the current table — see the note below. */
+  shown: number;
   matchesOnly: boolean;
   onMatchesOnlyChange: (value: boolean) => void;
 }
 
-export function ScreenBar({
-  selected,
-  run,
-  universeCount,
-  onRun,
-  matchesOnly,
-  onMatchesOnlyChange,
-}: Props) {
-  const running = run.status === 'running';
-  const hasResults = run.results.size > 0;
-  const long = universeCount > LARGE_RUN;
-
-  const pct = Math.round(run.progress.fraction * 100);
+export function ScreenBar({ screen, matches, shown, matchesOnly, onMatchesOnlyChange }: Props) {
+  const total = matches.rows.length;
+  // Chartink screens the whole cash segment; this table is whatever the filters
+  // select. So a match can be absent for two very different reasons — filtered
+  // out here, or not in this app's security list at all — and a bare "76" over a
+  // table showing 41 rows reads as a bug. The gap is stated instead.
+  const hidden = total - shown;
 
   return (
     <div className="screenbar">
       <div className="screenbar-row">
-        {selected && (
-          <button
-            type="button"
-            className="btn"
-            onClick={running ? run.cancel : onRun}
-            // Only a genuinely empty universe disables this. A large one is
-            // slow, not impossible, and it says how slow in the note below.
-            disabled={!running && universeCount === 0}
-            title={`Runs over the ${universeCount.toLocaleString('en-IN')} rows the filters currently select — twenty symbols a request, then a closer look at the ones that survive.`}
-          >
-            {running ? 'Stop' : `Run on ${universeCount.toLocaleString('en-IN')}`}
-          </button>
-        )}
+        <a
+          className="screen-source"
+          href={screen.source}
+          target="_blank"
+          rel="noreferrer noopener"
+          title={`Chartink runs: ${screen.clause}`}
+        >
+          {screen.name}
+        </a>
 
-        {running && (
+        {matches.loading && total === 0 ? (
+          <span className="screen-phase">Reading the screen…</span>
+        ) : (
           <>
-            <span className="progress" aria-hidden>
-              <i style={{ width: `${pct}%` }} />
-            </span>
-            <span className="screen-phase" title={STAGE_HINT}>
-              {stageLine(run.progress)}
-              {/* Withheld under half a minute: at that point the estimate is
-                  mostly the granularity of its own rounding, and a countdown
-                  that reads "10s left" for half a minute is worse than none. */}
-              {run.progress.secondsLeft > 30 &&
-                ` · ~${formatDuration(run.progress.secondsLeft)} left`}
-            </span>
-          </>
-        )}
-
-        {!running && hasResults && (
-          <>
-            {/* One verdict, read left to right, rather than three pills that
-                happen to be adjacent. */}
             <div className="screen-results">
-              <span className="screen-count" title="Rows that pass every leg of the clause">
+              <span className="screen-count" title="Symbols the Chartink screen currently returns">
                 <span className="dot" />
-                <b>{run.counts.pass.toLocaleString('en-IN')}</b> match
+                <b>{total.toLocaleString('en-IN')}</b> match
               </span>
-              <span title="Rows that failed at least one leg">
-                <b>{run.counts.fail.toLocaleString('en-IN')}</b> no
-              </span>
-              {run.counts.unknown > 0 && (
-                <span title="Not enough data to judge — too little price history, or no screener.in page for the company">
-                  <b>{run.counts.unknown.toLocaleString('en-IN')}</b> unjudged
+              {hidden > 0 && (
+                <span title="Matches not in the current table — filtered out here, or not in this app’s NSE/BSE list">
+                  <b>{hidden.toLocaleString('en-IN')}</b> not shown
+                </span>
+              )}
+              {/* `formatAge`, the same helper the status bar states the price
+                  age with — the two lines describe two halves of one cron and
+                  must not word it differently. */}
+              {matches.fetchedAt && (
+                <span
+                  title={`Scraped from Chartink ${formatIstDateTime(matches.fetchedAt)} IST · refreshed every 5 minutes through the session`}
+                >
+                  {formatAge(matches.fetchedAt)}
                 </span>
               )}
             </div>
@@ -136,7 +77,7 @@ export function ScreenBar({
                 type="button"
                 data-active={matchesOnly}
                 onClick={() => onMatchesOnlyChange(true)}
-                title="Show only the rows that pass"
+                title="Show only the symbols the screen returned"
               >
                 Matches
               </button>
@@ -144,40 +85,34 @@ export function ScreenBar({
                 type="button"
                 data-active={!matchesOnly}
                 onClick={() => onMatchesOnlyChange(false)}
-                title="Show every filtered row, with its verdict"
+                title="Show every filtered row"
               >
                 All
               </button>
             </div>
+
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={matches.refresh}
+              disabled={matches.loading}
+              title="Re-read the list. It is rescraped from Chartink every five minutes during the session, so this only picks up a newer one."
+            >
+              {matches.loading ? 'Refreshing…' : 'Refresh'}
+            </button>
           </>
         )}
       </div>
 
-      {/* Said before the click, not after: the cost of a screen is a property
-          of how many rows are selected, and that is knowable up front. */}
-      {selected && !running && !hasResults && long && (
+      {matches.error && <p className="screen-error">{matches.error}</p>}
+
+      {!matches.loading && !matches.error && total === 0 && (
         <p className="screen-note">
-          {universeCount.toLocaleString('en-IN')} rows takes about {formatEstimate(universeCount)} —
-          prices are read twenty symbols at a time, and nearly all of that estimate is the polite
-          pace of the fundamentals scrape over whatever survives, which runs alongside the price
-          work rather than after it. Matches appear as they are found, and it can be stopped at any
-          point, keeping whatever it has already judged. Answers are kept for the rest of the day,
-          so running it again only pays for rows it has not seen — and filtering by exchange, cap
-          band or F&amp;O first gets you to a shortlist faster.
+          The screen list is empty. It is filled by the <code>sync-screen</code> function every five
+          minutes during market hours — if this is the first deploy, apply{' '}
+          <code>supabase/migrations/0013_screen_matches.sql</code> and invoke the function once.
         </p>
       )}
-
-      {run.error && <p className="screen-error">{run.error}</p>}
-
-      {run.warning && !running && <p className="screen-note">{run.warning}</p>}
-
-      {run.status === 'cancelled' && (
-        <p className="screen-note">
-          Stopped early — {run.counts.screened.toLocaleString('en-IN')} of the{' '}
-          {universeCount.toLocaleString('en-IN')} rows were judged.
-        </p>
-      )}
-
     </div>
   );
 }

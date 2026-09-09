@@ -1,4 +1,3 @@
-import { dayCache } from './dayCache';
 import type { Security } from '../types';
 
 /**
@@ -30,14 +29,6 @@ import type { Security } from '../types';
 
 /** Requests go through the same-origin proxy — see vite.config.ts / worker/index.ts. */
 const BASE = '/api/screener/company';
-
-/**
- * Screener.in is somebody's server and a screen run is a burst of requests at
- * it. Four in flight bounds the sockets, but it is no longer what governs the
- * pace — `MIN_INTERVAL_MS` is, and with that gate in place rarely more than one
- * request is actually open at a time.
- */
-export const FUNDAMENTALS_CONCURRENCY = 4;
 
 /**
  * Minimum gap between two screener.in requests, anywhere in the app.
@@ -136,21 +127,16 @@ export async function fetchPaced(url: string, signal?: AbortSignal): Promise<Res
   }
 }
 
-export interface Fundamentals {
-  /** ₹ crore, matching the units Chartink's `market cap` is written in. */
-  marketCapCr: number | null;
-  /** Latest annual return on capital employed, in percent. */
-  rocePct: number | null;
-  /** The page the numbers came from — shown in the UI so a figure is checkable. */
-  url: string;
-}
-
-/** Thrown on a 429 so a run can stop as a whole instead of hammering on. */
+/**
+ * Thrown when screener.in is still rate-limiting after `fetchPaced` has spent
+ * its backoffs — at which point it is not something the caller can wait out
+ * inside one request.
+ */
 export class RateLimitedError extends Error {
   constructor() {
     super(
       'screener.in is still rate-limiting after backing off for a minute and a half. ' +
-        'Wait a few minutes and run the screen again — judged rows are cached, so it resumes where it stopped.',
+        'Wait a few minutes and open the company again.',
     );
     this.name = 'RateLimitedError';
   }
@@ -274,95 +260,4 @@ export function parseTopRatios(html: string): Map<string, number[]> {
   }
 
   return out;
-}
-
-/**
- * How long a scraped page is worth keeping.
- *
- * A day, like every other store — deliberately, and at a known cost.
- *
- * This was a month, and on the merits of the *figure* a month is still right:
- * what remains here is ROCE, computed from annual statements, which changes
- * when a company files and not otherwise. Market cap comes from Yahoo in
- * batches of two hundred (see src/lib/marketCap.ts).
- *
- * What changed is where the answer comes from. `sync-fundamentals` fills
- * `metrics.roce_pct` from Upstox on a rolling schedule, and useScreen skips
- * this stage entirely for any row that arrives with a figure on it — so on a
- * Supabase-backed run this store is consulted only for the rows the server has
- * not covered yet. A one-day window costs a re-scrape of that remainder, paced
- * at screener.in's measured 1.2s, rather than a re-scrape of the universe.
- *
- * Direct mode has no server figures and pays the full price. If a whole-market
- * run there starts ending in `RateLimitedError`, this constant is why.
- */
-const KEEP_DAYS = 1;
-
-/** Settled answers, kept across reloads for as long as they are worth keeping. */
-const settled = dayCache<Fundamentals | null>(
-  'fundamentals',
-  {
-    encode: (f) => (f === null ? 0 : [f.marketCapCr, f.rocePct, f.url]),
-    decode: (raw) => {
-      if (raw === 0) return null;
-      if (!Array.isArray(raw) || raw.length !== 3) return undefined;
-      const [marketCapCr, rocePct, url] = raw as [number | null, number | null, string];
-      return { marketCapCr, rocePct, url };
-    },
-  },
-  KEEP_DAYS,
-);
-
-/** Requests in flight, so two rows resolving to one page share a single fetch. */
-const inflight = new Map<string, Promise<Fundamentals | null>>();
-
-/** Writes the store out now — called when a run finishes. */
-export const persistFundamentals = (): void => settled.flush();
-
-/**
- * Null means "no page for this company" (404 — unlisted, renamed, or an SME
- * scrip screener.in doesn't carry), which is a normal outcome for a few hundred
- * of the BSE-only rows and not an error. It is cached like any other answer.
- *
- * Keyed by the company's first path rather than by symbol: dual-listed rows and
- * re-runs after a filter change resolve to the same page, and should only pay
- * for it once. The key is the *asked* path, not the one that answered — which
- * variant that turns out to be is the answer, and caching under it would ask
- * again from the top every time.
- */
-export function fetchFundamentals(
-  security: Pick<Security, 'symbol' | 'bseCode' | 'exchanges'>,
-  signal?: AbortSignal,
-): Promise<Fundamentals | null> {
-  const [key] = screenerPaths(security);
-  if (!key) return Promise.resolve(null);
-
-  if (settled.has(key)) return Promise.resolve(settled.get(key) ?? null);
-
-  const hit = inflight.get(key);
-  if (hit) return hit;
-
-  const pending = (async (): Promise<Fundamentals | null> => {
-    const page = await fetchScreenerPage(security, signal);
-    if (!page) return null;
-
-    return {
-      marketCapCr: page.ratios.get('Market Cap')?.[0] ?? null,
-      rocePct: page.ratios.get('ROCE')?.[0] ?? null,
-      url: page.path,
-    };
-  })()
-    .then((fundamentals) => {
-      settled.set(key, fundamentals);
-      inflight.delete(key);
-      return fundamentals;
-    });
-
-  // A failed request must not be remembered as a failure: the next run should
-  // retry it. Only a settled *answer* — including the 404 null — is worth
-  // keeping.
-  pending.catch(() => inflight.delete(key));
-
-  inflight.set(key, pending);
-  return pending;
 }
