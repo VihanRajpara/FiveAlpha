@@ -11,10 +11,16 @@ import { supabase } from '../lib/supabaseClient';
  * is left is a table read: sync-screen scrapes Chartink every five minutes and
  * replaces the list whole, and this hook polls it on the same beat.
  *
- * "Polls" rather than "subscribes" deliberately: a realtime channel would be a
- * websocket held open all day to learn about a row set that changes on a
- * five-minute cron, and the replace is a delete-then-insert, so the change feed
- * for it is ~150 events rather than one.
+ * Push first, poll second. Realtime tells the browser the moment the replace
+ * commits (migration 0014), because a five-minute poll against a five-minute
+ * cron is not in step with it — a page that loaded at :02 asks again at :07,
+ * two minutes after its list was replaced, so the worst case is a list ten
+ * minutes old.
+ *
+ * The replace is a delete-then-insert, so it arrives as ~150 events rather than
+ * one; `NUDGE_MS` collapses the burst into a single refetch. And the poll stays
+ * as a fallback rather than being replaced: a websocket can drop, and a dropped
+ * one must not mean a page that quietly stops updating for the rest of the day.
  */
 
 export interface ScreenMatch {
@@ -38,8 +44,21 @@ export interface ScreenMatches {
   refresh: () => void;
 }
 
-/** The cron behind the table (migration 0013). Reading faster only costs requests. */
+/**
+ * Fallback beat, for when the websocket is not there. The cron behind the table
+ * writes every five minutes (migration 0013), so reading faster than that only
+ * costs requests.
+ */
 const POLL_MS = 5 * 60_000;
+
+/**
+ * How long to wait for a change burst to finish before refetching.
+ *
+ * One replace is one transaction and ~150 row events, and refetching per event
+ * would be 150 reads of the same list. Long enough to swallow the burst, short
+ * enough that nobody perceives it as lag.
+ */
+const NUDGE_MS = 400;
 
 interface Row {
   symbol: string;
@@ -109,8 +128,42 @@ export function useScreenMatches(): ScreenMatches {
 
   useEffect(() => {
     void load();
+
     const timer = setInterval(() => void load(), POLL_MS);
-    return () => clearInterval(timer);
+
+    // Nothing is read off the payload: a replace is a delete of every row and an
+    // insert of every row, so the only useful thing an event says is "the list
+    // changed, ask again". Which also means the subscription needs nothing from
+    // the payload's shape and cannot break when a column is added.
+    let nudge: ReturnType<typeof setTimeout> | undefined;
+    const channel = supabase
+      ?.channel('screen_matches')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'screen_matches' },
+        () => {
+          clearTimeout(nudge);
+          nudge = setTimeout(() => void load(), NUDGE_MS);
+        },
+      )
+      .subscribe();
+
+    // A tab the browser froze — backgrounded on a phone, restored from bfcache —
+    // comes back with a socket that may have been closed under it and a list
+    // that stopped updating while it was away. Reading once on the way back is
+    // what makes returning to the tab instant instead of up to five minutes
+    // behind, and it is the same thing useMarketData does with the prices.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(timer);
+      clearTimeout(nudge);
+      document.removeEventListener('visibilitychange', onVisible);
+      if (channel) void supabase?.removeChannel(channel);
+    };
   }, [load]);
 
   return { symbols, rows, fetchedAt, loading, error, refresh: () => void load() };
