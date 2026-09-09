@@ -1,10 +1,19 @@
 import type { Candle } from '../types';
-import { dayCache } from './dayCache';
-import { SPARK_BATCH_SIZE, fetchYahooBars, fetchYahooSparkBars } from './yahooCandles';
 
 /**
- * The technical half of a screen: the ten-year high a price is measured
- * against, and monthly RSI.
+ * Monthly-bar arithmetic: Wilder's RSI, the ten-year high, and the two
+ * corrections Yahoo's series needs before either is trustworthy.
+ *
+ * **Nothing in the app imports this any more.** The screen is Chartink's now
+ * (supabase/functions/sync-screen) and RSI is precomputed server-side by
+ * sync-technicals, so this file ships in no bundle. It is kept as the
+ * *reference implementation*: scripts/check-metrics.mjs asserts the Edge
+ * Function's RSI against `rsi` here bar for bar, and scripts/check-signals.mjs
+ * checks the decade window against `computeTechnicals`. Delete it and those
+ * two checks have nothing to compare the server to.
+ *
+ * The fetching and day-cache layers that fed the old client-side runner are
+ * gone with it; what remains is pure functions over bars.
  *
  * Both come out of a *single* request — ten years of monthly bars — which is
  * the whole reason this module exists as its own thing. A screen run costs one
@@ -25,9 +34,6 @@ import { SPARK_BATCH_SIZE, fetchYahooBars, fetchYahooSparkBars } from './yahooCa
  * the two corrections, and both are calibrated against Chartink's own numbers
  * rather than guessed.
  */
-
-const RANGE = '10y';
-const INTERVAL = '1mo';
 
 /** Wilder's RSI needs one bar to seed the first delta plus `period` deltas. */
 const RSI_PERIOD = 14;
@@ -241,87 +247,6 @@ export function computeTechnicals(rawBars: Candle[]): Technicals | null {
   };
 }
 
-/** One request. Throws what `fetchYahooBars` throws, including on abort. */
-export async function fetchTechnicals(
-  ticker: string,
-  signal?: AbortSignal,
-): Promise<Technicals | null> {
-  return computeTechnicals(await fetchYahooBars(ticker, RANGE, INTERVAL, signal));
-}
-
-/**
- * Settled answers, kept for the trading day and across reloads.
- *
- * Re-running a screen after widening a filter should only pay for the symbols
- * it has not already priced, and monthly bars are the right thing to hold: over
- * a day the ten-year high and a 14-period *monthly* RSI do not meaningfully
- * move. The one figure that does — the latest close — is taken from the live
- * quote by the caller wherever there is one, so nothing stale reaches the
- * price legs.
- *
- * A null is a settled answer too: it means Yahoo has no usable history for the
- * ticker, which the next run would spend a request rediscovering.
- */
-const exactStore = dayCache<Technicals | null>('technicals', {
-  encode: (t) =>
-    t === null ? 0 : [t.high10y, t.close, t.monthlyRsi14, t.bars, t.since],
-  decode: (raw) => {
-    if (raw === 0) return null;
-    if (!Array.isArray(raw) || raw.length !== 5) return undefined;
-    const [high10y, close, monthlyRsi14, bars, since] = raw as [
-      number | null,
-      number,
-      number | null,
-      number,
-      string,
-    ];
-    return { high10y, close, monthlyRsi14, bars, since };
-  },
-});
-
-/** Requests in flight, so two callers for one ticker share a single fetch. */
-const inflight = new Map<string, Promise<Technicals | null>>();
-
-/**
- * Same fetch, asked for at most once a day.
- *
- * Failures are dropped rather than cached, so a flaky request is retried on the
- * next run instead of being remembered as a verdict.
- */
-export function fetchTechnicalsCached(
-  ticker: string,
-  signal?: AbortSignal,
-): Promise<Technicals | null> {
-  if (exactStore.has(ticker)) return Promise.resolve(exactStore.get(ticker) ?? null);
-
-  const hit = inflight.get(ticker);
-  if (hit) return hit;
-
-  const pending = fetchTechnicals(ticker, signal).then((technicals) => {
-    exactStore.set(ticker, technicals);
-    inflight.delete(ticker);
-    return technicals;
-  });
-  pending.catch(() => inflight.delete(ticker));
-  inflight.set(ticker, pending);
-  return pending;
-}
-
-/**
- * Whether the *exact* figures for a ticker are already in hand or in flight.
- *
- * The runner asks before scanning: a bound on a number we already know exactly
- * is pure cost, so a re-run skips straight to the confirmed value.
- */
-export const hasTechnicals = (ticker: string): boolean =>
-  exactStore.has(ticker) || inflight.has(ticker);
-
-/** Writes both stores out now — called when a run finishes. */
-export function persistTechnicals(): void {
-  exactStore.flush();
-  coarseStore.flush();
-}
-
 // ---------------------------------------------------------------------------
 // The scan pass
 // ---------------------------------------------------------------------------
@@ -438,77 +363,4 @@ export function computeCoarseTechnicals(rawBars: Candle[]): CoarseTechnicals | n
     decade: span >= DECADE_MONTHS,
     density: span > 0 ? closes.length / span : 0,
   };
-}
-
-/**
- * Re-exported because it is the unit callers have to chunk by, and they should
- * not need to know that the reason is Yahoo's spark endpoint: `fetchCoarseTechnicals`
- * passes the list straight through, and Yahoo 400s the whole request above this.
- */
-export { SPARK_BATCH_SIZE };
-
-/**
- * The bulk of what a whole-market run learns: one entry per symbol, ~5,200 of
- * them, so it is stored as a positional tuple rather than as an object. The
- * field names cost more than the numbers do.
- */
-const coarseStore = dayCache<CoarseTechnicals>('coarse', {
-  encode: (c) => [
-    c.closeHigh,
-    c.close,
-    c.monthlyRsi14,
-    c.bars,
-    c.since,
-    c.decade ? 1 : 0,
-    // Three decimals is far finer than the `>= 1` test that reads it.
-    Number(c.density.toFixed(3)),
-  ],
-  decode: (raw) => {
-    if (!Array.isArray(raw) || raw.length !== 7) return undefined;
-    const [closeHigh, close, monthlyRsi14, bars, since, decade, density] = raw as [
-      number,
-      number,
-      number | null,
-      number,
-      string,
-      number,
-      number,
-    ];
-    return { closeHigh, close, monthlyRsi14, bars, since, decade: decade === 1, density };
-  },
-});
-
-/**
- * One request per `SPARK_BATCH_SIZE` tickers, remembered for the trading day.
- *
- * A null value means Yahoo returned nothing for that ticker. Unlike the settled
- * answers, those are **not** cached: the sampled ones are dead symbols that a
- * re-run would find dead again, but remembering an absence as a verdict is how
- * a transient drop becomes permanent, and re-asking costs a twentieth of a
- * request. Throwing — a batch that failed outright — caches nothing at all.
- */
-export async function fetchCoarseTechnicals(
-  tickers: string[],
-  signal?: AbortSignal,
-): Promise<Map<string, CoarseTechnicals | null>> {
-  const out = new Map<string, CoarseTechnicals | null>();
-
-  const wanted: string[] = [];
-  for (const ticker of tickers) {
-    const hit = coarseStore.get(ticker);
-    if (hit) out.set(ticker, hit);
-    else wanted.push(ticker);
-  }
-  if (wanted.length === 0) return out;
-
-  const series = await fetchYahooSparkBars(wanted, RANGE, INTERVAL, signal);
-
-  for (const ticker of wanted) {
-    const bars = series.get(ticker);
-    const coarse = bars ? computeCoarseTechnicals(bars) : null;
-    if (coarse) coarseStore.set(ticker, coarse);
-    out.set(ticker, coarse);
-  }
-
-  return out;
 }

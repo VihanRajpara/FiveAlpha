@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SortingState } from '@tanstack/react-table';
 import { StockTable } from './components/StockTable';
 import { StockDetail } from './components/StockDetail';
@@ -7,9 +7,9 @@ import { Filters, type FilterGroupSpec } from './components/Filters';
 import { ScreenBar } from './components/ScreenBar';
 import { WatchlistBar } from './components/WatchlistBar';
 import { useMarketData } from './hooks/useMarketData';
-import { useScreen } from './hooks/useScreen';
+import { useScreenMatches } from './hooks/useScreenMatches';
 import { useSignals } from './hooks/useSignals';
-import { SCREENS } from './lib/screens';
+import { ALL_TIME_HIGH_BREAKOUT } from './lib/screens';
 import {
   SIGNAL_FILTER_MAX,
   MAPO_HIGH,
@@ -244,14 +244,13 @@ export default function App({
   // one should be a row of data, not another hook.
   const [bands, setBands] = useState<Record<string, string>>({});
 
-  const screenRun = useScreen();
-  // The point of running a screen is the shortlist, so the table cuts to it by
-  // default; the toggle in the bar puts the rejected rows back, dimmed, for
-  // anyone checking the screen's work rather than trusting it.
+  // The screen's answer, scraped from Chartink every five minutes and read from
+  // Supabase — see useScreenMatches. It is a table read, so it is available on
+  // load rather than after a click, which is why nothing here runs anything.
+  const screenMatches = useScreenMatches();
+  // The shortlist is the point of the page, so the table cuts to it by default;
+  // the toggle in the bar puts the rest of the market back.
   const [matchesOnly, setMatchesOnly] = useState(true);
-  // There is one screen and it is the point of the page, so it is fixed rather
-  // than picked — see the auto-run below.
-  const selectedScreen = SCREENS[0] ?? null;
 
   const joined = useMemo<SecurityWithQuote[]>(
     () =>
@@ -349,27 +348,25 @@ export default function App({
 
   /**
    * What the table actually shows: the filtered rows, cut to the screen's
-   * matches when one has run and the toggle is on.
+   * matches while the toggle is on.
    *
    * Kept separate from `rows` because the two answer different questions —
-   * `rows` is the universe a run would cover and what the filter controls
-   * count, `screened` is the shortlist. Collapsing them would make the filter
-   * sheet's "Show 12" button report the screen's verdict instead of the
-   * filters'.
+   * `rows` is the market the filters select and what the filter controls count,
+   * `screened` is the shortlist. Collapsing them would make the filter sheet's
+   * "Show 12" button report the screen's verdict instead of the filters'.
    */
-  const screening = screenRun.status === 'running' || screenRun.results.size > 0;
-
   const screened = useMemo(
     () =>
-      // Cutting from the first moment of a run rather than from the first
-      // published batch: the table then fills up with matches as they are
-      // found, instead of showing the whole list and suddenly collapsing.
-      // A screen run in the other section must not quietly hide half of a
-      // watchlist: the list is the answer here, not a universe to search.
-      matchesOnly && screening && !watchlistView
-        ? rows.filter((row) => screenRun.matches.has(row.symbol))
+      // Two things are deliberately not cut here. The watchlist section, because
+      // the list is the answer there rather than a universe to search. And an
+      // empty match set — which covers both the first moments after load and a
+      // scrape that failed — because cutting the table to nothing states "no
+      // share qualifies" when the truth is "the list has not arrived". The bar
+      // above says which.
+      matchesOnly && !watchlistView && screenMatches.symbols.size > 0
+        ? rows.filter((row) => screenMatches.symbols.has(row.symbol))
         : rows,
-    [rows, matchesOnly, screening, screenRun.matches, watchlistView],
+    [rows, matchesOnly, screenMatches.symbols, watchlistView],
   );
 
   const bandFilterOn = Object.values(bands).some((v) => v !== ANY);
@@ -390,23 +387,6 @@ export default function App({
   }, [signalFilterAffordable, signalFilterOn, signalSortOn]);
 
   const signals = useSignals(screened, (signalFilterOn || signalSortOn) && signalFilterAffordable);
-
-  const runScreen = useCallback(() => {
-    if (selectedScreen) {
-      setMatchesOnly(true);
-      screenRun.run(selectedScreen, rows);
-    }
-  }, [selectedScreen, screenRun, rows]);
-
-  // Runs the default screen on landing, once the universe is priced. Guarded by
-  // a ref because `rows` changes with every filter keystroke, and re-running on
-  // each change would be a fetch storm.
-  const autoRan = useRef(false);
-  useEffect(() => {
-    if (autoRan.current || loading || !quotesLoaded || rows.length === 0) return;
-    autoRan.current = true;
-    runScreen();
-  }, [loading, quotesLoaded, rows.length, runScreen]);
 
   /**
    * One description of the filters, rendered as inline chips on wide screens
@@ -527,24 +507,17 @@ export default function App({
     ],
   );
 
-  /**
-   * The second question, behind the "More" button: what the screen measured.
-   *
-   * These stay disabled until a screen has run, because a filter on a number
-   * nothing has measured would empty the table and look broken.
-   */
+  /** The second question, behind the "More" button: the numbers on the row. */
   const advancedGroups = useMemo<FilterGroupSpec[]>(
-    () => [
-      ...NUMERIC_FILTERS.map((f) => ({
+    () =>
+      NUMERIC_FILTERS.map((f) => ({
         key: f.key,
         label: f.label,
         value: bands[f.key] ?? ANY,
-        disabled: f.needsScreen && !screening,
         options: f.bands.map((b) => ({ value: b.value, label: b.label, hint: b.hint })),
         onChange: (v: string) => setBands((prev) => ({ ...prev, [f.key]: v })),
       })),
-    ],
-    [bands, screening],
+    [bands],
   );
 
   const breadth = useMemo(() => {
@@ -568,7 +541,7 @@ export default function App({
       : screened;
 
     if (bandFilterOn) {
-      out = out.filter((row) => matchesBands(row, screenRun.results.get(row.symbol), bands));
+      out = out.filter((row) => matchesBands(row, bands));
     }
 
     if (signalFilterOn) {
@@ -589,7 +562,6 @@ export default function App({
     breadthFilter,
     bandFilterOn,
     bands,
-    screenRun.results,
     signalFilterOn,
     signalSortOn,
     signal,
@@ -646,6 +618,14 @@ export default function App({
   // *supposed* to be hours old, and shouting about it would be noise.
   const stale =
     marketOpen && dataAsOf !== null && now.getTime() - dataAsOf.getTime() > STALE_AFTER_MS;
+
+  // Same rule as `stale` above, on the same five-minute cron: the screen list
+  // is only worth flagging as old while the market is open, because outside the
+  // session it is supposed to be hours old.
+  const screenStale =
+    marketOpen &&
+    screenMatches.fetchedAt !== null &&
+    now.getTime() - screenMatches.fetchedAt.getTime() > STALE_AFTER_MS;
 
   // PostgREST answers PGRST205 ("Could not find the table … in the schema cache")
   // when the migration hasn't been run — worth calling out by name, because the
@@ -795,10 +775,9 @@ export default function App({
         <WatchlistBar shown={visible.length} />
       ) : (
         <ScreenBar
-          selected={selectedScreen}
-          run={screenRun}
-          universeCount={rows.length}
-          onRun={runScreen}
+          screen={ALL_TIME_HIGH_BREAKOUT}
+          matches={screenMatches}
+          shown={screened.length}
           matchesOnly={matchesOnly}
           onMatchesOnlyChange={setMatchesOnly}
         />
@@ -880,9 +859,6 @@ export default function App({
             <StockTable
               rows={visible}
               quotesLoaded={quotesLoaded}
-              // Present from the start of a run, empty, so the screen columns
-              // appear shimmering rather than popping in mid-pass.
-              screenResults={screening ? screenRun.results : null}
               sorting={sorting}
               onSortingChange={setSorting}
               signalSortable={signalFilterAffordable}
@@ -940,6 +916,26 @@ export default function App({
           {dataAsOf
             ? `Prices as of ${formatIstDateTime(dataAsOf)} · ${formatAge(dataAsOf, now)}`
             : 'Prices pending'}
+        </span>
+
+        {/* The screen list, said exactly the way the prices are said above —
+            same wording, same clock, same staleness rule. The two are written by
+            the same five-minute cron, so anything that stalls one and not the
+            other should be visible by the two lines disagreeing. */}
+        <span
+          style={screenStale ? { color: 'var(--down)', fontWeight: 600 } : undefined}
+          title={
+            screenMatches.fetchedAt
+              ? `Chartink scraped ${screenMatches.fetchedAt.toISOString()} by sync-screen, every 5 min through the session`
+              : undefined
+          }
+        >
+          {screenMatches.fetchedAt
+            ? `Screen as of ${formatIstDateTime(screenMatches.fetchedAt)} · ${formatAge(
+                screenMatches.fetchedAt,
+                now,
+              )}`
+            : 'Screen pending'}
         </span>
 
         <div className="spacer" />

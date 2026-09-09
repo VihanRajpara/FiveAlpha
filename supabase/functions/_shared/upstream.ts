@@ -1,48 +1,25 @@
-// Shared helpers for the three sync functions. Deno runtime (Supabase Edge Functions).
-import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+// NSE + BSE master lists, and the helpers the list syncs parse them with.
+// Deno runtime (Supabase Edge Functions).
+//
+// The request plumbing every function needs — `adminClient`, `assertAuthorized`,
+// `json`, `fetchWithTimeout`, `BROWSER_UA`, `CORS_HEADERS` — lives in ./edge.ts
+// so that a function touching no listings need not pull 250 lines of CSV merge
+// into its bundle to reach `json()`. Re-exported here unchanged: importing from
+// either module is the same thing, and the four functions that predate the
+// split were not touched.
+import { BROWSER_UA } from './edge.ts';
 
-export const BROWSER_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+export {
+  adminClient,
+  assertAuthorized,
+  BROWSER_UA,
+  CORS_HEADERS,
+  fetchWithTimeout,
+  json,
+} from './edge.ts';
 
 /** Yahoo answers 400 if a spark request carries more than 20 tickers. */
 export const SPARK_BATCH_SIZE = 20;
-
-export const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-sync-secret',
-  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-};
-
-/** Service-role client — bypasses RLS, so it must never be exposed to the browser. */
-export function adminClient(): SupabaseClient {
-  const url = Deno.env.get('SUPABASE_URL');
-  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!url || !key) throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set');
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-
-/**
- * Rejects unless the caller presents SYNC_SECRET. Without this anyone who knows
- * the function URL could drive unlimited outbound requests on your project.
- */
-export function assertAuthorized(req: Request): Response | null {
-  const expected = Deno.env.get('SYNC_SECRET');
-  if (!expected) {
-    return json({ error: 'SYNC_SECRET is not configured on this function' }, 500);
-  }
-  const provided = req.headers.get('x-sync-secret');
-  if (provided !== expected) {
-    return json({ error: 'unauthorized' }, 401);
-  }
-  return null;
-}
-
-export function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-  });
-}
 
 export function toNseTicker(symbol: string): string {
   return `${symbol}.NS`;
@@ -313,15 +290,4 @@ export function toNumber(value: string | null | undefined): number | null {
   if (value === null || value === undefined || value === '') return null;
   const n = Number(String(value).replace(/,/g, ''));
   return Number.isFinite(n) ? n : null;
-}
-
-/** fetch with a hard timeout, so one stalled upstream can't eat the whole budget. */
-export async function fetchWithTimeout(url: string, init: RequestInit = {}, ms = 15_000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
 }

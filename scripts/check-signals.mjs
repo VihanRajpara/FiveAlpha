@@ -451,14 +451,16 @@ for (const f of NUMERIC_FILTERS) {
 
 // matchesBands ANDs across filters and ignores unset ones.
 const row = { quote: { price: 250, changePercent: 6 } };
-assert.ok(matchesBands(row, undefined, {}), 'no selection admits everything');
-assert.ok(matchesBands(row, undefined, { price: '100_500' }));
-assert.ok(!matchesBands(row, undefined, { price: 'u100' }));
-assert.ok(matchesBands(row, undefined, { price: '100_500', dayMove: 'up5' }));
-assert.ok(!matchesBands(row, undefined, { price: 'u100', dayMove: 'up5' }), 'one failure is enough');
-// A screen-derived filter rejects a row the screen never reached.
-assert.ok(!matchesBands(row, undefined, { roce: 'o20' }));
-assert.ok(matchesBands(row, { metrics: { rocePct: 22 } }, { roce: 'o20' }));
+assert.ok(matchesBands(row, {}), 'no selection admits everything');
+assert.ok(matchesBands(row, { price: '100_500' }));
+assert.ok(!matchesBands(row, { price: 'u100' }));
+assert.ok(matchesBands(row, { price: '100_500', dayMove: 'up5' }));
+assert.ok(!matchesBands(row, { price: 'u100', dayMove: 'up5' }), 'one failure is enough');
+// Every filter now reads the quote, including the three the server precomputes.
+// A row with no figure for an active filter is rejected, not admitted.
+assert.ok(!matchesBands(row, { roce: 'o20' }), 'no ROCE on the row is not a match');
+assert.ok(matchesBands({ quote: { ...row.quote, rocePct: 22 } }, { roce: 'o20' }));
+assert.ok(!matchesBands({ quote: { ...row.quote, rocePct: 12 } }, { roce: 'o20' }));
 
 
 // --- bad ticks -------------------------------------------------------------
@@ -720,9 +722,7 @@ for (const target of [company('ANYCO'), company('ARE&M'), company('X', ['BSE'], 
   // there are two track templates to check rather than four.
   const DESKTOP = hiddenSet('DESKTOP_HIDDEN');
 
-  // `pctOfHigh` is the only column that exists solely while a screen is loaded.
-  const visible = (hidden, screening) =>
-    leaves.filter((id) => !hidden.has(id) && (screening || id !== 'pctOfHigh'));
+  const visible = (hidden) => leaves.filter((id) => !hidden.has(id));
 
   const trackCount = (selector) => {
     const i = css.indexOf(selector);
@@ -735,13 +735,11 @@ for (const target of [company('ANYCO'), company('ARE&M'), company('X', ['BSE'], 
     return decl[1].replace(/minmax\([^)]*\)/g, 'X').trim().split(/\s+/).filter(Boolean).length;
   };
 
+  // One template now. The `[data-screen='true']` variant went with the
+  // client-side screen run: the shortlist arrives from Chartink already
+  // decided, so there is no `vs 10Y high` column to widen the table for.
   for (const [name, selector, columns] of [
-    ['desktop', ".table-wrap[data-layout='desktop'] .grid-row", visible(DESKTOP, false)],
-    [
-      'desktop+screen',
-      ".table-wrap[data-layout='desktop'][data-screen='true'] .grid-row",
-      visible(DESKTOP, true),
-    ],
+    ['desktop', ".table-wrap[data-layout='desktop'] .grid-row", visible(DESKTOP)],
   ]) {
     assert.equal(
       trackCount(selector),

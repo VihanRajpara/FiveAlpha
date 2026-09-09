@@ -281,7 +281,7 @@ supabase link --project-ref YOUR-PROJECT-REF
 supabase secrets set SYNC_SECRET=$(openssl rand -hex 24)
 # edit supabase/migrations/0002_cron.sql — replace both placeholders
 supabase db push
-supabase functions deploy sync-securities sync-quotes
+supabase functions deploy sync-securities sync-quotes sync-screen
 
 BASE=https://YOUR-PROJECT-REF.supabase.co/functions/v1
 curl -X POST "$BASE/sync-securities" -H "x-sync-secret: $SECRET"
