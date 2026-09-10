@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { activeSource } from '../lib/dataSource';
 import { fetchClassification } from '../lib/classification';
 import { isMarketOpen } from '../lib/format';
+import { supabase } from '../lib/supabaseClient';
 import type { Classification, Quote, QuoteTarget, Security } from '../types';
 
 /**
@@ -13,6 +14,18 @@ import type { Classification, Quote, QuoteTarget, Security } from '../types';
  * transfers nothing.
  */
 const POLL_INTERVAL_MS = 60_000;
+
+/**
+ * How long to wait for a write burst to settle before reading.
+ *
+ * sync-quotes upserts in batches of 500 and the trigger behind
+ * `public.sync_state` stamps once per statement (migration 0015), so a run
+ * announces itself several times as its batches land. This collapses two stamps
+ * that arrive together into one read while still letting a batch a few seconds
+ * later have its own — prices appear progressively through the run rather than
+ * all at the end.
+ */
+const NUDGE_MS = 400;
 
 export interface MarketData {
   securities: Security[];
@@ -198,6 +211,19 @@ export function useMarketData(): MarketData {
    * within a minute of being stored, while four polls in five cost one empty
    * PostgREST response, because the read asks only for rows newer than the last
    * one it saw.
+   *
+   * Since migration 0015 the timer is the *fallback*: the database says when it
+   * has written and the read happens then, within a second or two rather than
+   * up to a minute. The websocket carries the announcement only — one message
+   * per write statement — and the prices still arrive over the same incremental
+   * PostgREST read. Publishing `quotes` itself would have meant ~5,200 messages
+   * a run to every open tab, to say something one message already says.
+   *
+   * The timer stays because a dropped socket must not mean a page that quietly
+   * stops updating, and its market-hours gate stays for the same reason it was
+   * right before: outside the session nothing writes, so there is provably
+   * nothing to read. A write outside those hours — a manual sync, a backfill —
+   * now reaches the page anyway, through the announcement rather than the gate.
    */
   useEffect(() => {
     if (activeSource.kind !== 'supabase' || securities.length === 0) return;
@@ -212,9 +238,41 @@ export function useMarketData(): MarketData {
     // Coming back to the tab should not wait out the rest of the interval —
     // that is exactly the moment the prices on screen are most likely stale.
     document.addEventListener('visibilitychange', poll);
+
+    // Not gated on market hours and not gated on visibility: a hidden tab still
+    // merges the delta into state so it is correct the instant it is looked at,
+    // and unlike the poll this costs nothing when nothing was written.
+    let nudge: ReturnType<typeof setTimeout> | undefined;
+
+    // `loadQuotes` drops a call that arrives while one is already running, so an
+    // announcement landing mid-read would otherwise be lost — and on a run of
+    // eleven batches the lost one could be the last, leaving the final prices
+    // unread until the next poll. Waiting and trying again costs one more timer.
+    const read = () => {
+      if (inFlight.current) {
+        nudge = setTimeout(read, NUDGE_MS);
+        return;
+      }
+      void loadQuotes(targets, true);
+    };
+
+    const channel = supabase
+      ?.channel('sync_state:quotes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sync_state', filter: 'fn=eq.quotes' },
+        () => {
+          clearTimeout(nudge);
+          nudge = setTimeout(read, NUDGE_MS);
+        },
+      )
+      .subscribe();
+
     return () => {
       clearInterval(timer);
+      clearTimeout(nudge);
       document.removeEventListener('visibilitychange', poll);
+      if (channel) void supabase?.removeChannel(channel);
     };
   }, [loadQuotes, securities]);
 
