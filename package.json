@@ -21,7 +21,9 @@
     "check:upstox": "node scripts/upstox-check.mjs",
     "check:contrast": "node scripts/check-contrast.mjs",
     "check:sheet": "node scripts/check-sheet.mjs",
-    "check:chart": "node scripts/check-chart.mjs"
+    "check:chart": "node scripts/check-chart.mjs",
+    "check:backclose": "node scripts/check-backclose.mjs",
+    "check:report": "node scripts/check-report.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

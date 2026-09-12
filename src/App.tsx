@@ -6,6 +6,7 @@ import { ThemeToggle } from './components/ThemeToggle';
 import { Filters, type FilterGroupSpec } from './components/Filters';
 import { ScreenBar } from './components/ScreenBar';
 import { WatchlistBar } from './components/WatchlistBar';
+import { WatchlistsReport } from './components/WatchlistsReport';
 import { useMarketData } from './hooks/useMarketData';
 import { useScreenMatches } from './hooks/useScreenMatches';
 import { useSignals } from './hooks/useSignals';
@@ -23,10 +24,11 @@ import {
 } from './lib/signals';
 import { ANY, NUMERIC_FILTERS, matchesBands } from './lib/filters';
 import type { User } from './lib/auth';
-import { useActiveList } from './hooks/useWatchlist';
+import { useActiveList, useWatchlists } from './hooks/useWatchlist';
+import { groupLists } from './lib/watchlistReport';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { onTabListKeys } from './hooks/useFocusTrap';
-import { toggleWatch } from './lib/watchlist';
+import { setActiveList, toggleWatch } from './lib/watchlist';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
 import { UNCLASSIFIED } from './lib/classification';
 import { compareSeries, describeSeries } from './lib/listings';
@@ -147,6 +149,12 @@ const SIGNAL_SORT_IDS = new Set(['sigSide', 'sigAt', 'sigGap', 'mapo']);
 
 type BreadthKey = 'up' | 'down' | 'flat' | 'priced';
 
+/** The sections, in the order the tab strip shows them. */
+const VIEWS = [
+  { id: 'screener', label: 'Screener', hint: 'Every listed company, filtered' },
+  { id: 'watchlist', label: 'Watchlists', hint: 'Your starred symbols, analysed and listed' },
+] as const;
+
 const BREADTH_MATCH: Record<BreadthKey, (change: number | null | undefined) => boolean> = {
   up: (c) => c != null && c > 0,
   down: (c) => c != null && c < 0,
@@ -216,9 +224,23 @@ export default function App({
    */
   const [view, setView] = useState<'screener' | 'watchlist'>('screener');
   const watchlistView = view === 'watchlist';
+  /**
+   * What the Watchlists section is showing: every list analysed, or one listed.
+   *
+   * Inside the section rather than beside it in the top strip. They are one
+   * subject — the report is *about* the lists and every card in it opens one —
+   * and a third top-level tab made that look like a third place to be. The
+   * report is where the section opens, because reading the lists is the reason
+   * to come here; picking a list from the strip is what puts a table up.
+   */
+  const [wlPane, setWlPane] = useState<'report' | 'list'>('report');
+  // A page, not a table: no filters, no breadth strip, nothing to sort.
+  const reportView = watchlistView && wlPane === 'report';
   // The list the star writes to. It lives in localStorage
   // (src/lib/watchlist.ts); nothing about it is component state.
   const active = useActiveList();
+  // Every list, not just the active one — the report is about all of them.
+  const { lists, activeId } = useWatchlists();
   // Not a closed union any more: the available series depend on which exchange
   // is selected, and BSE's group letters are data, not a list we can enumerate.
   const [series, setSeries] = useState<string>('ALL');
@@ -265,6 +287,16 @@ export default function App({
       })),
     [securities, quotes, classification, classificationReady],
   );
+
+  /**
+   * The rows by symbol, for the lookups that are not a filter.
+   *
+   * A watchlist is a list of symbols with no rows attached, so every list the
+   * report describes has to be resolved against the market one symbol at a
+   * time. Over nine thousand rows and several lists that is a scan per symbol
+   * without this.
+   */
+  const bySymbol = useMemo(() => new Map(joined.map((row) => [row.symbol, row])), [joined]);
 
   /**
    * Everything the exchange filter admits, before the other filters run.
@@ -386,7 +418,21 @@ export default function App({
     if (signalSortOn) setSorting([{ id: 'symbol', desc: false }]);
   }, [signalFilterAffordable, signalFilterOn, signalSortOn]);
 
-  const signals = useSignals(screened, (signalFilterOn || signalSortOn) && signalFilterAffordable);
+  /**
+   * Every list flattened against the market, once — see `groupLists`.
+   *
+   * Here rather than in the page because it also decides which charts get read:
+   * computing it twice would be a report describing symbols nothing fetched.
+   */
+  const grouped = useMemo(() => groupLists(lists, bySymbol), [lists, bySymbol]);
+
+  // The report needs a reading for every row it describes; the table needs one
+  // only when a filter or a sort asks. Same cache, same cap, different trigger.
+  const reportAffordable = grouped.union.length <= SIGNAL_FILTER_MAX;
+  const signals = useSignals(
+    reportView ? grouped.union : screened,
+    reportView ? reportAffordable : (signalFilterOn || signalSortOn) && signalFilterAffordable,
+  );
 
   /**
    * One description of the filters, rendered as inline chips on wide screens
@@ -651,9 +697,11 @@ export default function App({
           <span className="count num">
             {loading
               ? 'Loading…'
-              : watchlistView
-                ? `${active.name} · ${visible.length.toLocaleString('en-IN')} of ${active.symbols.length.toLocaleString('en-IN')} starred`
-                : `${listedOn} · ${visible.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} companies`}
+              : reportView
+                ? `${lists.length.toLocaleString('en-IN')} ${lists.length === 1 ? 'list' : 'lists'} · ${grouped.held.toLocaleString('en-IN')} symbols analysed`
+                : watchlistView
+                  ? `${active.name} · ${visible.length.toLocaleString('en-IN')} of ${active.symbols.length.toLocaleString('en-IN')} starred`
+                  : `${listedOn} · ${visible.length.toLocaleString('en-IN')} of ${securities.length.toLocaleString('en-IN')} companies`}
           </span>
         </div>
 
@@ -729,35 +777,30 @@ export default function App({
           aria-label="Sections"
           onKeyDown={onTabListKeys}
         >
-          <button
-            type="button"
-            role="tab"
-            // Roving: one tab stop for the pair, arrows between them. Two stops
-            // for two tabs is what `role="tab"` exists to avoid.
-            tabIndex={watchlistView ? -1 : 0}
-            data-active={!watchlistView}
-            aria-selected={!watchlistView}
-            onClick={() => setView('screener')}
-          >
-            Screener
-          </button>
-          <button
-            type="button"
-            role="tab"
-            tabIndex={watchlistView ? 0 : -1}
-            data-active={watchlistView}
-            aria-selected={watchlistView}
-            onClick={() => setView('watchlist')}
-            title="Your starred symbols, in named lists"
-          >
-            Watchlists
-            {active.symbols.length > 0 && (
-              <span className="viewnav-count num">{active.symbols.length}</span>
-            )}
-          </button>
+          {VIEWS.map(({ id, label, hint }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              // Roving: one tab stop for the set, arrows between them. One stop
+              // per tab is what `role="tab"` exists to avoid.
+              tabIndex={view === id ? 0 : -1}
+              data-active={view === id}
+              aria-selected={view === id}
+              onClick={() => setView(id)}
+              title={hint}
+            >
+              {label}
+              {id === 'watchlist' && active.symbols.length > 0 && (
+                <span className="viewnav-count num">{active.symbols.length}</span>
+              )}
+            </button>
+          ))}
         </nav>
 
-        <Filters groups={filterGroups} advanced={advancedGroups} resultCount={visible.length} />
+        {!reportView && (
+          <Filters groups={filterGroups} advanced={advancedGroups} resultCount={visible.length} />
+        )}
         {/* Without this the table looks like it is losing rows: a signal filter
             excludes rows whose signal has not arrived, and they arrive over a
             few seconds. */}
@@ -772,7 +815,7 @@ export default function App({
           table underneath is showing. A screen in one section, a list in the
           other. */}
       {watchlistView ? (
-        <WatchlistBar shown={visible.length} />
+        <WatchlistBar shown={visible.length} pane={wlPane} onPane={setWlPane} />
       ) : (
         <ScreenBar
           screen={ALL_TIME_HIGH_BREAKOUT}
@@ -784,7 +827,9 @@ export default function App({
       )}
 
       {/* Breadth across whatever the current filter selects — the closest thing
-          this dataset has to a market summary. */}
+          this dataset has to a market summary. The report page states its own,
+          per list, and has no table for these to filter. */}
+      {!reportView && (
       <section className="summary" aria-label="Market breadth">
         {(
           [
@@ -814,7 +859,26 @@ export default function App({
           </button>
         ))}
       </section>
+      )}
 
+      {reportView ? (
+        <WatchlistsReport
+          lists={lists}
+          activeId={activeId}
+          grouped={grouped}
+          bySymbol={bySymbol}
+          matchSymbols={screenMatches.symbols}
+          version={signals.version}
+          pending={signals.pending}
+          affordable={reportAffordable}
+          loading={loading}
+          onOpenList={(id) => {
+            setActiveList(id);
+            setWlPane('list');
+          }}
+          onSelect={setSelected}
+        />
+      ) : (
       <main className="content">
         <div className="card">
           {loading ? (
@@ -868,6 +932,7 @@ export default function App({
           )}
         </div>
       </main>
+      )}
 
       {/* Source and market state are status, not filters — they live beside the
           other provenance rather than competing with the filter chips. */}

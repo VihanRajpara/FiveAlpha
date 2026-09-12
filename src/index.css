@@ -940,6 +940,350 @@ body {
   color: var(--on-surface-faint);
 }
 
+/* ---------- watchlist report page ---------- */
+
+/**
+ * A page rather than a panel: no filters above it, no table under it, and its
+ * own scroll inside the shell's own. `.app` is `min-height`, so this simply
+ * grows and the document scrolls — the table's fixed-height dance does not
+ * apply to a block that has no virtualised list in it.
+ */
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px var(--gutter) 24px;
+}
+
+.report-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.report-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(17px, 2.2vw, 20px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.report-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.report-sub b {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--on-surface);
+}
+
+/* Section heads, not page heads — the same small-caps label the tiles and
+   panels use, so the page reads as one object rather than four. */
+.report-h {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+
+.report-empty {
+  padding: 48px 0;
+}
+
+/* ---- the roll-up tiles ---- */
+
+.mis-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 10px;
+}
+
+/* Borrows `.stat` for the type scale and nothing else: these state a figure,
+   they do not filter anything, so the press and hover affordances the breadth
+   tiles carry would be promising a click that does nothing. */
+.mis-tile {
+  cursor: default;
+  transition: none;
+}
+
+.mis-tile:active {
+  transform: none;
+}
+
+/* ---- one card per list ---- */
+
+/**
+ * Cards rather than a table with a row per list.
+ *
+ * A comparison of eight figures across four lists is a table on a desktop and
+ * a horizontal scroll bar on a phone, and the figures that matter would be the
+ * ones off the right edge. Cards reflow, and the one number people came for —
+ * how the list did today — can be the size it deserves.
+ */
+.report-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.lcard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px 13px;
+  background: var(--surface);
+  border: 1px solid var(--outline-faint);
+  border-radius: var(--r-lg);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease-out),
+    background var(--t-fast) var(--ease-out), transform var(--t-press) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .lcard:hover {
+    border-color: var(--outline);
+    background: var(--surface-hover);
+  }
+}
+
+.lcard:active {
+  transform: scale(0.99);
+}
+
+.lcard-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lcard-name {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Which list the star still writes to — the one fact about a list that is not
+   a number. */
+.lcard-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: var(--primary-container);
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.lcard-move {
+  font-family: var(--font-mono);
+  font-size: clamp(19px, 2.4vw, 23px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.lcard-meta {
+  font-size: 11px;
+  color: var(--on-surface-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Four label/figure pairs on one line each, on a track that does not care how
+   many there are. */
+.lcard-figs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px 10px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--outline-faint);
+}
+
+.lcard-figs > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.lcard-figs i {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+
+.lcard-figs b {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- the detail panels ---- */
+
+.mis-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.mis-panel {
+  background: var(--surface);
+  border: 1px solid var(--outline-faint);
+  border-radius: var(--r-lg);
+  padding: 10px 12px 12px;
+}
+
+.mis-panel-title,
+.mis-sub {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+
+.mis-sub {
+  margin-bottom: 4px;
+}
+
+/* Up and down side by side rather than stacked: the pair is a comparison, and
+   two columns is what makes it one. */
+.mis-movers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.mis-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Every row here opens the drawer, so every row is a button — the panels are a
+   shortcut into the table, not a picture of it. */
+.mis-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  button.mis-row:hover {
+    background: var(--surface-hover);
+  }
+}
+
+.mis-sym {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  /* Truncates rather than wraps: a two-line symbol would break the row rhythm
+     the panel is scanned by. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Which list the symbol came from. The whole point of an all-lists page is
+   that a name here has an origin, and it is the first thing you want after the
+   ticker. */
+.mis-tag {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--on-surface-faint);
+}
+
+/* Why the row is listed. Tinted only where the reason is directional — a
+   crossed stop is red, a high is green, and "stretched" is neither. */
+.mis-reason {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+
+.mis-reason.up {
+  background: var(--up-container);
+  color: var(--up);
+}
+
+.mis-reason.down {
+  background: var(--down-container);
+  color: var(--down);
+}
+
+.mis-chg {
+  flex: none;
+  margin-left: auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The reason already took the auto margin, so the figure sits against it. */
+.mis-reason + .mis-chg {
+  margin-left: 0;
+  min-width: 58px;
+  text-align: right;
+}
+
+.mis-empty {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--on-surface-faint);
+}
+
+.mis-comp {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mis-comp b {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
 /* ---------- table card ---------- */
 
 /**
@@ -4020,6 +4364,35 @@ body {
     border-radius: 10px;
   }
 
+  .report {
+    gap: 14px;
+    padding: 12px var(--gutter) 20px;
+  }
+
+  .mis-tiles {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  /* One list per line. Two 240px cards on a 360px screen is a name truncated
+     to three letters, which loses the only thing telling them apart. */
+  .report-lists {
+    grid-template-columns: 1fr;
+  }
+
+  /* One panel per line, for the same reason — side by side they are columns of
+     truncated symbols, which is the one thing these panels must not be. */
+  .mis-panels {
+    grid-template-columns: 1fr;
+  }
+
+  /* The list tag is the first thing to go: the reason chip and the figure are
+     why the row is listed, the origin is context. */
+  .mis-reason ~ .mis-tag,
+  .mis-tag:has(~ .mis-reason) {
+    display: none;
+  }
+
   /* A phone goes further than the shared shell above: rather than an
      internally-scrolling panel with a floor under it, the list runs at its
      natural length inside the page's own scroll, and the sort bar and pager
@@ -4698,6 +5071,24 @@ body {
   font-size: 11px;
   font-weight: 700;
   opacity: 0.75;
+}
+
+/* Not one of the lists but all of them, so it is set off from the run rather
+   than sitting in it — a hairline, because a second colour here would compete
+   with the accent that marks which list the star writes to. */
+.wl-report {
+  position: relative;
+  margin-right: 11px;
+}
+
+.wl-report::after {
+  content: '';
+  position: absolute;
+  right: -6px;
+  top: 5px;
+  bottom: 5px;
+  width: 1px;
+  background: var(--outline-faint);
 }
 
 .wl-new {

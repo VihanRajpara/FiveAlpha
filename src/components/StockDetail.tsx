@@ -7,6 +7,7 @@ import type { ChartRange, Classification, Quote, Security } from '../types';
 import { useSignal } from '../hooks/useSignal';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { useClosing } from '../hooks/useClosing';
+import { useBackClose } from '../hooks/useBackClose';
 import { useSheetDrag } from '../hooks/useSheetDrag';
 import { WatchPicker } from './WatchPicker';
 import {
@@ -254,6 +255,9 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
     };
   }, [full]);
 
+  // Back leaves the chart before it leaves the panel — same level Escape does.
+  useBackClose(full, () => setFull(false));
+
   // A panel that changes subject underneath an open chart would strand it.
   useEffect(() => setFull(false), [security.symbol]);
   const [loading, setLoading] = useState(true);
@@ -275,6 +279,10 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
   // Every way out routes through `close` rather than `onClose`, so the panel
   // leaves the way it arrived instead of blinking out. See useClosing.
   const { closing, close } = useClosing(true, onClose);
+
+  // Installed on a phone, back is the only back there is: it dismisses the
+  // panel rather than the whole app. See useBackClose.
+  useBackClose(true, close);
 
   const scrimRef = useRef<HTMLDivElement>(null);
   const isPhone = useMediaQuery('(max-width: 700px)');
