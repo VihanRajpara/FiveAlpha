@@ -23,7 +23,14 @@ import { onTabListKeys } from '../hooks/useFocusTrap';
 /** The actions menu's heading and padding — see `PopMenu`. */
 const MORE_CHROME = 48;
 
-export function WatchlistBar({ shown }: { shown: number }) {
+interface Props {
+  shown: number;
+  /** Which half of the section is up: every list analysed, or one list listed. */
+  pane: 'report' | 'list';
+  onPane: (pane: 'report' | 'list') => void;
+}
+
+export function WatchlistBar({ shown, pane, onPane }: Props) {
   const { lists, activeId } = useWatchlists();
   const active = lists.find((l) => l.id === activeId) ?? lists[0];
 
@@ -60,27 +67,52 @@ export function WatchlistBar({ shown }: { shown: number }) {
         <span className="filter-label">Watchlists</span>
 
         <div className="wl-tabs" role="tablist" aria-label="Watchlists" onKeyDown={onTabListKeys}>
-          {lists.map((list) => (
-            <button
-              key={list.id}
-              type="button"
-              role="tab"
-              className="wl-tab"
-              tabIndex={list.id === activeId ? 0 : -1}
-              aria-selected={list.id === activeId}
-              data-active={list.id === activeId}
-              onClick={() => setActiveList(list.id)}
-              onDoubleClick={() => list.id === activeId && startRename()}
-              title={
-                list.id === activeId
-                  ? 'The list the star adds to — double-click to rename'
-                  : `Switch to ${list.name}`
-              }
-            >
-              {list.name}
-              <span className="wl-tab-count num">{list.symbols.length}</span>
-            </button>
-          ))}
+          {/* At the head of the strip rather than in the run of it: this is not
+              one of the lists, it is all of them. */}
+          <button
+            type="button"
+            role="tab"
+            className="wl-tab wl-report"
+            tabIndex={pane === 'report' ? 0 : -1}
+            aria-selected={pane === 'report'}
+            data-active={pane === 'report'}
+            onClick={() => onPane('report')}
+            title="Every list, analysed on one page"
+          >
+            Report
+            <span className="wl-tab-count num">{lists.length}</span>
+          </button>
+
+          {lists.map((list) => {
+            const on = pane === 'list' && list.id === activeId;
+            return (
+              <button
+                key={list.id}
+                type="button"
+                role="tab"
+                className="wl-tab"
+                tabIndex={on ? 0 : -1}
+                aria-selected={on}
+                data-active={on}
+                // Picking a list is also how you leave the report — the card for
+                // it there does exactly this, and the strip should not need a
+                // second click to agree.
+                onClick={() => {
+                  setActiveList(list.id);
+                  onPane('list');
+                }}
+                onDoubleClick={() => list.id === activeId && startRename()}
+                title={
+                  list.id === activeId
+                    ? 'The list the star adds to — double-click to rename'
+                    : `Switch to ${list.name}`
+                }
+              >
+                {list.name}
+                <span className="wl-tab-count num">{list.symbols.length}</span>
+              </button>
+            );
+          })}
 
           {editing === null && (
             <button type="button" className="wl-tab wl-new" onClick={startNew} title="New watchlist">
@@ -188,7 +220,7 @@ export function WatchlistBar({ shown }: { shown: number }) {
         </div>
       </div>
 
-      {active.symbols.length === 0 ? (
+      {pane === 'report' ? null : active.symbols.length === 0 ? (
         <p className="screen-note">
           Nothing in <b>{active.name}</b> yet. Star a row anywhere in the app — in Screener, or in
           a company drawer, or with <kbd>w</kbd> while one is open — and it lands in whichever list
