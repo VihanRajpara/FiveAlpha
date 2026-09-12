@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useBackClose } from '../hooks/useBackClose';
 
 export interface MenuOption {
   value: string;
@@ -37,6 +38,8 @@ const MAX_MENU_H = 320;
  */
 export function SelectMenu({ id, value, options, onChange, ariaLabel, minMenuWidth = 200 }: Props) {
   const [open, setOpen] = useState(false);
+  // Back closes the list rather than the app. See useBackClose.
+  useBackClose(open, close);
   const [active, setActive] = useState(0);
   const [pos, setPos] = useState<{
     left: number;

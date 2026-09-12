@@ -4,6 +4,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { SelectMenu } from './SelectMenu';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { useClosing } from '../hooks/useClosing';
+import { useBackClose } from '../hooks/useBackClose';
 
 export interface FilterOption {
   value: string;
@@ -118,6 +119,9 @@ export function Filters({ groups, advanced = [], resultCount }: Props) {
   // Stable, so the Escape listener below is not torn down every render.
   const hide = useCallback(() => setOpen(false), []);
   const { closing, close } = useClosing(open, hide);
+
+  // On a phone the sheet is the screen, so back should shut it, not the app.
+  useBackClose(open, close);
 
   useEffect(() => {
     if (!open) return;

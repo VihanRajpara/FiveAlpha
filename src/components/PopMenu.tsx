@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useBackClose } from '../hooks/useBackClose';
 
 /**
  * A menu anchored to a button, portalled to `<body>`.
@@ -111,6 +112,10 @@ export function PopMenu({
   children,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Mounted only while open, so back dismisses the menu the way an outside
+  // click does — on a phone it is the gesture people reach for first.
+  useBackClose(true, onClose);
 
   // Placed on the first render rather than in an effect: the trigger is already
   // mounted (this component only exists while the menu is open), so there is
