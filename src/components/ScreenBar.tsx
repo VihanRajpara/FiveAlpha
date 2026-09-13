@@ -34,25 +34,26 @@ export function ScreenBar({ screen, matches, shown, matchesOnly, onMatchesOnlyCh
   return (
     <div className="screenbar">
       <div className="screenbar-row">
-        <a
-          className="screen-source"
-          href={screen.source}
-          target="_blank"
-          rel="noreferrer noopener"
-          title={`Chartink runs: ${screen.clause}`}
-        >
-          {screen.name}
-        </a>
-
         {matches.loading && total === 0 ? (
           <span className="screen-phase">Reading the screen…</span>
         ) : (
           <>
             <div className="screen-results">
-              <span className="screen-count" title="Symbols the Chartink screen currently returns">
+              {/* The count is the link now. The screen's name used to stand
+                  above this row as a heading and took a whole line to say what
+                  the number already implies — but a shortlist taken from
+                  somewhere else still has to be one click from being checked,
+                  so the link moved onto the figure rather than going with it. */}
+              <a
+                className="screen-count"
+                href={screen.source}
+                target="_blank"
+                rel="noreferrer noopener"
+                title={`${screen.name} — symbols the Chartink screen currently returns. Opens the screen: ${screen.clause}`}
+              >
                 <span className="dot" />
                 <b>{total.toLocaleString('en-IN')}</b> match
-              </span>
+              </a>
               {hidden > 0 && (
                 <span title="Matches not in the current table — filtered out here, or not in this app’s NSE/BSE list">
                   <b>{hidden.toLocaleString('en-IN')}</b> not shown
@@ -63,6 +64,7 @@ export function ScreenBar({ screen, matches, shown, matchesOnly, onMatchesOnlyCh
                   must not word it differently. */}
               {matches.fetchedAt && (
                 <span
+                  className="screen-age"
                   title={`Scraped from Chartink ${formatIstDateTime(matches.fetchedAt)} IST · refreshed every 5 minutes through the session`}
                 >
                   {formatAge(matches.fetchedAt)}
@@ -91,14 +93,32 @@ export function ScreenBar({ screen, matches, shown, matchesOnly, onMatchesOnlyCh
               </button>
             </div>
 
+            {/* Icon *and* label, so the label is what gives way on a phone
+                rather than the button. `aria-label` carries it either way. */}
             <button
               type="button"
-              className="btn ghost"
+              className="btn ghost screen-refresh"
               onClick={matches.refresh}
               disabled={matches.loading}
+              aria-label={matches.loading ? 'Refreshing the screen list' : 'Refresh the screen list'}
               title="Re-read the list. It is rescraped from Chartink every five minutes during the session, so this only picks up a newer one."
             >
-              {matches.loading ? 'Refreshing…' : 'Refresh'}
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                aria-hidden
+              >
+                <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+                <path d="M20 4v7h-7" />
+              </svg>
+              <span className="screen-refresh-label">
+                {matches.loading ? 'Refreshing…' : 'Refresh'}
+              </span>
             </button>
           </>
         )}

@@ -18,11 +18,13 @@ import {
   MAPO_MID,
   matchesSignalFilter,
   peekMapo,
+  peekReading,
   peekSignal,
   signalFilterIsEmpty,
   type SignalFilter,
 } from './lib/signals';
 import { ANY, NUMERIC_FILTERS, matchesBands } from './lib/filters';
+import { matchesRules, rulesNeedSignals, type Rule } from './lib/rules';
 import type { User } from './lib/auth';
 import { useActiveList, useWatchlists } from './hooks/useWatchlist';
 import { groupLists } from './lib/watchlistReport';
@@ -147,7 +149,49 @@ const SIGNAL_MAPO_OPTIONS = [
 /** The signal columns, which sort off the same fetched cache the filters use. */
 const SIGNAL_SORT_IDS = new Set(['sigSide', 'sigAt', 'sigGap', 'mapo']);
 
-type BreadthKey = 'up' | 'down' | 'flat' | 'priced';
+type BreadthKey = 'up' | 'down' | 'flat' | 'priced' | 'buy' | 'sell';
+
+/**
+ * The summary strip, as data.
+ *
+ * Four of these read the day's change and two read the UT Bot's latest flip,
+ * which is the whole difference between them: the price is on every row the
+ * moment it loads, and the flip costs that symbol's chart. So the signal tiles
+ * count what has been read rather than what exists, say so underneath, and
+ * start the read when one of them is used — the same bargain the signal columns
+ * and the conditions make.
+ */
+interface BreadthTile {
+  key: BreadthKey;
+  label: string;
+  tone: '' | 'up' | 'down';
+  /** True when the figure needs the symbol's chart. */
+  signal?: boolean;
+  title: string;
+}
+
+const BREADTH_TILES: BreadthTile[] = [
+  { key: 'up', label: 'Advancing', tone: 'up', title: 'Shares up on the day' },
+  { key: 'down', label: 'Declining', tone: 'down', title: 'Shares down on the day' },
+  { key: 'flat', label: 'Unchanged', tone: '', title: 'Shares that closed flat' },
+  { key: 'priced', label: 'Priced', tone: '', title: 'Rows carrying a price at all' },
+  {
+    key: 'buy',
+    label: 'Buy',
+    tone: 'up',
+    signal: true,
+    title:
+      "Symbols whose latest UT Bot flip is a BUY. Counted over the charts read so far — clicking this reads the rest of the list, once a day.",
+  },
+  {
+    key: 'sell',
+    label: 'Sell',
+    tone: 'down',
+    signal: true,
+    title:
+      "Symbols whose latest UT Bot flip is a SELL. Counted over the charts read so far — clicking this reads the rest of the list, once a day.",
+  },
+];
 
 /** The sections, in the order the tab strip shows them. */
 const VIEWS = [
@@ -155,11 +199,30 @@ const VIEWS = [
   { id: 'watchlist', label: 'Watchlists', hint: 'Your starred symbols, analysed and listed' },
 ] as const;
 
-const BREADTH_MATCH: Record<BreadthKey, (change: number | null | undefined) => boolean> = {
-  up: (c) => c != null && c > 0,
-  down: (c) => c != null && c < 0,
-  flat: (c) => c === 0,
-  priced: (c) => c != null,
+const change = (row: SecurityWithQuote): number | null => row.quote?.change ?? null;
+
+/**
+ * What each tile counts, and what clicking it shows. One definition for both.
+ *
+ * Takes the row rather than the change, because two of the six are properties
+ * of the signal rather than of the price. And it is the *only* definition: the
+ * strip used to count with a hand-rolled branch chain and filter with these,
+ * which is two statements of one rule and a tile whose figure can disagree with
+ * the list it opens.
+ */
+const BREADTH_MATCH: Record<BreadthKey, (row: SecurityWithQuote) => boolean> = {
+  up: (r) => {
+    const c = change(r);
+    return c !== null && c > 0;
+  },
+  down: (r) => {
+    const c = change(r);
+    return c !== null && c < 0;
+  },
+  flat: (r) => change(r) === 0,
+  priced: (r) => change(r) !== null,
+  buy: (r) => peekSignal(r.ticker)?.side === 'BUY',
+  sell: (r) => peekSignal(r.ticker)?.side === 'SELL',
 };
 
 /**
@@ -265,6 +328,15 @@ export default function App({
   // than a `useState` each: they are all the same shape, and adding the next
   // one should be a row of data, not another hook.
   const [bands, setBands] = useState<Record<string, string>>({});
+  /**
+   * Free-form conditions, ANDed on top of everything above — see `lib/rules.ts`.
+   *
+   * The bands are the questions worth a preset; this is every other one. Kept
+   * as a list rather than folded into `bands` because two rules can name the
+   * same column ("gap ≥ 4 and gap ≤ 9" is one band, but "day move ≥ 2 and RSI
+   * ≤ 70" is two rows on two columns) and a map keyed by column cannot hold it.
+   */
+  const [rules, setRules] = useState<Rule[]>([]);
 
   // The screen's answer, scraped from Chartink every five minutes and read from
   // Supabase — see useScreenMatches. It is a table read, so it is available on
@@ -402,6 +474,12 @@ export default function App({
   );
 
   const bandFilterOn = Object.values(bands).some((v) => v !== ANY);
+  // A rule on a signal column is a chart request per row, exactly like the
+  // signal filters above it, so it starts the same bulk read.
+  const rulesSignal = useMemo(() => rulesNeedSignals(rules), [rules]);
+  // Same bargain for the Buy and Sell tiles: they count flips, so using one as
+  // a filter is what pays for the list to be read.
+  const breadthSignal = breadthFilter === 'buy' || breadthFilter === 'sell';
   const signalFilterOn = !signalFilterIsEmpty(signal);
   const signalFilterAffordable = screened.length <= SIGNAL_FILTER_MAX;
   // Sorting on a signal column needs every row's signal for the same reason
@@ -429,9 +507,20 @@ export default function App({
   // The report needs a reading for every row it describes; the table needs one
   // only when a filter or a sort asks. Same cache, same cap, different trigger.
   const reportAffordable = grouped.union.length <= SIGNAL_FILTER_MAX;
+  /**
+   * Which lists get read without being asked.
+   *
+   * A watchlist does, because it is a few dozen symbols and the Buy/Sell tiles
+   * above it are dead without them. The screener does not: it is thousands of
+   * charts, and nothing there reads until a sort, a condition or one of those
+   * two tiles says it should.
+   */
   const signals = useSignals(
     reportView ? grouped.union : screened,
-    reportView ? reportAffordable : (signalFilterOn || signalSortOn) && signalFilterAffordable,
+    reportView
+      ? reportAffordable
+      : (signalFilterOn || signalSortOn || rulesSignal || breadthSignal || watchlistView) &&
+        signalFilterAffordable,
   );
 
   /**
@@ -448,6 +537,7 @@ export default function App({
       // that vanishes reads as a bug, one that is disabled reads as a reason.
       {
         key: 'signalSide',
+        section: 'Signal',
         label: 'Signal',
         value: signal.side,
         disabled: !signalFilterAffordable,
@@ -456,6 +546,7 @@ export default function App({
       },
       {
         key: 'signalAge',
+        section: 'Signal',
         label: 'Signal age',
         value: signal.age,
         disabled: !signalFilterAffordable,
@@ -464,6 +555,7 @@ export default function App({
       },
       {
         key: 'signalGap',
+        section: 'Signal',
         label: 'From signal',
         value: signal.gap,
         disabled: !signalFilterAffordable,
@@ -472,6 +564,7 @@ export default function App({
       },
       {
         key: 'signalScore',
+        section: 'Signal',
         label: 'Signal quality',
         value: signal.score ?? 'ALL',
         disabled: !signalFilterAffordable,
@@ -480,6 +573,7 @@ export default function App({
       },
       {
         key: 'signalMapo',
+        section: 'Signal',
         label: 'MAPO',
         value: signal.mapo ?? 'ALL',
         disabled: !signalFilterAffordable,
@@ -495,6 +589,7 @@ export default function App({
         : [
           {
             key: 'exchange',
+            section: 'Universe',
             label: 'Exchange',
             value: exchange,
             options: EXCHANGE_FILTERS.map((e) => ({
@@ -506,6 +601,7 @@ export default function App({
           },
           {
             key: 'series',
+            section: 'Universe',
             label: 'Series',
             value: series,
             options: seriesOptions,
@@ -516,6 +612,7 @@ export default function App({
           // like the app had lost the data.
           {
             key: 'segment',
+            section: 'Universe',
             label: 'Segment',
             value: segment,
             disabled: !classificationReady,
@@ -528,6 +625,7 @@ export default function App({
           },
           {
             key: 'cap',
+            section: 'Universe',
             label: 'Cap',
             value: cap,
             disabled: !classificationReady,
@@ -559,6 +657,9 @@ export default function App({
       NUMERIC_FILTERS.map((f) => ({
         key: f.key,
         label: f.label,
+        // One heading for all five: they are the same question — is this number
+        // inside this range — asked of five different columns.
+        section: 'Numbers',
         value: bands[f.key] ?? ANY,
         options: f.bands.map((b) => ({ value: b.value, label: b.label, hint: b.hint })),
         onChange: (v: string) => setBands((prev) => ({ ...prev, [f.key]: v })),
@@ -567,27 +668,34 @@ export default function App({
   );
 
   const breadth = useMemo(() => {
-    let up = 0;
-    let down = 0;
-    let flat = 0;
+    const count: Record<BreadthKey, number> = { up: 0, down: 0, flat: 0, priced: 0, buy: 0, sell: 0 };
+    /** Charts read so far — the denominator the two signal tiles are counted over. */
+    let read = 0;
     for (const row of screened) {
-      const c = row.quote?.change;
-      if (c === null || c === undefined) continue;
-      if (c > 0) up++;
-      else if (c < 0) down++;
-      else flat++;
+      // Through the same predicates the filter uses, so a tile's figure and the
+      // list it opens cannot disagree. Six calls a row against one branch chain,
+      // which on the whole market is a few milliseconds and one fewer rule to
+      // keep in step.
+      for (const tile of BREADTH_TILES) if (BREADTH_MATCH[tile.key](row)) count[tile.key]++;
+      if (peekReading(row.ticker) !== undefined) read++;
     }
-    return { up, down, flat, priced: up + down + flat };
-  }, [screened]);
+    return { ...count, read };
+    // `signals.version` is what brings us back as readings land — they live in
+    // a module cache, so nothing about `screened` changes when one arrives.
+  }, [screened, signals.version]);
 
   /** What the table shows: breadth tile and signal filters applied on top. */
   const visible = useMemo(() => {
-    let out = breadthFilter
-      ? screened.filter((row) => BREADTH_MATCH[breadthFilter](row.quote?.change))
-      : screened;
+    let out = breadthFilter ? screened.filter(BREADTH_MATCH[breadthFilter]) : screened;
 
     if (bandFilterOn) {
       out = out.filter((row) => matchesBands(row, bands));
+    }
+
+    // After the bands and before the signal presets: the rules are the finest
+    // cut, so they run on the smallest list the cheaper filters leave.
+    if (rules.length > 0) {
+      out = out.filter((row) => matchesRules(row, rules, peekReading));
     }
 
     if (signalFilterOn) {
@@ -608,6 +716,7 @@ export default function App({
     breadthFilter,
     bandFilterOn,
     bands,
+    rules,
     signalFilterOn,
     signalSortOn,
     signal,
@@ -799,16 +908,46 @@ export default function App({
         </nav>
 
         {!reportView && (
-          <Filters groups={filterGroups} advanced={advancedGroups} resultCount={visible.length} />
+          <Filters
+            groups={filterGroups}
+            advanced={advancedGroups}
+            rules={rules}
+            onRulesChange={setRules}
+            resultCount={visible.length}
+          />
         )}
         {/* Without this the table looks like it is losing rows: a signal filter
-            excludes rows whose signal has not arrived, and they arrive over a
-            few seconds. */}
-        {signals.pending > 0 && (
+            excludes rows whose signal has not arrived. On a screen's shortlist
+            that is a few seconds; on "All" it is a few thousand charts, so the
+            note states the whole job rather than only what is left of it — and
+            says what could not be read, because a blank cell nobody explained
+            reads as "no signal" rather than "not fetched". */}
+        {signals.pending > 0 ? (
           <span className="subbar-note num">
-            Reading signals · {signals.pending.toLocaleString('en-IN')} left
+            Reading signals · {(signals.total - signals.pending).toLocaleString('en-IN')} of{' '}
+            {signals.total.toLocaleString('en-IN')}
+            {signals.failed > 0 && ` · ${signals.failed.toLocaleString('en-IN')} unreadable`}
           </span>
-        )}
+        ) : signals.unavailable + signals.failed > 0 ? (
+          // Stated against the list, not against the last retry pass. Failures
+          // are re-asked, so once everything readable is read the pass is *only*
+          // the leftovers — and "377 of 377 couldn't be read" reads as a total
+          // failure when 5,323 of 5,700 had just been read fine.
+          <span
+            className="subbar-note"
+            title={[
+              signals.unavailable > 0 &&
+                `${signals.unavailable.toLocaleString('en-IN')} have no chart on Yahoo — mostly NSE Emerge and BSE-only scrips. That is an answer, not a fault, and it is not asked again today.`,
+              signals.failed > 0 &&
+                `${signals.failed.toLocaleString('en-IN')} errored and are not cached, so sorting again asks for them.`,
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
+            {(signals.unavailable + signals.failed).toLocaleString('en-IN')} of{' '}
+            {screened.length.toLocaleString('en-IN')} have no signal
+          </span>
+        ) : null}
       </div>
 
       {/* Same slot, because it is the same job: the thing that decides what the
@@ -831,33 +970,30 @@ export default function App({
           per list, and has no table for these to filter. */}
       {!reportView && (
       <section className="summary" aria-label="Market breadth">
-        {(
-          [
-            ['up', 'Advancing', breadth.up, 'up', pct(breadth.up)],
-            ['down', 'Declining', breadth.down, 'down', pct(breadth.down)],
-            ['flat', 'Unchanged', breadth.flat, '', pct(breadth.flat)],
-            [
-              'priced',
-              'Priced',
-              breadth.priced,
-              '',
-              `of ${screened.length.toLocaleString('en-IN')} shown`,
-            ],
-          ] as [BreadthKey, string, number, string, string][]
-        ).map(([key, label, value, tone, sub]) => (
-          <button
-            key={key}
-            type="button"
-            className={`stat${breadthFilter === key ? ' active' : ''}`}
-            aria-pressed={breadthFilter === key}
-            title={`Show only ${label.toLowerCase()} shares`}
-            onClick={() => setBreadthFilter((f) => (f === key ? null : key))}
-          >
-            <div className="stat-label">{label}</div>
-            <div className={`stat-value num ${tone}`}>{value.toLocaleString('en-IN')}</div>
-            <div className="stat-sub">{sub}</div>
-          </button>
-        ))}
+        {BREADTH_TILES.map((tile) => {
+          const value = breadth[tile.key];
+          const sub = tile.signal
+            ? breadth.read === 0
+              ? 'click to read charts'
+              : `of ${breadth.read.toLocaleString('en-IN')} read`
+            : tile.key === 'priced'
+              ? `of ${screened.length.toLocaleString('en-IN')} shown`
+              : pct(value);
+          return (
+            <button
+              key={tile.key}
+              type="button"
+              className={`stat${breadthFilter === tile.key ? ' active' : ''}`}
+              aria-pressed={breadthFilter === tile.key}
+              title={`${tile.title}. Click to show only these.`}
+              onClick={() => setBreadthFilter((f) => (f === tile.key ? null : tile.key))}
+            >
+              <div className="stat-label">{tile.label}</div>
+              <div className={`stat-value num ${tile.tone}`}>{value.toLocaleString('en-IN')}</div>
+              <div className="stat-sub">{sub}</div>
+            </button>
+          );
+        })}
       </section>
       )}
 

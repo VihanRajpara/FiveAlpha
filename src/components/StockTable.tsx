@@ -27,7 +27,6 @@ import {
   formatVolume,
 } from '../lib/format';
 import {
-  SIGNAL_FILTER_MAX,
   MAPO,
   MAPO_HIGH,
   MAPO_LOW,
@@ -1152,9 +1151,11 @@ export function StockTable({
                     title={
                       sortable
                         ? `Sort by ${String(header.column.columnDef.header)}`
-                        : // The group heading, and the signal columns while the
-                          // list is too long to have fetched all of them.
-                          `UT Bot on close, daily bars — sorts on lists of ${SIGNAL_FILTER_MAX} rows or fewer`
+                        : // The group heading. Sorting a signal column reads a
+                          // chart per row, so the heading says the price of the
+                          // click before it is made — it is cached for the day
+                          // afterwards, and the bar above narrates the pass.
+                          'UT Bot on close, daily bars — sorting reads one chart per row, once a day'
                     }
                   >
                     {flexRender(header.column.columnDef.header, header.getContext())}

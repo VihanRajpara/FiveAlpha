@@ -292,11 +292,26 @@ export const SIGNAL_GAP_BANDS: Record<string, [number, number]> = {
  *
  * A signal is one chart request per symbol, so filtering or sorting on one has
  * to fetch the whole list rather than the page on screen — see `useSignals`.
- * Past this many rows that is a fetch storm, and the controls disable
- * themselves rather than start one: narrow the list with a screen or the other
- * filters first.
+ * This used to be 400, which disabled the signal columns on every view wider
+ * than a screen's shortlist — including "All", where sorting by Gap is the
+ * obvious thing to want and the control was simply grey.
+ *
+ * Three things make the whole list affordable, and none of them were true when
+ * the number was set:
+ *   · Nothing runs until the user sorts or filters on a signal column. The
+ *     default order is by symbol and costs no request at all.
+ *   · Answers are kept for the trading day (`store` below) and the proxy caches
+ *     upstream on top of that, so a full pass is paid once a day, not per sort.
+ *   · `createGate(8)` holds it to eight in flight however long the list is, and
+ *     the table re-sorts as answers land rather than waiting for the last one.
+ *
+ * So the cap is now the whole universe rather than a shortlist: it exists to
+ * stop an unbounded list, not to stop a large one. It is still a real fetch —
+ * a full pass over both exchanges is thousands of requests and some of them
+ * will fail — which is why `useSignals` counts what it could not read and the
+ * bar says so.
  */
-export const SIGNAL_FILTER_MAX = 400;
+export const SIGNAL_FILTER_MAX = 6000;
 
 /** Filter presets: minimum `score`. */
 export const SIGNAL_SCORE_MIN: Record<string, number> = { '60': 60, '75': 75 };

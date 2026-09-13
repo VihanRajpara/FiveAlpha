@@ -5,6 +5,8 @@ import { SelectMenu } from './SelectMenu';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { useClosing } from '../hooks/useClosing';
 import { useBackClose } from '../hooks/useBackClose';
+import { RuleBuilder } from './RuleBuilder';
+import { describeRule, type Rule } from '../lib/rules';
 
 export interface FilterOption {
   value: string;
@@ -15,6 +17,16 @@ export interface FilterOption {
 export interface FilterGroupSpec {
   key: string;
   label: string;
+  /**
+   * The sheet heading this group files under.
+   *
+   * The sheet holds every filter now, and fourteen labelled chip rows in a
+   * column is a list to scroll rather than a panel to read. Sections come from
+   * the caller because only it knows what the groups *mean* — this component
+   * knows they are all the same shape, which is exactly why it cannot tell
+   * "Exchange" from "Signal age".
+   */
+  section?: string;
   value: string;
   disabled?: boolean;
   /** The first option is treated as the group's "everything" default. */
@@ -78,40 +90,83 @@ function ChipGroup({ group }: { group: FilterGroupSpec }) {
 }
 
 interface Props {
+  /**
+   * The groups that also sit inline in the bar on a wide window, as the
+   * shortcut to the ones reached for every time.
+   */
   groups: FilterGroupSpec[];
   /**
-   * Groups that live in the sheet at every width. There are too many of them
-   * to sit in the bar — a chip row that scrolls past the window edge is a
-   * filter you have to go looking for — and they are the second question you
-   * ask, once the bar has settled what you are looking at.
+   * Groups that are only ever in the sheet. There are too many of them to sit
+   * in the bar — a chip row that scrolls past the window edge is a filter you
+   * have to go looking for — and they are the second question you ask, once the
+   * bar has settled what you are looking at.
    */
   advanced?: FilterGroupSpec[];
+  /**
+   * The free-form conditions — see `src/lib/rules.ts`.
+   *
+   * They live in this component rather than beside it because they are the same
+   * control at a finer grain: the same sheet opens them, the same count counts
+   * them, and "Clear all" has to mean all of it.
+   */
+  rules: Rule[];
+  onRulesChange: (rules: Rule[]) => void;
   /** Shown live on the sheet's confirm button. */
   resultCount: number;
 }
 
+const isDefault = (g: FilterGroupSpec) => g.value === g.options[0]?.value;
+
 /**
- * Filter controls: the core groups inline on wide screens and as a bottom sheet
- * on everything narrower, with the advanced groups always in the sheet. Every
- * layout renders from the same group specs, so they cannot drift apart.
+ * The groups under their headings, in the order the caller listed them.
+ *
+ * A Map rather than a sort: first appearance decides where a section sits, so
+ * adding a group puts it beside its own kind without anyone having to maintain
+ * an order of sections as well as an order of groups.
  */
-export function Filters({ groups, advanced = [], resultCount }: Props) {
+function bySection(groups: FilterGroupSpec[]): [string, FilterGroupSpec[]][] {
+  const out = new Map<string, FilterGroupSpec[]>();
+  for (const g of groups) {
+    const name = g.section ?? 'Filters';
+    const held = out.get(name);
+    if (held) held.push(g);
+    else out.set(name, [g]);
+  }
+  return [...out.entries()];
+}
+
+/**
+ * Filter controls: a shortcut row of the core groups inline on a wide window,
+ * and one sheet holding *everything* at every width.
+ *
+ * The sheet used to hold only what the bar was not already showing, which made
+ * "More" mean a different thing at each breakpoint and left a wide window with
+ * no single place that listed the filters. It holds all of them now — the
+ * inline row is a shortcut to the ones reached for every time, not a separate
+ * set — and the groups are sectioned so a panel of fourteen reads as four
+ * questions rather than one long column.
+ *
+ * Every layout still renders from the same group specs, so they cannot drift.
+ */
+export function Filters({
+  groups,
+  advanced = [],
+  rules,
+  onRulesChange,
+  resultCount,
+}: Props) {
   const compact = useMediaQuery(COMPACT_QUERY);
   const [open, setOpen] = useState(false);
 
-  // Which groups the sheet shows depends on whether the bar is showing the
-  // core ones already.
-  const sheetGroups = compact ? [...groups, ...advanced] : advanced;
-  const isDefault = (g: FilterGroupSpec) => g.value === g.options[0]?.value;
-  const activeCount = (compact ? [...groups, ...advanced] : advanced).filter(
-    (g) => !isDefault(g),
-  ).length;
+  const sheetGroups = [...groups, ...advanced];
 
-  // Crossing the breakpoint changes what the sheet contains, so a sheet left
-  // open would swap its own contents underneath the reader.
-  useEffect(() => {
-    setOpen(false);
-  }, [compact]);
+  // Deliberately not memoised: the specs are rebuilt on every change to a
+  // filter's value, so a cached grouping would render the sheet from the
+  // previous render's `value`s — chips showing the selection before last.
+  // Bucketing fifteen items costs nothing worth caching.
+  const sections = bySection(sheetGroups);
+
+  const activeCount = sheetGroups.filter((g) => !isDefault(g)).length + rules.length;
 
   const sheetRef = useRef<HTMLDivElement>(null);
   useFocusTrap(sheetRef, open);
@@ -145,16 +200,34 @@ export function Filters({ groups, advanced = [], resultCount }: Props) {
     for (const g of sheetGroups) {
       if (g.options[0]) g.onChange(g.options[0].value);
     }
+    onRulesChange([]);
   };
 
   return (
     <>
-      {/* Wide: the core groups stay in the bar and the button opens the rest.
-          Narrow: the button is all of it. */}
+      {/* Wide: the groups reached for every time stay in the bar as a shortcut.
+          Narrow: there is no room, and the sheet is all of it. */}
       {!compact && (
         <div className="filters-inline">
           {groups.map((g) => (
             <ChipGroup key={g.key} group={g} />
+          ))}
+          {/* Conditions are written in the sheet and read here: a filter you
+              cannot see from the table it is cutting is one you forget you set.
+              On a narrow screen the count on the button carries this instead —
+              there is no room for the sentence. */}
+          {rules.map((rule) => (
+            <button
+              key={rule.id}
+              type="button"
+              className="rule-chip"
+              title="Remove this condition"
+              onClick={() => onRulesChange(rules.filter((r) => r.id !== rule.id))}
+            >
+              {describeRule(rule)}
+              <span aria-hidden>✕</span>
+              <span className="sr-only">— remove</span>
+            </button>
           ))}
         </div>
       )}
@@ -171,7 +244,9 @@ export function Filters({ groups, advanced = [], resultCount }: Props) {
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
             <path d="M4 6h16M7 12h10M10 18h4" />
           </svg>
-          {compact ? 'Filters' : 'More'}
+          {/* One word at both widths, because it now opens the same thing at
+              both. "More" said "the rest of them", which stopped being true. */}
+          Filters
           {activeCount > 0 && <span className="filter-count">{activeCount}</span>}
         </button>
       )}
@@ -190,7 +265,10 @@ export function Filters({ groups, advanced = [], resultCount }: Props) {
               aria-label="Filters"
             >
               <div className="sheet-head">
-                <h3>{compact ? 'Filters' : 'More filters'}</h3>
+                <h3>
+                  Filters
+                  {activeCount > 0 && <span className="sheet-count">{activeCount}</span>}
+                </h3>
                 <button
                   type="button"
                   className="icon-btn"
@@ -201,11 +279,39 @@ export function Filters({ groups, advanced = [], resultCount }: Props) {
                 </button>
               </div>
 
-              {sheetGroups.map((g) => (
-                <div className="sheet-group" key={g.key}>
-                  <ChipGroup group={g} />
-                </div>
-              ))}
+              {/* Capped and centred rather than run to the window edge: at
+                  1920px an uncapped auto-fit grid is seven columns of chips and
+                  a reading line nobody can follow across. */}
+              <div className="sheet-body">
+                {sections.map(([name, inSection]) => {
+                  const on = inSection.filter((g) => !isDefault(g)).length;
+                  return (
+                    <section className="sheet-section" key={name}>
+                      <h4 className="sheet-section-title">
+                        {name}
+                        {on > 0 && <span className="sheet-section-count">{on}</span>}
+                      </h4>
+                      <div className="sheet-grid">
+                        {inSection.map((g) => (
+                          <div className="sheet-group" key={g.key}>
+                            <ChipGroup group={g} />
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  );
+                })}
+
+                <section className="sheet-section">
+                  <h4 className="sheet-section-title">
+                    Conditions
+                    {rules.length > 0 && (
+                      <span className="sheet-section-count">{rules.length}</span>
+                    )}
+                  </h4>
+                  <RuleBuilder rules={rules} onChange={onRulesChange} />
+                </section>
+              </div>
 
               <div className="sheet-foot">
                 <button
