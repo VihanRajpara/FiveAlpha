@@ -133,6 +133,9 @@
   --col-idx-w: 56px;
   --row-h: 48px;
   --gutter: 20px;
+  /* How wide the filter sheet's contents are allowed to run. Past this a row
+     of chips is a reading line nobody can follow across. */
+  --sheet-max: 1060px;
   /* The least the table may be squeezed to before the page scrolls instead —
      about eight rows plus the header, which is enough to still read as a table. */
   --table-min: 420px;
@@ -388,10 +391,15 @@ body {
 
 /* ---------- filter chips ---------- */
 
+/* Wraps. Below the chip breakpoint the row is two tabs, a button and a status
+   note, and on a 400px phone the note was running off the right edge and being
+   clipped mid-word — it takes its own line there instead. Nothing wraps on a
+   wide window, where it all fits. */
 .subbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   padding: 10px var(--gutter);
   background: var(--surface);
 }
@@ -494,7 +502,7 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--surface);
-  border-radius: 16px 16px 0 0;
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
   box-shadow: var(--elev-3);
   animation: sheet-up 260ms var(--ease-drawer);
   padding-bottom: env(safe-area-inset-bottom, 0);
@@ -519,15 +527,24 @@ body {
   flex: none;
 }
 
+/* Sticky, because the sheet now holds every filter and is a long scroll on a
+   phone — the title and the way out must not be at the top of it only. */
 .sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 8px 20px 12px;
+  background: var(--surface);
 }
 
 .sheet-head h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   margin: 0;
   font-family: var(--font-display);
   font-size: 18px;
@@ -535,9 +552,103 @@ body {
   letter-spacing: -0.02em;
 }
 
-.sheet-group {
-  padding: 14px 20px;
+/* How many filters are on, next to the word they belong to. */
+.sheet-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-full);
+  background: var(--primary-container);
+  color: var(--primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/**
+ * The sheet's content, capped and centred.
+ *
+ * The sheet runs the full width of the window, which is right for the surface —
+ * it is a sheet, it comes off the bottom edge — and wrong for what is in it: at
+ * 1920px an uncapped `auto-fit` grid is seven columns of chips and a reading
+ * line nobody can follow. The panel stops at a readable width; the sheet does
+ * not have to.
+ */
+.sheet-body {
+  width: 100%;
+  max-width: var(--sheet-max);
+  margin: 0 auto;
+}
+
+/**
+ * The head and the foot keep the full width — they carry the sheet's own
+ * background and the foot is sticky over a scroll — but their *contents* line
+ * up with the panel. Padding rather than an inner wrapper: below the cap the
+ * `max()` collapses to the normal inset, so one declaration covers both.
+ */
+.sheet-head,
+.sheet-foot {
+  padding-inline: max(20px, calc((100% - var(--sheet-max)) / 2));
+}
+
+/**
+ * One question per section.
+ *
+ * Fourteen labelled chip rows in a single column is a list to scroll rather
+ * than a panel to read, and the grouping is the only thing that makes the
+ * difference between "which filters are there" and "which filter do I want".
+ */
+.sheet-section {
+  padding: 14px 20px 18px;
   border-top: 1px solid var(--outline-faint);
+}
+
+.sheet-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-surface-faint);
+}
+
+.sheet-section-count {
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: var(--r-xs);
+  background: var(--primary-container);
+  color: var(--primary);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+/**
+ * Groups across the width the sheet has, not down it.
+ *
+ * `auto-fit` rather than a column count per breakpoint: a group needs about
+ * 250px to hold its widest chip row without wrapping mid-control, and how many
+ * of those fit is a fact about the window that the browser already knows. One
+ * declaration covers a 360px phone (one column) and a 1440px desktop (four).
+ */
+.sheet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px 20px;
+}
+
+/* A cell of that grid now. The padding and the hairline moved up to the
+   section, which is what they were separating all along. */
+.sheet-group {
+  min-width: 0;
 }
 
 /* The label sits above its chips here rather than beside them. */
@@ -547,11 +658,165 @@ body {
   gap: 10px;
 }
 
+/**
+ * A wrapping, full-width track — and one step rounder than the bar's, not two.
+ *
+ * An inner radius should be the outer one minus the padding, which is what the
+ * base `.segmented` does: 8px track, 3px padding, 6px buttons. This overrode
+ * the track to 16px and left the buttons at 6, so the corner buttons cut across
+ * the curve they sit in. 12 around 8 nests; 16 around 6 does not.
+ */
 .sheet-group .segmented {
   display: flex;
   flex-wrap: wrap;
   width: 100%;
-  border-radius: 16px;
+  border-radius: var(--r-lg);
+}
+
+.sheet-group .segmented button {
+  border-radius: var(--r-md);
+}
+
+/* ---------- conditions: the rule builder ---------- */
+
+/**
+ * One row per condition, ANDed. It lives in the same sheet as the band filters
+ * because it is the same question at a finer grain — see `RuleBuilder`.
+ *
+ * Everything on the row is 34px, the height `.menu-btn` already is, so a row of
+ * three different controls reads as one control.
+ */
+.rules {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.rules-empty {
+  margin: 0;
+  max-width: 68ch;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--on-surface-faint);
+}
+
+.rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Wraps rather than scrolls: a condition running off the edge is one you
+   cannot finish typing. */
+.rule {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--outline-faint);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.rule-operands {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rule-num {
+  width: 96px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--outline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--on-surface);
+  /* The operand is a figure, set in the same mono the column it filters is. */
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The spinners cost a third of a 96px field and the arrow keys already step it. */
+.rule-num::-webkit-outer-spin-button,
+.rule-num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.rule-num {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.rule-num:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+
+.rule-and,
+.rule-unit {
+  font-size: 12px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+
+/* Hard right, so the destructive control is never mistaken for part of the
+   condition it removes. */
+.rule-drop {
+  margin-left: auto;
+}
+
+/**
+ * A condition, read from the bar it is cutting.
+ *
+ * Accent-filled rather than grey: these are the only filters that are invisible
+ * until someone goes looking in a sheet, and a filter you forget you set is a
+ * table you think is broken. Clicking removes it — the one thing you want to do
+ * to a filter already in front of you.
+ */
+.rule-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--primary);
+  border-radius: var(--r-md);
+  background: var(--primary-container);
+  color: var(--primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out), transform var(--t-press) var(--ease-out);
+}
+
+.rule-chip > span[aria-hidden] {
+  opacity: 0.6;
+  font-size: 11px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rule-chip:hover > span[aria-hidden] {
+    opacity: 1;
+  }
+}
+
+.rule-chip:active {
+  transform: scale(0.97);
 }
 
 .sheet-foot {
@@ -778,26 +1043,32 @@ body {
      by a second background — the two are one control strip, read top to bottom. */
   padding-top: 10px;
   border-top: 1px solid var(--outline-faint);
+  /**
+   * The height every control on this row takes.
+   *
+   * It was meant to be one baseline and was three: the count track 32, the
+   * toggle 36, the button 36 — then 30, 32 and 30 on a phone, and 30, 32 and 44
+   * under a coarse pointer, where the button grew for the thumb and its two
+   * neighbours did not. One variable, set once per width, and the row cannot
+   * drift again.
+   */
+  --row-h: 36px;
 }
 
-/* Everything on this row lands on the same 36px baseline. */
+.screenbar-row .screen-results,
+.screenbar-row .segmented,
 .screenbar-row .btn {
-  height: 36px;
+  height: var(--row-h);
+}
+
+.screenbar-row .btn {
   padding: 0 18px;
 }
 
-/* The screen's name, and a link to the screen itself. A shortlist taken from
-   somewhere else should say where from and be one click from being checked —
-   underlined only on hover so it reads as a heading first and a link second. */
-.screen-source {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--on-surface);
-  text-decoration: none;
-}
-
-.screen-source:hover {
-  text-decoration: underline;
+/* Stretches to the track it sits in rather than carrying its own height — the
+   default for a flex child, which the base `.segmented button` height overrode. */
+.screenbar-row .segmented button {
+  height: auto;
 }
 
 /* The figure is the data, the word is its label — same line, different
@@ -812,18 +1083,23 @@ body {
 }
 
 /* Verdict counts belong together — three loose grey pills read as three
-   unrelated facts. One track, hairline-divided, match segment tinted. */
+   unrelated facts. One track, hairline-divided, match segment tinted.
+
+   `flex: none`, because a stretched track is a tinted count followed by a long
+   empty tail — the segments do not grow with it, so the box just stops meaning
+   anything. It sizes to what it says. */
 .screen-results {
   display: inline-flex;
   align-items: stretch;
-  height: 32px;
+  flex: none;
   border: 1px solid var(--outline-faint);
   border-radius: var(--r-md);
   background: var(--surface-2);
   overflow: hidden;
 }
 
-.screen-results > span {
+/* `> *`, not `> span`: the first segment is the link to the screen now. */
+.screen-results > * {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -833,16 +1109,32 @@ body {
   font-variant-numeric: tabular-nums;
   color: var(--on-surface-variant);
   white-space: nowrap;
+  text-decoration: none;
 }
 
-.screen-results > span + span {
+.screen-results > * + * {
   border-left: 1px solid var(--outline-faint);
 }
 
-/* Sits hard right so the destructive-ish control is never mistaken for part of
-   the reading. */
-.screenbar-row .btn.ghost {
+@media (hover: hover) and (pointer: fine) {
+  a.screen-count:hover {
+    text-decoration: underline;
+  }
+}
+
+/* The count reads from the left; the toggle and Refresh belong together at the
+   right. The auto margin is on the pair's first element rather than on Refresh
+   alone, which used to leave the toggle stranded mid-row with slack on both
+   sides of it. */
+.screenbar-row .segmented {
   margin-left: auto;
+}
+
+/* The icon and its label, when it has one. */
+.screen-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
 }
 
 .screen-phase {
@@ -874,11 +1166,43 @@ body {
 
 /* ---------- market summary strip ---------- */
 
+/**
+ * Six tiles, and the column count is stated at each width rather than left to
+ * `auto-fit`.
+ *
+ * `auto-fit` puts five on a row and the sixth underneath as soon as the sixth
+ * stops fitting, and a lone tile on its own row reads as a layout fault rather
+ * than as a wrap. Clean divisors of six only: six across, then two rows of
+ * three, which holds all the way down to a 320px phone once the tiles go
+ * compact at the touch breakpoint.
+ */
 .summary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(6, 1fr);
   gap: 12px;
   padding: 16px var(--gutter) 4px;
+}
+
+/* Under about 150px a tile truncates its own label, so six stop fitting here. */
+@media (max-width: 1023px) {
+  .summary {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/**
+ * Docked, the same threshold falls at a much wider window.
+ *
+ * The panel takes `--drawer-w` — 40vw between 520 and 680 — so a 1440px laptop
+ * with a company open leaves the strip 840px, which is 140px a tile: narrower
+ * than the point the rule above already decided was too narrow. The viewport
+ * query cannot see that; this one states it. Six return once 40vw stops eating
+ * the difference, at about 1580px.
+ */
+@media (min-width: 1024px) and (max-width: 1580px) {
+  .app[data-docked] .summary {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 .stat {
@@ -1785,7 +2109,7 @@ body {
   gap: 3px;
   min-width: 78px;
   padding: 3px 9px;
-  border-radius: 8px;
+  border-radius: var(--r-md);
   font-size: 12.5px;
   font-weight: 600;
 }
@@ -1875,7 +2199,7 @@ body {
 .sig-badge {
   flex: none;
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -3327,6 +3651,18 @@ body {
    rather than left to chance: ranges and their reading on one line, the layer
    toggles on the next. */
 @media (max-width: 560px) {
+  /* Last thing to give way on the screen bar: the word, not the button. The
+     icon and `aria-label` carry it from here down. */
+  .screen-refresh-label {
+    display: none;
+  }
+
+  /* Three classes deliberately: `.screenbar-row .btn` sets the phone padding in
+     a later block, and an equal-specificity rule here would lose to it. */
+  .screenbar-row .btn.screen-refresh {
+    padding: 0 11px;
+  }
+
   /**
    * The return belongs to the range, not to the layer toggles.
    *
@@ -3777,7 +4113,7 @@ body {
   gap: 12px;
   padding: 14px 16px;
   border: 1px solid var(--outline-faint);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
 }
 
 .proscons .cons {
@@ -3815,7 +4151,7 @@ body {
    rest a click away. */
 .fin {
   border: 1px solid var(--outline-faint);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   overflow: hidden;
 }
 
@@ -3949,7 +4285,7 @@ body {
 .center-msg code {
   font-family: var(--font-mono);
   background: var(--surface-2);
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   padding: 2px 6px;
   font-size: 12px;
 }
@@ -4001,7 +4337,7 @@ body {
   width: min(400px, 100%);
   padding: 34px 30px 26px;
   border: 1px solid var(--outline-faint);
-  border-radius: 20px;
+  border-radius: var(--r-xl);
   background: var(--surface);
   box-shadow: var(--elev-3);
   text-align: center;
@@ -4059,7 +4395,7 @@ body {
   height: 46px;
   padding: 0 14px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   background: var(--surface-2);
   color: var(--on-surface);
   font-family: inherit;
@@ -4096,7 +4432,7 @@ body {
   height: 46px;
   margin-top: 14px;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   background: var(--brand-gradient);
   /* Not white: the gradient is deep in light mode and pastel in dark, so the
      label follows it — the same pairing `--primary` and `--on-primary` already
@@ -4128,7 +4464,7 @@ body {
 .login-error {
   margin: 12px 0 0;
   padding: 9px 12px;
-  border-radius: 10px;
+  border-radius: var(--r-md);
   background: var(--down-container);
   color: var(--down);
   font-size: 12.5px;
@@ -4300,44 +4636,62 @@ body {
     padding: 0 var(--gutter) 8px;
   }
 
+  /* A condition row on a phone is four controls on one line; the field name is
+     the longest and the only one that can give way, and its menu shows the full
+     label anyway. */
+  .rule {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .rule-num {
+    width: 76px;
+  }
+
+  .rule .menu-btn {
+    max-width: 46vw;
+  }
+
   /* Deliberate rows rather than whatever the wrap happens to produce. Left to
      itself the bar broke mid-phrase, truncating the screen's name to
      "Near all-ti…" and leaving two ragged lines. */
   .screenbar-row {
     gap: 8px;
     padding-top: 8px;
+    --row-h: 32px;
   }
 
-  /* The name takes a whole line: it is the longest thing here and the one thing
-     that must not truncate. Counts, toggle and Refresh keep their natural
-     widths and share the line under it — three stacked full-width slabs would
-     read as a form, not a toolbar. */
-  .screen-source {
-    flex: 1 1 100%;
+  /**
+   * One row rather than three ragged ones.
+   *
+   * The screen's name used to take the whole first line and Refresh was left
+   * stranded on a third. With the name gone the three controls fit if they give
+   * way in the right order: the age inside the count track goes first, then the
+   * label on Refresh (at 560px). The toggle never moves — it is the only one of
+   * the three that changes what the table shows.
+   *
+   * The status bar states the screen's age too, in the same words, so the copy
+   * dropped here is the second one.
+   */
+  .screen-age {
+    display: none;
   }
 
   .screenbar-row .btn {
-    height: 30px;
     padding: 0 14px;
     font-size: 12px;
   }
 
-  .screen-results {
-    height: 30px;
-  }
-
-  .screen-results > span {
+  .screen-results > * {
     padding: 0 10px;
     font-size: 11px;
   }
 
   .screenbar-row .segmented {
-    flex: 0 0 auto;
     padding: 2px;
   }
 
   .screenbar-row .segmented button {
-    height: 26px;
     padding: 0 12px;
     font-size: 12px;
   }
@@ -4347,21 +4701,66 @@ body {
     height: 36px;
   }
 
+  /* The sheet is the whole screen here, so it takes the whole width: 20px of
+     inset on each side of a 360px window is a chip row that wraps one control
+     earlier than it needs to. */
+  .sheet-head,
+  .sheet-section,
+  .sheet-foot {
+    padding-inline: 16px;
+  }
+
+  .sheet-section {
+    padding-top: 12px;
+    padding-bottom: 14px;
+  }
+
+  .sheet-grid {
+    gap: 14px;
+  }
+
+  .sheet-head h3 {
+    font-size: 17px;
+  }
+
   .statusbar .pill {
     height: 24px;
     padding: 0 10px;
     font-size: 11px;
   }
 
+  /* Still two rows of three — three rows of two would push the table most of a
+     screen further down, and the table is what the tiles are describing. */
   .summary {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 8px;
     padding: 12px var(--gutter) 0;
   }
 
+  /* A third of a phone's width rather than a half, so the type comes down with
+     it. The figure stays the biggest thing in the tile at every size.
+
+     The radius deliberately does *not* come down with it. Scrolling a phone you
+     see the tiles, then the row cards, then the table's edge in one column, and
+     those were 10px, 14px and square — three roundnesses that read as three
+     different surfaces. One value for the cards, and the square edge stays
+     square because it is full-bleed rather than a card at all. */
   .stat {
-    padding: 10px 12px;
-    border-radius: 10px;
+    padding: 9px 10px;
+  }
+
+  .stat-label {
+    font-size: 10px;
+    letter-spacing: 0.02em;
+  }
+
+  .stat-value {
+    font-size: clamp(16px, 4.6vw, 20px);
+  }
+
+  .stat-sub {
+    font-size: 10px;
+    line-height: 1.35;
   }
 
   .report {
@@ -4388,7 +4787,6 @@ body {
 
   /* The list tag is the first thing to go: the reason chip and the figure are
      why the row is listed, the origin is context. */
-  .mis-reason ~ .mis-tag,
   .mis-tag:has(~ .mis-reason) {
     display: none;
   }
@@ -4457,7 +4855,7 @@ body {
     padding: 13px 14px;
     background: var(--surface);
     border: 1px solid var(--outline-faint);
-    border-radius: 14px;
+    border-radius: var(--r-lg);
   }
 
   /* The border does the marking here; the inset left bar it uses on the grid
@@ -4511,7 +4909,7 @@ body {
     width: 100%;
     height: 92vh;
     height: 92dvh;
-    border-radius: 16px 16px 0 0;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
     animation: sheet-up 260ms var(--ease-drawer);
   }
 
@@ -4791,7 +5189,7 @@ body {
   flex: none;
   margin-left: auto;
   padding: 0 5px;
-  border-radius: 5px;
+  border-radius: var(--r-xs);
   background: var(--surface-2);
   font-size: 10.5px;
   font-weight: 700;
@@ -4834,7 +5232,7 @@ body {
   margin: 0 24px 16px;
   padding: 14px 16px;
   border: 1px solid var(--outline-faint);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   background: var(--surface-2);
 }
 
@@ -4954,7 +5352,7 @@ body {
   min-width: 20px;
   padding: 2px 6px;
   border: 1px solid var(--outline);
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   background: var(--surface);
   color: var(--on-surface-faint);
   font-family: var(--font-mono);
@@ -5205,7 +5603,7 @@ body {
   height: 38px;
   padding: 0 10px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--r-md);
   background: none;
   color: var(--on-surface);
   font-family: var(--font-sans);
@@ -5243,7 +5641,7 @@ body {
   width: 17px;
   height: 17px;
   border: 1.5px solid var(--outline);
-  border-radius: 5px;
+  border-radius: var(--r-xs);
   color: transparent;
   transition: background var(--t-fast) var(--ease-out),
     border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
@@ -5291,7 +5689,7 @@ body {
   flex: none;
   width: 17px;
   height: 17px;
-  border-radius: 5px;
+  border-radius: var(--r-xs);
   background: var(--primary-container);
   color: var(--primary);
 }
@@ -5307,7 +5705,7 @@ body {
   height: 36px;
   padding: 0 12px;
   border: 1.5px solid var(--primary);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   background: var(--surface);
   color: var(--on-surface);
   font-family: inherit;
@@ -5342,7 +5740,7 @@ body {
 .th:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: -2px;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
 }
 
 /* The one row that is the list's tab stop should look like an ordinary row
@@ -5378,16 +5776,40 @@ body {
   .filter-trigger,
   .wl-tab,
   .sortbar .menu-btn,
-  .screenbar-row .btn,
-  .pagebar .menu-btn {
+  .pagebar .menu-btn,
+  /* The conditions editor and the report's shortcut rows, which did not exist
+     when this block was written and were 30–34px under a thumb. */
+  .rule .menu-btn,
+  .rule-num,
+  .rule-chip,
+  .mis-row {
     height: 44px;
+  }
+
+  /* Its own row, because the drop control is square rather than tall. */
+  .rule-drop {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* The whole row, not only its button: growing one of three neighbours for a
+     thumb and leaving the other two is what made this row look unfinished. */
+  .screenbar-row {
+    --row-h: 44px;
   }
 
   /* Inside a segmented track, which adds its own 2px of padding either side. */
   .segmented button,
-  .sheet-group .segmented button,
-  .screenbar-row .segmented button {
+  .sheet-group .segmented button {
     height: 40px;
+  }
+
+  /* Not the screen bar's, which stretches to `--row-h` instead — a 40px button
+     in a 44px track with 8px of padding overflows it. Trimming the padding
+     gives the same 40px thumb target inside a track that matches its
+     neighbours. */
+  .screenbar-row .segmented {
+    padding: 1px;
   }
 
   /**

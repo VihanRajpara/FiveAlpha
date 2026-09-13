@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchReading, peekReading } from '../lib/signals';
+import { isUnknownTicker } from '../lib/yahooCandles';
 import type { SecurityWithQuote } from '../types';
 
 /**
@@ -26,8 +27,17 @@ export interface SignalsProgress {
   pending: number;
   /** How many this pass set out to read. `pending` is measured against it. */
   total: number;
-  /** Requests that came back empty. Not cached, so the next pass asks again. */
+  /** Requests that came back empty for a reason worth retrying. */
   failed: number;
+  /**
+   * In the list, but Yahoo has no chart for them — see `isUnknownTicker`.
+   *
+   * A settled answer, not a fault: the master lists carry hundreds of NSE
+   * Emerge and BSE-only scrips Yahoo does not price. Counted apart from
+   * `failed` because the two want opposite things said about them, and because
+   * only one of them is worth asking again.
+   */
+  unavailable: number;
 }
 
 export function useSignals(rows: SecurityWithQuote[], enabled: boolean): SignalsProgress {
@@ -36,22 +46,53 @@ export function useSignals(rows: SecurityWithQuote[], enabled: boolean): Signals
     pending: 0,
     total: 0,
     failed: 0,
+    unavailable: 0,
   });
 
   useEffect(() => {
     if (!enabled) return;
 
-    const missing = rows.filter((r) => peekReading(r.ticker) === undefined);
+    /**
+     * What is left to ask for, and what there is no point asking for.
+     *
+     * A failed reading is deliberately not cached, so that a row which errored
+     * is asked again next time — right for one row scrolling into view, and a
+     * loop that never ends for a list of five thousand: this effect re-runs
+     * every time a quote batch changes `rows`, and the few hundred symbols
+     * Yahoo does not carry were being re-asked, re-failed and re-reported on
+     * every one of them. Yahoo's 404 *is* the answer, it is remembered for the
+     * day, and it is read here.
+     */
+    const missing: SecurityWithQuote[] = [];
+    let unavailable = 0;
+    for (const row of rows) {
+      if (peekReading(row.ticker) !== undefined) continue;
+      if (isUnknownTicker(row.ticker)) unavailable++;
+      else missing.push(row);
+    }
+
     if (missing.length === 0) {
-      setState((s) => (s.pending === 0 && s.failed === 0 ? s : { ...s, pending: 0, failed: 0 }));
+      setState((s) =>
+        s.pending === 0 && s.failed === 0 && s.unavailable === unavailable
+          ? s
+          : { ...s, pending: 0, failed: 0, unavailable },
+      );
       return;
     }
 
     let alive = true;
     let left = missing.length;
-    let failed = 0;
+    /**
+     * Which tickers failed, not how many.
+     *
+     * The tally is re-read at the end of the pass to separate "Yahoo has no
+     * such symbol" from "that request went wrong", and subtracting one count
+     * from another could go negative — the quote path marks unknown tickers
+     * too, so a symbol can become absent without this pass failing on it.
+     */
+    const failures = new Set<string>();
     const total = missing.length;
-    setState((s) => ({ version: s.version, pending: left, total, failed: 0 }));
+    setState((s) => ({ version: s.version, pending: left, total, failed: 0, unavailable }));
 
     /**
      * How many arrivals between renders.
@@ -69,14 +110,36 @@ export function useSignals(rows: SecurityWithQuote[], enabled: boolean): Signals
       // rather than opening a socket per row.
       fetchReading(row.ticker)
         .catch(() => {
-          failed++;
+          failures.add(row.ticker);
         })
         .then(() => {
           if (!alive) return;
           left--;
-          if (left === 0 || left % step === 0) {
-            setState((s) => ({ version: s.version + 1, pending: left, total, failed }));
+          if (left > 0) {
+            if (left % step === 0) {
+              setState((s) => ({
+                version: s.version + 1,
+                pending: left,
+                total,
+                failed: failures.size,
+                unavailable,
+              }));
+            }
+            return;
           }
+
+          // The pass is done, so the 404s it discovered are settled answers now
+          // rather than failures. Re-read here so the bar stops calling "Yahoo
+          // does not carry this" an error it might recover from.
+          let absent = 0;
+          for (const ticker of failures) if (isUnknownTicker(ticker)) absent++;
+          setState((s) => ({
+            version: s.version + 1,
+            pending: 0,
+            total,
+            failed: failures.size - absent,
+            unavailable: unavailable + absent,
+          }));
         });
     }
 
