@@ -21,11 +21,11 @@ import { formatPercent } from '../lib/format';
  * in two places. That is a page, not a strip above a table, so it is a section
  * of its own with no filters, no screen bar and no table under it.
  *
- * It is possible here and nowhere else in this app: a signal is one chart
- * request per symbol, so the screener caps bulk reads at `SIGNAL_FILTER_MAX`
- * and every watchlist put together still sits well under it. Nothing new is
- * fetched — the same quotes the table prints, the same UT Bot readings the
- * signal column shows, the same screen the other section filters on.
+ * It costs almost nothing here: a signal is one chart request per symbol, and
+ * every watchlist put together is a few dozen of them against the few thousand
+ * a screener view would be. Nothing new is invented — the same quotes the table
+ * prints, the same UT Bot readings the signal column shows, the same screen the
+ * other section filters on.
  *
  * Everything is counted twice on purpose: the roll-up counts each symbol once
  * however many lists hold it, and the per-list cards below count it in each.

@@ -802,13 +802,26 @@ export default function App({
           <Filters groups={filterGroups} advanced={advancedGroups} resultCount={visible.length} />
         )}
         {/* Without this the table looks like it is losing rows: a signal filter
-            excludes rows whose signal has not arrived, and they arrive over a
-            few seconds. */}
-        {signals.pending > 0 && (
+            excludes rows whose signal has not arrived. On a screen's shortlist
+            that is a few seconds; on "All" it is a few thousand charts, so the
+            note states the whole job rather than only what is left of it — and
+            says what could not be read, because a blank cell nobody explained
+            reads as "no signal" rather than "not fetched". */}
+        {signals.pending > 0 ? (
           <span className="subbar-note num">
-            Reading signals · {signals.pending.toLocaleString('en-IN')} left
+            Reading signals · {(signals.total - signals.pending).toLocaleString('en-IN')} of{' '}
+            {signals.total.toLocaleString('en-IN')}
+            {signals.failed > 0 && ` · ${signals.failed.toLocaleString('en-IN')} unreadable`}
           </span>
-        )}
+        ) : signals.failed > 0 ? (
+          <span
+            className="subbar-note num"
+            title="Yahoo refused or timed out for these. They are not cached, so sorting again asks for them."
+          >
+            {signals.failed.toLocaleString('en-IN')} of {signals.total.toLocaleString('en-IN')}{' '}
+            couldn’t be read
+          </span>
+        ) : null}
       </div>
 
       {/* Same slot, because it is the same job: the thing that decides what the
