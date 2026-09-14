@@ -3138,6 +3138,177 @@ body {
   font-size: 13px;
 }
 
+/* ---------------------------------------------------------------------------
+   Alerts — the bell in the topbar, and the panel it opens.
+
+   The panel is a PopMenu, so placement, dismissal and staying on screen are
+   already handled and none of it is repeated here: this is only what an alert
+   row looks like. Two lines rather than one, because the body carries the price
+   and the score and squeezing those onto the symbol line is what makes a
+   notification list unreadable.
+   --------------------------------------------------------------------------- */
+.alerts-btn {
+  position: relative;
+}
+
+.alerts-btn[data-open='true'] {
+  background: var(--surface-2);
+  color: var(--on-surface);
+}
+
+/* The count, not a total: capped at 9+ by the component. Positioned on the bell
+   rather than beside it so the button keeps the 36px footprint every other icon
+   button in the bar has and nothing reflows when an alert arrives. */
+.alerts-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--down);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1;
+  /* Against the topbar behind it, so the badge reads as sitting on the bell
+     rather than blending into whichever icon stroke it overlaps. `--surface` is
+     what `.topbar` is painted with. */
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+.alerts-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 6px 9px 8px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--on-surface);
+}
+
+.alerts-empty {
+  margin: 0;
+  padding: 4px 9px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--on-surface-variant);
+}
+
+.alert-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .alert-row:hover {
+    background: var(--surface-2);
+  }
+}
+
+.alert-row:active {
+  background: var(--surface-2);
+}
+
+/* Unread, marked by a rail rather than a filled background: a list where most
+   rows are tinted is a list with no emphasis left to give. */
+.alert-row[data-new='true'] {
+  box-shadow: inset 2px 0 0 var(--down);
+}
+
+.alert-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.alert-symbol {
+  font-size: 12.5px;
+  font-weight: 650;
+  /* A long symbol must not push the age off the row. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alert-src {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex: none;
+}
+
+.alert-ago {
+  margin-left: auto;
+  font-size: 11px;
+  flex: none;
+}
+
+.alert-body {
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+/* The panel's width is NOT set here, deliberately.
+
+   It was, once: `width: calc(100vw - 16px) !important` in a max-width query.
+   That is broken, because PopMenu solves `left` from the width it is *given* —
+   overriding the width afterwards leaves the panel positioned for the old one
+   and hanging off the right edge (16px over at 360px wide, 70px at 414px, since
+   the bell sits near the right and the two errors compound). The width now
+   comes from `panelWidth()` in Alerts.tsx, which is the same number the
+   placement is computed with.
+
+   What is left here is the touch target. A row with no cached signal is one
+   line tall — about 31px, under the 44px a finger needs. Only on coarse
+   pointers: on a mouse, 31px is a comfortable row and 44px is a list that
+   needs scrolling sooner. */
+@media (pointer: coarse) {
+  .alert-row {
+    min-height: 44px;
+    justify-content: center;
+  }
+}
+
+/* The bell's other cost, paid here.
+
+   It put another 36px button and a 12px gap on the topbar's first row, which
+   already carried the brand, the theme toggle, the refresh button and sign-out.
+   Measured: the row wants ~450px, where it wanted ~402px before — so the full
+   lockup stopped fitting at ~475px rather than ~426px, and the monogram swap
+   that exists for exactly this was still waiting at 420px. Between there and
+   475px the logo overflowed its shrunken box and ran under the buttons.
+
+   So the swap moves up to 480px. The rule is duplicated from the 420px block
+   further down rather than that block being widened — the rest of what lives
+   there is about the table's stacked layout and has nothing to do with the
+   topbar. The refresh button drops to one word over the same span, in App.tsx.
+
+   Below ~400px the row is tight with or without the bell, and both give way the
+   same way: `.btn` shrinks its label. That was true before this feature. */
+@media (max-width: 480px) {
+  .brand-logo {
+    height: 22px;
+    aspect-ratio: 1.989;
+    -webkit-mask-image: url('/brand/monogram.png');
+    mask-image: url('/brand/monogram.png');
+  }
+}
+
 .icon-btn {
   display: grid;
   place-items: center;

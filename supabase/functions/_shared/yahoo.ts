@@ -121,3 +121,88 @@ export async function fetchMonthlyCloses(tickers: string[]): Promise<Map<string,
 
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Daily bars, for the UT Bot signal.
+//
+// Unlike the spark call above this is one request per symbol, because there is
+// no batch endpoint that returns OHLC: spark carries closes only, and the
+// trailing stop is an ATR, which needs the high and the low. notify-signals
+// runs it over the screen list plus every watchlisted symbol — a couple of
+// hundred, not the universe.
+//
+// Mirrors the parse in src/lib/yahooCandles.ts, which is the browser's copy of
+// the same call through the /api/yahoo proxy. An Edge Function has no proxy and
+// no CORS to satisfy, so it asks Yahoo directly.
+// ---------------------------------------------------------------------------
+
+import type { Candle } from './utbot.ts';
+
+/**
+ * The bar's own session date in IST.
+ *
+ * Not cosmetic: Yahoo stamps an Indian daily bar at 03:45 UTC, so dating it in
+ * UTC puts it a day early — and "did this flip *today*" is the entire question
+ * this function exists to answer.
+ */
+const sessionDate = (ts: number): string =>
+  new Date(ts * 1000 + IST_OFFSET_MS).toISOString().slice(0, 10);
+
+interface ChartResponse {
+  chart?: {
+    result?: {
+      timestamp?: number[] | null;
+      indicators?: {
+        quote?: {
+          open?: (number | null)[];
+          high?: (number | null)[];
+          low?: (number | null)[];
+          close?: (number | null)[];
+          volume?: (number | null)[];
+        }[];
+      };
+    }[];
+  };
+}
+
+/**
+ * Daily bars for one ticker.
+ *
+ * `range` defaults to the same **2y** the browser asks for (`RANGE` in
+ * src/lib/signals.ts). That is not a detail to tune independently: `latestSignal`
+ * scores a flip partly on this symbol's own hit rate over the window, so a
+ * server asking for one year and a browser asking for two would show the same
+ * flip with two different scores.
+ *
+ * Returns `[]` for a symbol Yahoo does not carry — several hundred NSE Emerge
+ * and BSE-only scrips are in that state permanently, and a 404 for one of them
+ * is an answer, not a failure to retry.
+ */
+export async function fetchDailyBars(ticker: string, range = '2y'): Promise<Candle[]> {
+  const res = await fetchWithTimeout(
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
+      ticker,
+    )}?range=${range}&interval=1d`,
+    { headers: { 'User-Agent': BROWSER_UA } },
+  );
+
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`Yahoo chart returned ${res.status} for ${ticker}`);
+
+  const payload = (await res.json()) as ChartResponse;
+  const result = payload.chart?.result?.[0];
+  if (!result?.timestamp) return [];
+
+  const quote = result.indicators?.quote?.[0] ?? {};
+
+  return result.timestamp
+    .map((ts, i) => ({
+      date: sessionDate(ts),
+      open: quote.open?.[i] ?? null,
+      high: quote.high?.[i] ?? null,
+      low: quote.low?.[i] ?? null,
+      close: quote.close?.[i] ?? null,
+      volume: quote.volume?.[i] ?? null,
+    }))
+    .filter((c) => c.close !== null);
+}

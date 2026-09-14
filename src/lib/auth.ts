@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient';
 import { saveSession, clearSession, type User } from './session';
+import { forgetDevice, registerDevice } from './push';
 
 /**
  * Sign-in against `app_users` — see supabase/migrations/0007_users.sql, which
@@ -58,9 +59,29 @@ export async function login(username: string, pin: string): Promise<User | strin
 
   const user = { username: matched };
   saveSession(user);
+
+  // Record this device for push alerts, now that there is an account to file it
+  // under. Deliberately **not** awaited: the permission prompt is answered by a
+  // human, and a sign-in that waits on one is a sign-in that looks hung. It also
+  // cannot reject — `registerDevice` reports every failure as a value — so a
+  // browser with no push support, or a refused prompt, signs in normally.
+  //
+  // It has to come after `saveSession`, not before: the upsert is an ordinary
+  // browser write and RLS reads the owner from the `x-owner` header, which
+  // `supabaseClient` fills from the session that was just stored.
+  void registerDevice(user.username);
+
   return user;
 }
 
-export function logout(): void {
+/**
+ * Async now, because forgetting the device is a network write and it has to
+ * happen while the session still exists — the `fcm_tokens` delete is authorised
+ * by the `x-owner` header, which is read from the session on every request.
+ * Clearing first would leave the row behind and keep pushing to a signed-out
+ * browser.
+ */
+export async function logout(): Promise<void> {
+  await forgetDevice();
   clearSession();
 }
