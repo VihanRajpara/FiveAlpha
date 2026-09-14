@@ -3219,14 +3219,98 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* How tall .alerts-head is, so the day headings can stick underneath it rather
+   than sliding behind it. One value, used by both. */
+.alerts-menu {
+  --alerts-head-h: 30px;
+}
+
 .alerts-head {
+  /* Sticky, because Clear is the panel's only action and a list of thirty
+     alerts scrolls it out of reach otherwise. */
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  padding: 6px 9px 8px;
+  /* Negative margin against the menu's own 5px padding so the bar spans the
+     full width — without it rows scroll past in the 5px gutters either side
+     and show through beside a heading that is supposed to be opaque. */
+  margin: -5px -5px 0;
+  padding: 7px 14px 8px;
+  background: var(--surface-3);
   font-size: 12px;
   font-weight: 650;
   color: var(--on-surface);
+}
+
+/* "3 new" beside the title. Tinted rather than bold because the heading is
+   already bold, and two weights of the same colour read as one thing. */
+.alerts-new-count {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Clear is a real action and sits where one is looked for, but it is not a
+   primary button: nothing here is destructive — it hides rows on this device
+   and stops no alert from arriving. Styled as a quiet text action to say so. */
+.alerts-clear {
+  border: 0;
+  background: transparent;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: var(--r-sm);
+  color: var(--on-surface-variant);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .alerts-clear:hover {
+    background: var(--surface-2);
+    color: var(--on-surface);
+  }
+}
+
+/* A finger needs a target; 11px text with 2px of padding is about 18px tall.
+   Grown only on coarse pointers — on a mouse the small text action is right,
+   and a 44px box next to a 12px heading would look like a mistake. The
+   negative margin keeps the header the same height either way, so nothing
+   below it shifts. */
+@media (pointer: coarse) {
+  .alerts-clear {
+    min-height: 44px;
+    min-width: 56px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin: -14px -4px;
+  }
+}
+
+/* Today / Yesterday / 12 Sep. Sticky so the day a row belongs to is still
+   legible when it has been scrolled under the heading above it — an uncleared
+   list is mostly old, and scrolling it without this loses the date entirely. */
+.alerts-day {
+  position: sticky;
+  /* Under the header, not at the top of the scroller — at `top: 0` it slides
+     beneath the sticky header and the day is unreadable exactly while you are
+     scrolling through that day. */
+  top: var(--alerts-head-h);
+  z-index: 1;
+  /* Full-bleed for the same reason as the header: an opaque bar has to cover
+     the menu's padding or rows show through beside it. */
+  margin: 0 -5px;
+  padding: 6px 14px 3px;
+  background: var(--surface-3);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
 }
 
 .alerts-empty {

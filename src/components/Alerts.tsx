@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { PopMenu } from './PopMenu';
 import { supabase } from '../lib/supabaseClient';
 import { formatGap, peekSignal, signalGapPct } from '../lib/signals';
@@ -47,6 +47,28 @@ const WIDTH = 320;
 const panelWidth = (): number => Math.min(WIDTH, window.innerWidth - 16);
 
 /**
+ * How tall the panel wants to be, expressed in the 38px rows PopMenu sizes in.
+ *
+ * PopMenu asks for a row count because its own menus are uniform lists. This
+ * one is not: an alert row is two lines, and a day heading is a third kind of
+ * thing entirely. Passing the alert count alone under-measured the panel by
+ * 60px on four alerts across three days — so it opened short and scrolled a
+ * list that would have fitted, which reads as "there is more here" when there
+ * is not.
+ *
+ * The pixel figures are measured from `.alert-row` and `.alerts-day` in
+ * index.css and are the one thing to update if that padding changes. Rounding
+ * up is deliberate: over-measuring costs nothing (PopMenu caps at the space
+ * available), under-measuring is the bug above.
+ */
+const ROW_PX = 46;
+const DAY_PX = 20;
+const POPMENU_ROW_PX = 38;
+
+const sizeInRows = (rows: number, days: number): number =>
+  Math.max(1, Math.ceil((rows * ROW_PX + days * DAY_PX) / POPMENU_ROW_PX));
+
+/**
  * When this device last opened the panel.
  *
  * localStorage rather than a column: "have I seen this" is a property of the
@@ -55,13 +77,54 @@ const panelWidth = (): number => Math.min(WIDTH, window.innerWidth - 16);
  */
 const SEEN_KEY = 'fivealpha:alerts-seen';
 
-const readSeen = (): string => {
+/**
+ * Everything sent at or before this is hidden — the panel's "clear".
+ *
+ * **A cutoff, never a delete.** `public.signal_alerts` is not a display list,
+ * it is the ledger `notify-signals` consults to decide what has already been
+ * announced: the insert with `ignoreDuplicates` *is* the test. Deleting a row
+ * to clear it from this panel would make the next five-minute run treat that
+ * alert as new and push it to every device again. Clearing is therefore a local
+ * marker and nothing leaves the browser.
+ *
+ * Which also makes it per device, like `seen` — and that is the honest
+ * behaviour to ship rather than something that looks account-wide and is not.
+ * The panel says so.
+ */
+const CLEARED_KEY = 'fivealpha:alerts-cleared';
+
+const read = (key: string): string => {
   try {
-    return localStorage.getItem(SEEN_KEY) ?? '';
+    return localStorage.getItem(key) ?? '';
   } catch {
+    // Private mode. Everything shows, nothing is remembered, nothing breaks.
     return '';
   }
 };
+
+const write = (key: string, value: string): void => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Private mode again — the state lives for this tab only.
+  }
+};
+
+/**
+ * `Today`, `Yesterday`, or `12 Sep`.
+ *
+ * The panel groups by day because an uncleared list is mostly old: without it,
+ * a flip from last Tuesday sits flush against this morning's with nothing but a
+ * relative age in small type to tell them apart.
+ */
+function dayLabel(iso: string): string {
+  const then = new Date(iso);
+  const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((midnight(new Date()) - midnight(then)) / 86_400_000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return then.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
 
 export interface Alert {
   owner: string;
@@ -117,7 +180,8 @@ export function Alerts({ signedIn, lookup, onOpen, push }: Props) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [seen, setSeen] = useState(readSeen);
+  const [seen, setSeen] = useState(() => read(SEEN_KEY));
+  const [cleared, setCleared] = useState(() => read(CLEARED_KEY));
   const trigger = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async () => {
@@ -166,7 +230,27 @@ export function Alerts({ signedIn, lookup, onOpen, push }: Props) {
 
   if (!signedIn || !supabase) return null;
 
-  const unread = alerts.filter((a) => a.sentAt > seen).length;
+  // Cleared alerts are hidden from the list *and* from the badge. Anything that
+  // arrives afterwards is unaffected — clearing is not muting.
+  const visible = alerts.filter((a) => a.sentAt > cleared);
+  const unread = visible.filter((a) => a.sentAt > seen).length;
+
+  /**
+   * Hide everything currently listed.
+   *
+   * The cutoff is the newest alert's own timestamp, not `now()`: an alert that
+   * lands in the same second as the tap has not been read, and using the clock
+   * would swallow it.
+   */
+  const clearAll = () => {
+    const newest = visible[0]?.sentAt;
+    if (!newest) return;
+    setCleared(newest);
+    write(CLEARED_KEY, newest);
+    // Seen moves with it, or the badge would keep counting rows nobody can see.
+    setSeen(newest);
+    write(SEEN_KEY, newest);
+  };
 
   const openPanel = () => {
     setOpen(true);
@@ -178,14 +262,10 @@ export function Alerts({ signedIn, lookup, onOpen, push }: Props) {
     // Marked read on *close*, not on open: opening and immediately dismissing
     // still counts as having looked, and marking on open makes the badge
     // vanish under the finger before the list has painted.
-    const newest = alerts[0]?.sentAt;
+    const newest = visible[0]?.sentAt;
     if (newest && newest > seen) {
       setSeen(newest);
-      try {
-        localStorage.setItem(SEEN_KEY, newest);
-      } catch {
-        // Private mode: the badge comes back next load. Harmless.
-      }
+      write(SEEN_KEY, newest);
     }
     if (refocus) trigger.current?.focus();
   };
@@ -236,7 +316,7 @@ export function Alerts({ signedIn, lookup, onOpen, push }: Props) {
       {open && (
         <PopMenu
           trigger={trigger}
-          rows={Math.max(alerts.length, 1)}
+          rows={sizeInRows(visible.length, new Set(visible.map((a) => dayLabel(a.sentAt))).size)}
           /* Header, and the taller-than-a-menu-row shape of an alert. */
           chrome={70}
           width={panelWidth()}
@@ -245,8 +325,15 @@ export function Alerts({ signedIn, lookup, onOpen, push }: Props) {
           onClose={close}
         >
           <div className="alerts-head">
-            <span>Alerts</span>
-            <span className="muted">{alerts.length > 0 ? `last ${alerts.length}` : ''}</span>
+            <span>
+              Alerts
+              {unread > 0 && <span className="alerts-new-count"> {unread} new</span>}
+            </span>
+            {visible.length > 0 && (
+              <button type="button" className="alerts-clear" onClick={clearAll}>
+                Clear
+              </button>
+            )}
           </div>
 
           {push && !push.ok && (
@@ -264,15 +351,22 @@ export function Alerts({ signedIn, lookup, onOpen, push }: Props) {
 
           {error && <p className="alerts-empty">Could not read alerts — {error}</p>}
 
-          {!error && alerts.length === 0 && (
+          {!error && visible.length === 0 && (
             <p className="alerts-empty">
               {loading
                 ? 'Reading…'
-                : 'No alerts yet. A BUY on a screen symbol, or a SELL on one of your watchlisted symbols, appears here and on your phone.'}
+                : cleared
+                  ? 'Cleared. New alerts still arrive — clearing hides what you have already read on this device, it does not turn anything off.'
+                  : 'No alerts yet. A BUY on a screen symbol, or a SELL on one of your watchlisted symbols, appears here and on your phone.'}
             </p>
           )}
 
-          {alerts.map((a) => {
+          {visible.map((a, i) => {
+            // A heading whenever the day changes. `visible` is already newest
+            // first, so comparing with the previous row is the whole grouping —
+            // no second pass, no map of buckets to render from.
+            const day = dayLabel(a.sentAt);
+            const heading = i === 0 || day !== dayLabel(visible[i - 1].sentAt) ? day : null;
             const row = lookup?.(a.symbol);
             // Read, never fetched: opening the bell must not start thirty chart
             // requests. A symbol the table has already judged has its answer
@@ -281,43 +375,47 @@ export function Alerts({ signedIn, lookup, onOpen, push }: Props) {
             const gap = signal ? signalGapPct(signal, row?.quote?.price) : null;
 
             return (
-              <button
-                key={`${a.owner}|${a.symbol}|${a.side}|${a.signalDate}`}
-                type="button"
-                className={`alert-row sig ${a.side === 'BUY' ? 'up' : 'down'}`}
-                data-new={a.sentAt > seen}
-                disabled={!row}
-                onClick={() => {
-                  if (row) onOpen?.(row);
-                  close();
-                }}
-              >
-                <span className="alert-line">
-                  <span className="sig-badge">{a.side}</span>
-                  <strong className="alert-symbol">{a.symbol}</strong>
-                  {/* Which rule fired, because the two have different audiences
+              <Fragment key={`${a.owner}|${a.symbol}|${a.side}|${a.signalDate}`}>
+                {heading && <div className="alerts-day">{heading}</div>}
+                <button
+                  type="button"
+                  className={`alert-row sig ${a.side === 'BUY' ? 'up' : 'down'}`}
+                  data-new={a.sentAt > seen}
+                  disabled={!row}
+                  onClick={() => {
+                    if (row) onOpen?.(row);
+                    close();
+                  }}
+                >
+                  <span className="alert-line">
+                    <span className="sig-badge">{a.side}</span>
+                    <strong className="alert-symbol">{a.symbol}</strong>
+                    {/* Which rule fired, because the two have different audiences
                       and "why am I being told this" is the first question. */}
-                  <span className="alert-src muted">
-                    {a.owner === '*' ? 'Screen' : 'Watchlist'}
+                    <span className="alert-src muted">
+                      {a.owner === '*' ? 'Screen' : 'Watchlist'}
+                    </span>
+                    <span className="alert-ago muted num">{ago(a.sentAt)}</span>
                   </span>
-                  <span className="alert-ago muted num">{ago(a.sentAt)}</span>
-                </span>
 
-                {signal && (
-                  <span className="alert-body muted">
-                    <span className="num">₹{Math.round(signal.price).toLocaleString('en-IN')}</span>
-                    {' · score '}
-                    <span className="num">{signal.score}</span>
-                    {gap !== null && (
-                      <>
-                        {' · '}
-                        <span className="num">{formatGap(gap)}</span>
-                        {' since'}
-                      </>
-                    )}
-                  </span>
-                )}
-              </button>
+                  {signal && (
+                    <span className="alert-body muted">
+                      <span className="num">
+                        ₹{Math.round(signal.price).toLocaleString('en-IN')}
+                      </span>
+                      {' · score '}
+                      <span className="num">{signal.score}</span>
+                      {gap !== null && (
+                        <>
+                          {' · '}
+                          <span className="num">{formatGap(gap)}</span>
+                          {' since'}
+                        </>
+                      )}
+                    </span>
+                  )}
+                </button>
+              </Fragment>
             );
           })}
         </PopMenu>
