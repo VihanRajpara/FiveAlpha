@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SortingState } from '@tanstack/react-table';
 import { StockTable } from './components/StockTable';
+import { Alerts } from './components/Alerts';
 import { StockDetail } from './components/StockDetail';
 import { ThemeToggle } from './components/ThemeToggle';
 import { Filters, type FilterGroupSpec } from './components/Filters';
@@ -275,6 +276,18 @@ export default function App({
    * several figures before it scrolls. Below it, the overlay is still right.
    */
   const docked = useMediaQuery('(min-width: 1400px)');
+
+  /**
+   * The topbar's first row has run out of room.
+   *
+   * Adding the alerts bell put another 48px (button + gap) on a row that already
+   * carried the brand, the theme toggle, the refresh button and sign-out — which
+   * moved the width at which the full lockup still fits from ~426px up to ~475px.
+   * Below this the refresh button drops to one word; the brand falls back to its
+   * monogram over the same span (see .brand-logo in index.css). Between them the
+   * row fits again down to where it did before the bell existed.
+   */
+  const tightBar = useMediaQuery('(max-width: 480px)');
 
   const [search, setSearch] = useState('');
   // `/` focuses it from anywhere — see the shortcut handler below.
@@ -835,6 +848,18 @@ export default function App({
 
         <div className="spacer" />
 
+        {/* Left of the theme toggle, so the two icon buttons sit together and
+            the account controls stay rightmost. Renders nothing at all when
+            signed out — there is no `x-owner` header to read alerts with. */}
+        <Alerts
+          signedIn={Boolean(user)}
+          // `joined` is the whole list, not the filtered view: an alert about a
+          // symbol the current filters exclude must still open, and its ticker
+          // is what the signal cache the panel reads is keyed on.
+          lookup={(symbol) => joined.find((r) => r.symbol === symbol)}
+          onOpen={setSelected}
+        />
+
         <ThemeToggle />
 
         {/* Named for what it actually does. In Supabase mode this re-reads the
@@ -854,9 +879,11 @@ export default function App({
             ? sourceKind === 'supabase'
               ? 'Reloading…'
               : 'Refreshing…'
-            : sourceKind === 'supabase'
-              ? 'Reload from DB'
-              : 'Refresh prices'}
+            : tightBar
+              ? 'Reload'
+              : sourceKind === 'supabase'
+                ? 'Reload from DB'
+                : 'Refresh prices'}
         </button>
 
         {/* Rightmost, where an account control is looked for. Absent entirely

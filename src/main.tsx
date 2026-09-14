@@ -21,8 +21,12 @@ function Root() {
   return (
     <App
       user={user}
-      onSignOut={() => {
-        logout();
+      onSignOut={async () => {
+        // Awaited: `logout` deletes this device's push token, and that is a
+        // network write authorised by the session it is about to clear. A
+        // reload fired alongside it would cancel the request in flight and
+        // leave a signed-out browser on the alert list.
+        await logout();
         // A reload rather than `setUser(null)`: the watchlist store is module
         // state holding the signed-out account's lists, and handing those to
         // whoever signs in next is the one thing this must not do. Nothing is
