@@ -24,7 +24,9 @@
     "check:chart": "node scripts/check-chart.mjs",
     "check:backclose": "node scripts/check-backclose.mjs",
     "check:report": "node scripts/check-report.mjs",
-    "check:rules": "node scripts/check-rules.mjs"
+    "check:rules": "node scripts/check-rules.mjs",
+    "check:push": "node scripts/check-push.mjs",
+    "push:test": "node scripts/push-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

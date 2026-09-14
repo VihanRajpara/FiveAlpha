@@ -27,6 +27,7 @@ import {
 import { ANY, NUMERIC_FILTERS, matchesBands } from './lib/filters';
 import { matchesRules, rulesNeedSignals, type Rule } from './lib/rules';
 import type { User } from './lib/auth';
+import { lastPushResult, registerDevice, type PushResult } from './lib/push';
 import { useActiveList, useWatchlists } from './hooks/useWatchlist';
 import { groupLists } from './lib/watchlistReport';
 import { useMediaQuery } from './hooks/useMediaQuery';
@@ -288,6 +289,31 @@ export default function App({
    * row fits again down to where it did before the bell existed.
    */
   const tightBar = useMediaQuery('(max-width: 480px)');
+
+  /**
+   * Whether this device is registered for alerts, and why not when it isn't.
+   *
+   * Retried here rather than only at sign-in. Registration used to happen at
+   * that one instant, so anything that went wrong — a build without its
+   * VITE_FIREBASE_* values, an offline first load, permission granted only
+   * later in site settings — stayed broken until the next sign-out/sign-in.
+   * `prompt: false` keeps this silent: it re-registers a device whose
+   * permission is already granted and otherwise just records the reason.
+   *
+   * It also refreshes `updated_at` on every load, which is what stops a device
+   * that is still in use from being caught by the 90-day sweep.
+   */
+  const [push, setPush] = useState<PushResult | null>(lastPushResult);
+  useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    void registerDevice(user.username).then((result) => {
+      if (alive) setPush(result);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [user]);
 
   const [search, setSearch] = useState('');
   // `/` focuses it from anywhere — see the shortcut handler below.
@@ -858,6 +884,7 @@ export default function App({
           // is what the signal cache the panel reads is keyed on.
           lookup={(symbol) => joined.find((r) => r.symbol === symbol)}
           onOpen={setSelected}
+          push={push}
         />
 
         <ThemeToggle />
