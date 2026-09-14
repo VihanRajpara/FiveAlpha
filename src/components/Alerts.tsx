@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { PopMenu } from './PopMenu';
 import { supabase } from '../lib/supabaseClient';
 import { formatGap, peekSignal, signalGapPct } from '../lib/signals';
+import { describePush, type PushResult } from '../lib/push';
 import type { SecurityWithQuote } from '../types';
 
 /**
@@ -101,9 +102,17 @@ interface Props {
   lookup?: (symbol: string) => SecurityWithQuote | undefined;
   /** Opens the detail drawer, so an alert is one tap from the chart. */
   onOpen?: (row: SecurityWithQuote) => void;
+  /**
+   * Whether this device is registered for push, and why not when it isn't.
+   *
+   * Shown here because this is where somebody looks when the alerts they
+   * expected did not arrive. A registration that silently fails and says so
+   * nowhere is how "no token in the database" becomes an hour of guessing.
+   */
+  push?: PushResult | null;
 }
 
-export function Alerts({ signedIn, lookup, onOpen }: Props) {
+export function Alerts({ signedIn, lookup, onOpen, push }: Props) {
   const [open, setOpen] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(false);
@@ -189,7 +198,13 @@ export function Alerts({ signedIn, lookup, onOpen }: Props) {
         className="icon-btn alerts-btn"
         onClick={() => (open ? close() : openPanel())}
         data-open={open}
-        title={unread > 0 ? `${unread} new alert${unread === 1 ? '' : 's'}` : 'Alerts'}
+        title={
+          push && !push.ok
+            ? `Alerts — this device is not registered. ${describePush(push)}`
+            : unread > 0
+              ? `${unread} new alert${unread === 1 ? '' : 's'}`
+              : 'Alerts'
+        }
         aria-label={unread > 0 ? `Alerts, ${unread} new` : 'Alerts'}
       >
         <svg
@@ -206,8 +221,16 @@ export function Alerts({ signedIn, lookup, onOpen }: Props) {
           <path d="M18 8.5a6 6 0 1 0-12 0c0 6-2 7.5-2 7.5h16s-2-1.5-2-7.5" />
           <path d="M10.3 19.5a2 2 0 0 0 3.4 0" />
         </svg>
-        {/* Capped at 9+: the count is "is there anything new", not a total. */}
-        {unread > 0 && <span className="alerts-dot num">{unread > 9 ? '9+' : unread}</span>}
+        {/* Capped at 9+: the count is "is there anything new", not a total.
+            The unregistered mark takes precedence — a count of unread alerts is
+            beside the point on a device that will not receive the next one. */}
+        {push && !push.ok ? (
+          <span className="alerts-dot alerts-dot-warn" aria-hidden>
+            !
+          </span>
+        ) : (
+          unread > 0 && <span className="alerts-dot num">{unread > 9 ? '9+' : unread}</span>
+        )}
       </button>
 
       {open && (
@@ -225,6 +248,19 @@ export function Alerts({ signedIn, lookup, onOpen }: Props) {
             <span>Alerts</span>
             <span className="muted">{alerts.length > 0 ? `last ${alerts.length}` : ''}</span>
           </div>
+
+          {push && !push.ok && (
+            <p className="alerts-warn">
+              <strong>Not registered on this device.</strong> {describePush(push)}
+              {/* The exact cause, not just the category. `failed` covers a
+                  service worker that would not register, an SDK version
+                  mismatch, an RLS refusal and a dead network — and "could not
+                  register this device" sends someone to guess which. It is the
+                  one line worth putting on screen rather than leaving in the
+                  console. */}
+              {push.detail && <span className="alerts-detail">{push.detail}</span>}
+            </p>
+          )}
 
           {error && <p className="alerts-empty">Could not read alerts — {error}</p>}
 

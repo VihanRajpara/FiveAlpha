@@ -17,8 +17,8 @@
 // the build verbatim, so Vite never substitutes anything into it. Nothing here
 // is secret: every one of these values is already inlined into the browser
 // bundle, which is what the VITE_ prefix means.
-importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/12.19.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/12.19.0/firebase-messaging-compat.js');
 
 firebase.initializeApp({
   apiKey: 'AIzaSyCJ91QTP1qHT8ZG-J0Gdr8TBbStYtjNPF4',

@@ -154,6 +154,12 @@ export async function sendPush(
               badge: '/icon-192.png',
               // Collapse repeats for the same symbol rather than stacking them.
               tag: message.title,
+              // Stay until acted on. On Windows this is also what decides
+              // whether the alert lands in the notification centre or simply
+              // disappears with the toast a few seconds later — and an alert
+              // that only exists for four seconds is one you miss by looking
+              // away, which is the whole thing this feature exists to prevent.
+              requireInteraction: true,
             },
             ...(message.link ? { fcm_options: { link: message.link } } : {}),
           },

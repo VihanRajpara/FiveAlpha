@@ -31,6 +31,19 @@
 -- No insert, update or delete policy: the browser has no business writing here,
 -- and notify-signals uses the service role, which bypasses all of this.
 -- ---------------------------------------------------------------------------
+-- The GRANT, which is not the same thing as the policy and is easy to forget.
+--
+-- 0016 created this table with `revoke all ... from anon, authenticated`, copied
+-- from `app_users` where nothing but the service role should ever touch it. A
+-- policy does not undo that: a grant decides whether the role may run the
+-- statement, a policy decides which rows it then sees. With the policy and no
+-- grant, PostgREST answers **"permission denied for table signal_alerts"** —
+-- which is what the app's alerts panel showed, and which looks nothing like an
+-- RLS refusal (that returns an empty list, not an error).
+--
+-- SELECT only. Nothing in the browser writes here.
+grant select on public.signal_alerts to anon, authenticated;
+
 drop policy if exists "owner reads own alerts" on public.signal_alerts;
 create policy "owner reads own alerts" on public.signal_alerts
   for select to anon, authenticated

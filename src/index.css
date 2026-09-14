@@ -3180,6 +3180,45 @@ body {
   box-shadow: 0 0 0 2px var(--surface);
 }
 
+/* Not a count — a state. Amber rather than the unread red, because "you have
+   three new alerts" and "you will not receive the next one" are opposite kinds
+   of news and must not look alike. */
+.alerts-dot-warn {
+  /* A literal, not a token: this app has no warning colour, and inventing
+     `--warn` for one 15px dot would be a palette entry with one caller. Amber
+     reads as a caution against both themes' topbar, which is the whole job. */
+  background: #c77700;
+  font-size: 10.5px;
+}
+
+.alerts-warn {
+  margin: 0 0 4px;
+  padding: 8px 9px;
+  border-radius: var(--r-md);
+  background: var(--down-container);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--on-surface);
+}
+
+.alerts-warn strong {
+  font-weight: 650;
+}
+
+/* The raw cause. Its own line and a monospace face because it is a machine's
+   words, not the app's — a table name, an SDK version, a variable that is not
+   set. Wraps rather than truncating: the useful half of these is usually at the
+   end. */
+.alerts-detail {
+  display: block;
+  margin-top: 5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--on-surface-variant);
+  overflow-wrap: anywhere;
+}
+
 .alerts-head {
   display: flex;
   justify-content: space-between;

@@ -69,7 +69,11 @@ export async function login(username: string, pin: string): Promise<User | strin
   // It has to come after `saveSession`, not before: the upsert is an ordinary
   // browser write and RLS reads the owner from the `x-owner` header, which
   // `supabaseClient` fills from the session that was just stored.
-  void registerDevice(user.username);
+  // `prompt: true` — a person just pressed a button, so the browser's
+  // permission dialog is expected here and nowhere else. App start retries the
+  // same call with `prompt: false`, which is what makes a failure here
+  // recoverable without another sign-out/sign-in cycle.
+  void registerDevice(user.username, { prompt: true });
 
   return user;
 }
