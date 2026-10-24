@@ -1,9 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { SortingState } from '@tanstack/react-table';
 import { StockTable } from './components/StockTable';
 import { Alerts } from './components/Alerts';
-import { StockDetail } from './components/StockDetail';
 import { ThemeToggle } from './components/ThemeToggle';
 import { Filters, type FilterGroupSpec } from './components/Filters';
 import { ScreenBar } from './components/ScreenBar';
@@ -32,14 +31,26 @@ import { lastPushResult, registerDevice, type PushResult } from './lib/push';
 import { useActiveList, useWatchlists } from './hooks/useWatchlist';
 import { groupLists } from './lib/watchlistReport';
 import { useMediaQuery } from './hooks/useMediaQuery';
+import { useOnline } from './hooks/useOnline';
 import { onTabListKeys } from './hooks/useFocusTrap';
 import { setActiveList, toggleWatch } from './lib/watchlist';
-import { reducedMotion } from './lib/motion';
+import { DUR, reducedMotion } from './lib/motion';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
 import { UNCLASSIFIED } from './lib/classification';
 import { compareSeries, describeSeries } from './lib/listings';
 import type { CapBand, SecurityWithQuote } from './types';
 import { Icon } from './components/Icon';
+
+/**
+ * The detail panel, on demand.
+ *
+ * It carries the whole charting library, which is most of the weight of the
+ * app and none of what the first paint needs — the table is. Fetched at idle
+ * after the shell mounts (see `prefetchDetail` below), so the first row opened
+ * still finds it in hand rather than waiting on the network.
+ */
+const loadDetail = () => import('./components/StockDetail');
+const StockDetail = lazy(() => loadDetail().then((m) => ({ default: m.StockDetail })));
 
 /** Prices older than this during a live session are worth flagging. */
 const STALE_AFTER_MS = 15 * 60 * 1000;
@@ -260,7 +271,7 @@ function Count({ value }: { value: number }) {
     const start = performance.now();
     let frame = 0;
     const step = (now: number) => {
-      const t = Math.min(1, (now - start) / 600);
+      const t = Math.min(1, (now - start) / (DUR.slow * 2));
       write(Math.round(from + (value - from) * (1 - (1 - t) ** 3)));
       if (t < 1) frame = requestAnimationFrame(step);
     };
@@ -284,6 +295,14 @@ export default function App({
   user?: User | null;
   onSignOut?: () => void;
 }) {
+  // The detail panel's chunk, fetched once the browser is idle — see
+  // `loadDetail`. Safari has no requestIdleCallback; a short timer stands in.
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 1500));
+    idle(() => void loadDetail());
+  }, []);
+  const online = useOnline();
+
   const {
     securities,
     quotes,
@@ -986,6 +1005,19 @@ export default function App({
         )}
       </header>
 
+      {/* Offline is a state of the whole page, so it is said once, across the
+          top, rather than as a column of stale-looking figures. The data stays
+          on screen — it is still the last true reading — and says how old it is. */}
+      {!online && (
+        <div className="offline-bar" role="status">
+          <Icon name="wifiOff" size={16} />
+          <span>
+            <b>You’re offline.</b> Prices and signals resume when the connection returns
+            {dataAsOf ? ` — the figures below are as of ${formatIstDateTime(dataAsOf)}.` : '.'}
+          </span>
+        </div>
+      )}
+
       <div className="subbar">
         {/* Beside the filters rather than up in the header: it is the same kind
             of control — what the table below is showing — and the header ran
@@ -1184,6 +1216,25 @@ export default function App({
               signalSortable={signalFilterAffordable}
               selectedSymbol={selectedRow?.symbol ?? null}
               onSelect={setSelected}
+              empty={
+                watchlistView && active.symbols.length === 0
+                  ? {
+                      icon: 'star',
+                      title: `${active.name} is empty`,
+                      body: 'Star a share in the Screener — the star beside its symbol — and it is filed here.',
+                    }
+                  : search.trim() !== ''
+                    ? {
+                        icon: 'search',
+                        title: `Nothing matches “${search.trim()}”`,
+                        body: 'Check the spelling, or search by ISIN. Filters still apply to search results.',
+                      }
+                    : {
+                        icon: 'filters',
+                        title: 'No shares pass these filters',
+                        body: 'Loosen one of them, or clear them all from Filters.',
+                      }
+              }
             />
           )}
         </div>
@@ -1276,13 +1327,17 @@ export default function App({
       </footer>
 
       {selectedRow && (
-        <StockDetail
-          docked={docked}
-          security={selectedRow}
-          quote={selectedRow.quote}
-          cls={selectedRow.cls}
-          onClose={() => setSelected(null)}
-        />
+        // No fallback: the panel slides in when it is ready, which after the
+        // idle prefetch is the same frame.
+        <Suspense fallback={null}>
+          <StockDetail
+            docked={docked}
+            security={selectedRow}
+            quote={selectedRow.quote}
+            cls={selectedRow.cls}
+            onClose={() => setSelected(null)}
+          />
+        </Suspense>
       )}
     </div>
   );

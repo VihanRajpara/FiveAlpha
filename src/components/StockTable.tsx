@@ -41,8 +41,8 @@ import {
   type Signal,
 } from '../lib/signals';
 import type { Classification, SecurityWithQuote } from '../types';
-import { EASE_OUT, reducedMotion } from '../lib/motion';
-import { Icon } from './Icon';
+import { DUR, EASE_OUT, reducedMotion } from '../lib/motion';
+import { Icon, type IconName } from './Icon';
 
 /**
  * Three layouts, none of which scrolls sideways — a wall of thirteen columns
@@ -509,6 +509,8 @@ interface Props {
   signalSortable: boolean;
   selectedSymbol: string | null;
   onSelect: (row: SecurityWithQuote) => void;
+  /** What to say when there are no rows — the caller knows why there are none. */
+  empty?: { icon: IconName; title: string; body: string };
 }
 
 export function StockTable({
@@ -519,6 +521,7 @@ export function StockTable({
   signalSortable,
   selectedSymbol,
   onSelect,
+  empty,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -561,7 +564,7 @@ export function StockTable({
     if (!reducedMotion()) {
       scrollRef.current?.querySelector('.tbody')?.animate(
         [{ opacity: 0.35, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }],
-        { duration: 200, easing: EASE_OUT },
+        { duration: DUR.base, easing: EASE_OUT },
       );
     }
   }, [sorting, pagination.pageIndex, virtualise]);
@@ -1185,6 +1188,14 @@ export function StockTable({
                 )
             : tableRows.map((row, i) => renderRow(row, i))}
         </div>
+
+        {rows.length === 0 && empty && (
+          <div className="table-empty" role="status">
+            <Icon name={empty.icon} size={24} />
+            <strong>{empty.title}</strong>
+            <span>{empty.body}</span>
+          </div>
+        )}
       </div>
 
       <div className="pagebar">

@@ -28,7 +28,7 @@ import {
 import { CompanyFundamentals } from './CompanyFundamentals';
 import { ExchangeBadges } from './ExchangeBadges';
 import { CandleChart } from './CandleChart';
-import { EASE_OUT, reducedMotion } from '../lib/motion';
+import { DUR, EASE_OUT, reducedMotion } from '../lib/motion';
 import { Icon } from './Icon';
 
 const RANGES: ChartRange[] = ['1mo', '6mo', '1y', '5y'];
@@ -353,7 +353,7 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
     shownSymbol.current = security.symbol;
     if (reducedMotion()) return;
     for (const el of drawerRef.current?.querySelectorAll(':scope > .drawer-head, :scope > .drawer-body') ?? []) {
-      el.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: 220, easing: EASE_OUT });
+      el.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: DUR.base, easing: EASE_OUT });
     }
   }, [security.symbol]);
 

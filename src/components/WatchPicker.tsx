@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useWatchedAnywhere, useWatchlists } from '../hooks/useWatchlist';
 import { createList, toggleInList } from '../lib/watchlist';
 import { PopMenu } from './PopMenu';
-import { reducedMotion } from '../lib/motion';
+import { DUR, EASE_SPRING, reducedMotion } from '../lib/motion';
 import { Icon } from './Icon';
 
 /**
@@ -58,7 +58,7 @@ export function WatchPicker({ symbol, size = 'sm' }: Props) {
     if (watched && !wasWatched.current && !reducedMotion()) {
       svgRef.current?.animate(
         [{ transform: 'scale(1)' }, { transform: 'scale(1.32)' }, { transform: 'scale(1)' }],
-        { duration: 380, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' },
+        { duration: DUR.slow, easing: EASE_SPRING },
       );
     }
     wasWatched.current = watched;

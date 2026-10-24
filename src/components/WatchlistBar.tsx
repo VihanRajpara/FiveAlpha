@@ -117,7 +117,8 @@ export function WatchlistBar({ shown, pane, onPane }: Props) {
 
           {editing === null && (
             <button type="button" className="wl-tab wl-new" onClick={startNew} title="New watchlist">
-              + New
+              <Icon name="plus" size={14} weight={2} />
+              New
             </button>
           )}
         </div>

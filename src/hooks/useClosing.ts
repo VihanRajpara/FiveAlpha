@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { DUR } from '../lib/motion';
 
-/** Matches the exit durations in index.css. One number, two places, so it is a constant. */
-const EXIT_MS = 200;
+/** The exit animations in index.css run for `--dur`; this is the same number. */
+const EXIT_MS = DUR.base;
 
 const REDUCED = '(prefers-reduced-motion: reduce)';
 

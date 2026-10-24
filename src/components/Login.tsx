@@ -1,15 +1,18 @@
 import { useRef, useState } from 'react';
+import { Icon } from './Icon';
 import { lastUsername, login, type User } from '../lib/auth';
 import { activeSource } from '../lib/dataSource';
-import { reducedMotion } from '../lib/motion';
+import { DUR, EASE_OUT, reducedMotion } from '../lib/motion';
 
 /**
  * The whole of the signed-out app: a username, four digits, and one button.
  *
- * Validation is the browser's — `required`, `pattern` and `minLength` say what
- * a valid entry is and the form will not submit without one, which is a message
- * in the user's own language for free. The PIN is checked in the database (see
- * src/lib/auth.ts); nothing here can tell whether it is right.
+ * Validation is inline, under each field: the browser's own bubbles looked
+ * different in every browser, vanished after a few seconds, and on iOS said
+ * nothing at all. A field is judged once it has been left or the form has been
+ * submitted — never while it is still being typed into. The rules are the same
+ * ones the markup states (`required`, four digits); whether the PIN is *right*
+ * is only known to the database (see src/lib/auth.ts).
  */
 export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
   // Whoever signed in last on this device, so the common case is four digits
@@ -19,11 +22,32 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [left, setLeft] = useState({ username: false, pin: false });
+  const [submitted, setSubmitted] = useState(false);
   const cardRef = useRef<HTMLFormElement>(null);
+  const userRef = useRef<HTMLInputElement>(null);
+  const pinRef = useRef<HTMLInputElement>(null);
+
+  const userProblem = username.trim() === '' ? 'Enter the username you were given.' : null;
+  const missing = 4 - pin.length;
+  const pinProblem =
+    missing === 4
+      ? 'Enter your four-digit PIN.'
+      : missing > 0
+        ? `${missing} more digit${missing === 1 ? '' : 's'} — the PIN is four.`
+        : null;
+  const showUser = (left.username || submitted) && userProblem;
+  const showPin = (left.pin || submitted) && pinProblem;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (busy) return;
+
+    setSubmitted(true);
+    if (userProblem || pinProblem) {
+      (userProblem ? userRef : pinRef).current?.focus();
+      return;
+    }
 
     setBusy(true);
     setError(null);
@@ -35,14 +59,17 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
       // whole retry, and leaving a wrong one in the box invites a second
       // submit of the same thing.
       setPin('');
+      setLeft((l) => ({ ...l, pin: false }));
+      setSubmitted(false);
       setBusy(false);
+      pinRef.current?.focus();
       // The shake that every lock screen uses for "no" — read before the
       // message is, and it replays on every wrong attempt, which a message that
       // reads the same twice does not. Travel, so not under reduced motion.
       if (!reducedMotion()) {
         cardRef.current?.animate(
           [0, -8, 7, -5, 3, 0].map((x) => ({ transform: `translateX(${x}px)` })),
-          { duration: 360, easing: 'ease-out' },
+          { duration: DUR.slow, easing: EASE_OUT },
         );
       }
       return;
@@ -54,7 +81,7 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
 
   return (
     <div className="login-page">
-      <form ref={cardRef} className="login-card" onSubmit={submit}>
+      <form ref={cardRef} className="login-card" onSubmit={submit} noValidate>
         <div className="brand-splash login-mark" aria-hidden />
 
         <h1 className="login-title">{remembered ? 'Welcome back' : 'Sign in'}</h1>
@@ -65,8 +92,13 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
         <label className="login-field">
           <span>Username</span>
           <input
+            ref={userRef}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
+            onBlur={() => setLeft((l) => ({ ...l, username: true }))}
+            aria-invalid={showUser ? true : undefined}
+            aria-describedby={showUser ? 'login-user-error' : undefined}
+            enterKeyHint="next"
             autoComplete="username"
             autoCapitalize="none"
             autoCorrect="off"
@@ -76,12 +108,22 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
             // is the only thing left to type, so it gets it instead.
             autoFocus={!remembered}
           />
+          {showUser && (
+            <span className="login-field-error" id="login-user-error">
+              {userProblem}
+            </span>
+          )}
         </label>
 
         <label className="login-field login-field-pin">
           <span>PIN</span>
           <input
+            ref={pinRef}
             value={pin}
+            onBlur={() => setLeft((l) => ({ ...l, pin: true }))}
+            aria-invalid={showPin ? true : undefined}
+            aria-describedby={showPin ? 'login-pin-error' : undefined}
+            enterKeyHint="go"
             // Digits only, as they are typed: `inputMode` raises a keypad on a
             // phone and does nothing at all on a laptop.
             onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
@@ -95,6 +137,11 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
             required
             autoFocus={Boolean(remembered)}
           />
+          {showPin && (
+            <span className="login-field-error" id="login-pin-error">
+              {pinProblem}
+            </span>
+          )}
         </label>
 
         <button className="login-submit" type="submit" disabled={busy}>
@@ -103,7 +150,8 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
 
         {error && (
           <p className="login-error" role="alert">
-            {error}
+            <Icon name="alert" size={16} />
+            <span>{error}</span>
           </p>
         )}
 

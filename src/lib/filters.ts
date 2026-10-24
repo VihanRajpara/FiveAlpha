@@ -73,10 +73,10 @@ export const NUMERIC_FILTERS: NumericFilter[] = [
     get: (row) => row.quote?.changePercent,
     bands: [
       any("Any of today's move"),
-      { value: 'up2', label: '▲ 2%+', hint: 'Up more than 2% today', min: 2 },
-      { value: 'up5', label: '▲ 5%+', hint: 'Up more than 5% today', min: 5 },
-      { value: 'dn2', label: '▼ 2%+', hint: 'Down more than 2% today', max: -2 },
-      { value: 'dn5', label: '▼ 5%+', hint: 'Down more than 5% today', max: -5 },
+      { value: 'up2', label: '+2% up', hint: 'Up more than 2% today', min: 2 },
+      { value: 'up5', label: '+5% up', hint: 'Up more than 5% today', min: 5 },
+      { value: 'dn2', label: '−2% down', hint: 'Down more than 2% today', max: -2 },
+      { value: 'dn5', label: '−5% down', hint: 'Down more than 5% today', max: -5 },
     ],
   },
   {

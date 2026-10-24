@@ -936,13 +936,13 @@ body {
   transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 
-.rule-chip > span[aria-hidden] {
+.rule-chip > .icon {
   opacity: 0.6;
-  font-size: var(--fs-xs);
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .rule-chip:hover > span[aria-hidden] {
+  .rule-chip:hover > .icon {
     opacity: 1;
   }
 }
@@ -1589,8 +1589,11 @@ body {
 /* ---- the roll-up tiles ---- */
 
 .mis-tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  /* Flex, not an auto-fit grid: a grid leaves empty tracks after the last
+  figure, which this band's rule-coloured background shows as grey blocks.
+  Flex items stretch to fill their row, so the band always ends square. */
+  display: flex;
+  flex-wrap: wrap;
   gap: 1px;
   background: var(--outline-faint);
   border-top: 1px solid var(--rule);
@@ -1601,9 +1604,17 @@ body {
    they do not filter anything, so the press and hover affordances the breadth
    tiles carry would be promising a click that does nothing. */
 .mis-tile {
+  flex: 1 1 148px;
   cursor: default;
   transition: none;
 }
+
+/* They state a figure and filter nothing, so they do not answer the pointer. */
+.stat.mis-tile:hover,
+.stat.mis-tile:active {
+  background: var(--canvas);
+}
+
 
 .mis-tile:active {
   transform: none;
@@ -2191,10 +2202,8 @@ body {
 
 .th .caret {
   display: inline-block;
-  font-size: var(--fs-micro);
-  line-height: 1;
   transition: rotate var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out),
-    scale var(--dur) var(--ease-out);
+  scale var(--dur) var(--ease-out);
 }
 
 .th .caret[data-dir='desc'],
@@ -2410,8 +2419,7 @@ body {
 }
 
 .chg-chip .arrow {
-  font-size: var(--fs-micro);
-  line-height: 1;
+  flex: none;
 }
 
 /* ---------- price ticks ---------- */
@@ -2669,9 +2677,10 @@ body {
 }
 
 .menu-check {
+  display: inline-flex;
+  align-items: center;
   width: 14px;
   flex: none;
-  font-size: var(--fs-sm);
   color: var(--primary);
 }
 
@@ -3915,8 +3924,13 @@ body {
 
 /* An odd number of facts left a dead half-cell at the end of the grid, which
    read as a missing value rather than as the end of the list. */
-.facts > .fact:last-child:nth-child(odd) {
-  grid-column: 1 / -1;
+/* Two-column only: stated as its own query, because a plain rule here sat after
+   the three-column block above and, at equal specificity, overrode it — the
+   last of three facts spanned its own row and left a hole beside the second. */
+@container (max-width: 619px) {
+  .facts > .fact:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
 }
 
 .fact dt {
@@ -4549,8 +4563,8 @@ body {
  */
 .chart-tool-primary {
   border-color: transparent;
-  background: var(--primary);
-  color: var(--on-primary);
+  background: var(--ink-fill);
+  color: var(--on-ink);
 }
 
 .chart-tool-primary span {
@@ -4560,9 +4574,9 @@ body {
 
 @media (hover: hover) and (pointer: fine) {
   .chart-tool-primary:hover {
-    background: var(--primary-hover);
+    background: var(--ink-fill-hover);
     border-color: transparent;
-    color: var(--on-primary);
+    color: var(--on-ink);
   }
 }
 
@@ -5335,11 +5349,6 @@ body {
   .report {
     gap: var(--sp-4);
     padding: var(--sp-3) var(--gutter) var(--sp-5);
-  }
-
-  .mis-tiles {
-    grid-template-columns: repeat(2, 1fr);
-    gap: var(--sp-2);
   }
 
   /* One list per line. Two 240px cards on a 360px screen is a name truncated
@@ -6698,4 +6707,258 @@ a.screen-count {
   .pagebar {
     bottom: var(--nav-h);
   }
+}
+
+/* ---------- states: boot, offline, not found ---------- */
+
+/* The app arriving — opacity only, so nothing shifts and the first paint is
+   still the first paint. */
+@keyframes app-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.app {
+  animation: app-in var(--dur-slow) var(--ease-out) both;
+}
+
+/* The moment the app chunk is in flight. Invisible for the first 300ms — a
+   fast load should show nothing at all — then the mark and a running rule. */
+.boot {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--sp-5);
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--canvas);
+  animation: fade-in var(--dur-slow) var(--ease-out) 300ms both;
+}
+
+.boot-mark {
+  width: 132px;
+}
+
+.boot-bar {
+  position: relative;
+  width: 132px;
+  height: 2px;
+  overflow: hidden;
+  background: var(--outline);
+}
+
+.boot-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--primary);
+  animation: boot-run 1.1s var(--ease-in-out) infinite;
+}
+
+@keyframes boot-run {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(250%);
+  }
+}
+
+/* Offline: one line across the top, in the warning colour, never a modal. */
+.offline-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--gutter);
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, var(--canvas));
+  color: var(--on-surface);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  animation: fade-in var(--dur) var(--ease-out);
+}
+
+.offline-bar .icon {
+  margin-top: 1px;
+  color: var(--warn);
+}
+
+.offline-bar b {
+  font-weight: 600;
+}
+
+/* ---- 404 ---- */
+.notfound {
+  position: relative;
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: var(--sp-8) var(--gutter);
+  background: var(--canvas);
+}
+
+/* The same ruled paper as the sign-in page — the two screens outside the app
+   share one ground. */
+.notfound::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: repeating-linear-gradient(to bottom,
+      transparent 0 31px, var(--outline-faint) 31px 32px);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 20%, transparent 75%);
+  pointer-events: none;
+}
+
+.notfound-card {
+  position: relative;
+  margin: auto;
+  width: min(520px, 100%);
+  animation: login-in var(--dur-slow) var(--ease-out);
+}
+
+.notfound-mark {
+  height: 24px;
+  margin-bottom: var(--sp-10);
+}
+
+.notfound-code {
+  margin: 0;
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--font-display);
+  font-size: clamp(64px, 12vw, 112px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--on-surface);
+  font-variant-numeric: lining-nums;
+}
+
+.notfound-title {
+  margin: var(--sp-6) 0 var(--sp-2);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.notfound-body {
+  margin: 0 0 var(--sp-6);
+  max-width: 52ch;
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  color: var(--on-surface-variant);
+}
+
+.notfound-body code {
+  font-family: inherit;
+  padding: 1px var(--sp-1);
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  color: var(--on-surface);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.notfound-home {
+  height: var(--ctl-lg);
+  padding: 0 var(--sp-5);
+  text-decoration: none;
+}
+
+/* ---------- scroll reveals (src/lib/motion.ts) ----------
+
+   Only ever set by script, so without it — or under reduced motion, where the
+   script marks nothing — every block is simply visible. */
+[data-reveal='wait'] {
+  opacity: 0;
+  translate: 0 12px;
+}
+
+[data-reveal='in'] {
+  opacity: 1;
+  translate: none;
+  transition: opacity var(--dur-slow) var(--ease-out), translate var(--dur-slow) var(--ease-out);
+  transition-delay: calc(var(--reveal-i, 0) * 40ms);
+}
+
+/* Phones: shorter travel, same rhythm — cheap on a mid-range GPU, and a 12px
+   rise on a 360px screen is a larger share of it. */
+@media (max-width: 700px) {
+  [data-reveal='wait'] {
+    translate: 0 6px;
+  }
+}
+
+/* ---------- empty table ----------
+
+   Pinned to the visible width of the scroller (the grid behind it is wider
+   than the window on a laptop), so the message sits centred in what you can
+   see rather than in the middle of fifteen hundred pixels of columns. */
+.table-wrap {
+  container-type: inline-size;
+}
+
+.table-empty {
+  position: sticky;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100cqi;
+  padding: var(--sp-12) var(--sp-6);
+  text-align: center;
+  color: var(--on-surface-variant);
+  animation: fade-in var(--dur) var(--ease-out);
+}
+
+.table-empty .icon,
+.empty-icon {
+  margin-bottom: var(--sp-1);
+  color: var(--on-surface-faint);
+}
+
+.table-empty strong {
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--on-surface);
+  overflow-wrap: anywhere;
+}
+
+.table-empty span {
+  max-width: 46ch;
+  font-size: var(--fs-base);
+  line-height: 1.5;
+}
+
+/* ---------- sign-in: field errors ---------- */
+
+/* Said under the field it is about, in the field's own label style turned to
+   sentence case — a sentence, not a shout. */
+.login-field-error {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--down);
+  animation: fade-in var(--dur) var(--ease-out);
+}
+
+.login-field input[aria-invalid='true'] {
+  border-color: var(--down);
+}
+
+.login-field input[aria-invalid='true']:focus {
+  border-color: var(--down);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--down) 18%, transparent);
+}
+
+.login-error .icon {
+  margin-top: 1px;
 }

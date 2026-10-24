@@ -45,7 +45,8 @@ export function useTheme() {
   useEffect(() => {
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute('content', resolved === 'dark' ? '#1e2125' : '#ffffff');
+      // The canvas colour of each theme — keep in step with `--canvas`.
+      ?.setAttribute('content', resolved === 'dark' ? '#121110' : '#f5f3ee');
   }, [resolved]);
 
   return { mode, setMode, resolved };

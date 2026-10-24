@@ -11,6 +11,7 @@ import {
 import { peekReading, scoreLabel, SIGNAL_FILTER_MAX } from '../lib/signals';
 import { CAP_SHORT } from '../lib/classification';
 import { formatPercent } from '../lib/format';
+import { Icon } from './Icon';
 
 /**
  * One page that reads every watchlist at once.
@@ -164,6 +165,7 @@ export function WatchlistsReport({
     return (
       <main className="report">
         <div className="center-msg report-empty">
+          <Icon name="star" size={28} className="empty-icon" />
           <strong>Nothing to report yet</strong>
           <span>
             Star a few symbols in the Screener and they will be analysed here — every list on one

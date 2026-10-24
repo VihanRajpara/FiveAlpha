@@ -5,10 +5,10 @@
 Two kinds of output:
 
 * `public/brand/*.png` — alpha-only masks of each lockup. The page paints them
-  with `--brand-gradient` through `mask-image`, so one file serves both themes
-  (the pastel artwork is unreadable on the light canvas as-is).
-* `public/icon-*.png`, favicon, apple-touch — the installed-app icon, built
-  from the SA monogram on its own black tile.
+  in its own ink through `mask-image`, so one file serves both themes.
+* `public/icon-*.png`, favicon, apple-touch — the installed-app icon: the SA
+  monogram in newsprint cream on a warm-ink tile, with the amber rule the app
+  uses to mark a section. Same three colours as the interface.
 
 Pillow rather than sharp, because sharp wants Node >=20 and this project is
 pinned to 18.
@@ -48,35 +48,31 @@ def brandmask(src, dst):
 
 # ---------- app icon ----------
 
+INK = (27, 25, 21)       # --on-surface, light theme: the tile
+CREAM = (237, 233, 225)  # --on-surface, dark theme: the mark
+AMBER = (242, 170, 69)   # --primary, dark theme: the rule under it
+
+
 def squared():
-    """The artwork, cropped to the mark and centred on a square of its own
-    background. Computed once; every size below is a resize of it."""
+    """The monogram mask, printed cream on an ink square with an amber rule
+    beneath it, the pair centred as one group. Computed once at a large size;
+    every icon below is a resize of it."""
     global _squared
     if _squared is not None:
         return _squared
 
-    art = Image.open(SOURCE).convert('RGB')
-    paper = art.getpixel((2, 2))
-    px = art.load()
-    x0, y0, x1, y1 = art.width, art.height, 0, 0
-    for y in range(art.height):
-        for x in range(art.width):
-            r, g, b = px[x, y]
-            if max(r, g, b) - min(r, g, b) > SATURATION:
-                x0, x1 = min(x0, x), max(x1, x)
-                y0, y1 = min(y0, y), max(y1, y)
-    if x0 > x1:
-        raise SystemExit(f'{SOURCE}: found no coloured mark to crop to')
-
-    side = round(max(x1 - x0, y1 - y0) / FILL)
-    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    box = [round(cx - side / 2), round(cy - side / 2)]
-    # The crop can run off the edge — the export is rarely padded enough to
-    # square it — so it is pasted onto a canvas of the paper colour instead.
-    out = Image.new('RGB', (side, side), paper)
-    out.paste(art.crop((max(0, box[0]), max(0, box[1]),
-                        min(art.width, box[0] + side), min(art.height, box[1] + side))),
-              (max(0, -box[0]), max(0, -box[1])))
+    mask = Image.open('public/brand/monogram.png').split()[-1]
+    side = round(mask.width / FILL)
+    rule_h = round(side * 0.04)
+    rule_gap = round(side * 0.075)
+    group_h = mask.height + rule_gap + rule_h
+    out = Image.new('RGB', (side, side), INK)
+    x = (side - mask.width) // 2
+    y = (side - group_h) // 2
+    out.paste(Image.new('RGB', mask.size, CREAM), (x, y), mask)
+    rule_w = round(side * 0.2)
+    ry = y + mask.height + rule_gap
+    ImageDraw.Draw(out).rectangle([x, ry, x + rule_w, ry + rule_h - 1], fill=AMBER)
     _squared = out
     return out
 
@@ -94,9 +90,8 @@ def tile(size, rounded=True, scale=1.0):
         return img.convert('RGBA')
 
     out = img.convert('RGBA')
-    # No outline. The old near-white tile needed a hairline to have any shape
-    # against a white page; on this black tile the same line reads as a white
-    # ring, and at 16px it is a third of the icon.
+    # No outline: against a light page the ink tile has shape of its own, and a
+    # light ring at 16px would be a third of the icon.
     mask = Image.new('L', (size * SS,) * 2, 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, size * SS - 1, size * SS - 1],
                                            radius=RADIUS * size * SS, fill=255)
