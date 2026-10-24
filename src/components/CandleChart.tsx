@@ -81,10 +81,10 @@ const asTime = (iso: string) => (Date.parse(`${iso}T12:00:00Z`) / 1000) as UTCTi
  *
  * Read through a throwaway element rather than off `documentElement`, and that
  * detail is the whole function. `getPropertyValue('--up')` returns a custom
- * property's *declared* value — here the literal string
- * `light-dark(#0f7b45, #4ed08a)` — because `light-dark()` only resolves when the
- * property is actually used. Handing that to a canvas gets it silently rejected
- * and the context keeps its previous colour: black candles, and no error.
+ * property's *declared* value — which can be another `var()`, or a colour in a
+ * syntax the canvas does not parse (a custom accent is `rgb(r g b)`). Handing
+ * that to a canvas gets it silently rejected and the context keeps its previous
+ * colour: black candles, and no error.
  *
  * Assigning `color: var(--up)` to a real element and reading `.color` back
  * forces the resolution and yields a plain `rgb()` the canvas accepts.
@@ -345,10 +345,10 @@ export function CandleChart({
       stopRef.current?.applyOptions({ color: c.accent });
       proxRef.current?.applyOptions({ color: c.accent });
     };
-    // The toggle writes `data-theme`; following the OS writes nothing, so the
-    // media query has to be watched as well.
+    // A theme change writes `data-theme` (Auto included — src/lib/theme.ts
+    // re-resolves it when the OS flips), a custom accent writes `data-accent`.
     const mo = new MutationObserver(apply);
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-accent'] });
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     mq.addEventListener('change', apply);
     return () => {

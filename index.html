@@ -9,9 +9,11 @@
   <title>FiveAlpha — NSE Listed Shares</title>
   <meta name="description"
     content="Every share listed on the NSE cash market, with live prices, F&amp;O eligibility and market-cap classification." />
-  <!-- One tag, no media: src/hooks/useTheme.ts rewrites it from the resolved
-       theme, which follows the in-app toggle as well as the OS. -->
-  <meta name="theme-color" content="#f5f3ee" />
+  <!-- Auto's two grounds (Porcelain, Graphite) until a theme is chosen; after
+       that the pre-paint script below, and src/lib/theme.ts, write the active
+       theme's canvas into both. -->
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f7f9" />
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f1114" />
 
   <!-- The mark is artwork, not paths, so there is no SVG favicon to prefer;
        the .ico carries its own bitmap at every size down to 16. -->
@@ -19,17 +21,34 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=11" />
   <link rel="manifest" href="/site.webmanifest" />
   <meta name="apple-mobile-web-app-title" content="FiveAlpha" />
-  <!-- Applies the saved theme before first paint. Without this the page
-         renders in the OS theme and then flips once React mounts. Keep the
-         storage key in step with src/hooks/useTheme.ts. -->
+  <!-- The saved theme, applied before first paint so no frame is ever in the
+       wrong one. Reads the keys src/lib/theme.ts writes; the Auto pair and the
+       legacy values must match src/themes/index.ts. Everything else — an
+       unknown id, a cached accent fitted to another theme — is corrected by
+       the app once it starts. -->
   <script>
-    try {
-      var t = localStorage.getItem('nse.theme');
-      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
-    } catch (e) { }
-    // The browser chrome too, so a dark phone never flashes a light address bar.
-    var dark = t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
-    document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#121110' : '#f5f3ee');
+    (function () {
+      var root = document.documentElement, pref = 'auto', accent = null, color = null;
+      try {
+        pref = localStorage.getItem('nse.theme') || 'auto';
+        accent = JSON.parse(localStorage.getItem('nse.accent') || 'null');
+        color = localStorage.getItem('nse.theme-color');
+      } catch (e) { }
+      // The old light/dark toggle's values.
+      pref = { system: 'auto', light: 'porcelain', dark: 'graphite' }[pref] || pref;
+      var id = pref === 'auto'
+        ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'graphite' : 'porcelain')
+        : pref;
+      root.setAttribute('data-theme', id);
+      if (accent && accent.theme === id && accent.tokens) {
+        for (var k in accent.tokens) root.style.setProperty(k, accent.tokens[k]);
+        root.setAttribute('data-accent', accent.hex);
+      }
+      if (color && pref !== 'auto') {
+        var metas = document.querySelectorAll('meta[name="theme-color"]');
+        for (var i = 0; i < metas.length; i++) metas[i].setAttribute('content', color);
+      }
+    })();
   </script>
   <!-- Self-hosted and subset (see the @font-face rules in src/index.css).
        The body face is preloaded — it sets every row. The display face is not:

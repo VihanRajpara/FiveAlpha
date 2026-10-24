@@ -4,6 +4,9 @@ import { Login } from './components/Login';
 import { NotFound } from './components/NotFound';
 import { authEnabled, currentUser, logout, type User } from './lib/auth';
 import './index.css';
+// After index.css: the theme blocks override its defaults at equal specificity.
+import './themes/themes.css';
+import { installTheme } from './lib/theme';
 import { installMotion } from './lib/motion';
 
 /**
@@ -65,6 +68,7 @@ function Root() {
   );
 }
 
+installTheme();
 installMotion();
 
 createRoot(document.getElementById('root')!).render(

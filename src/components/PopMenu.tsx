@@ -41,8 +41,8 @@ export interface Anchor {
  * list's own padding — and differs per menu, so the caller states it rather
  * than this guessing.
  */
-export const menuHeight = (rows: number, chrome: number): number =>
-  Math.min(MAX_H, rows * ROW_H + chrome);
+export const menuHeight = (rows: number, chrome: number, cap = MAX_H): number =>
+  Math.min(cap, rows * ROW_H + chrome);
 
 /**
  * Where the menu goes, given its trigger, the viewport and how tall it wants to
@@ -97,6 +97,11 @@ interface Props {
   onClose: (refocus?: boolean) => void;
   /** The menu's own keys — arrowing a list, say. Escape is handled here. */
   onKeyDown?: (e: React.KeyboardEvent) => void;
+  /** `dialog` for a panel of controls rather than a list of commands. */
+  role?: 'menu' | 'dialog';
+  /** Height ceiling, for panels taller than a menu. Still clamped to the
+   *  space on screen. */
+  maxHeight?: number;
   children: React.ReactNode;
 }
 
@@ -109,6 +114,8 @@ export function PopMenu({
   className = '',
   onClose,
   onKeyDown,
+  role = 'menu',
+  maxHeight,
   children,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -127,7 +134,7 @@ export function PopMenu({
     return placeMenu(
       box,
       { width: window.innerWidth, height: window.innerHeight },
-      menuHeight(rows, chrome),
+      menuHeight(rows, chrome, maxHeight),
       width,
     );
   });
@@ -165,7 +172,7 @@ export function PopMenu({
     <div
       ref={menuRef}
       className={`menu wl-menu ${className}`.trim()}
-      role="menu"
+      role={role}
       tabIndex={-1}
       aria-label={ariaLabel}
       data-drop={anchor.down ? 'down' : 'up'}

@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import type { SortingState } from '@tanstack/react-table';
 import { StockTable } from './components/StockTable';
 import { Alerts } from './components/Alerts';
-import { ThemeToggle } from './components/ThemeToggle';
+import { ThemePicker } from './components/ThemePicker';
 import { Filters, type FilterGroupSpec } from './components/Filters';
 import { ScreenBar } from './components/ScreenBar';
 import { WatchlistBar } from './components/WatchlistBar';
@@ -951,7 +951,7 @@ export default function App({
 
         <div className="spacer" />
 
-        {/* Left of the theme toggle, so the two icon buttons sit together and
+        {/* Left of the theme picker, so the two icon buttons sit together and
             the account controls stay rightmost. Renders nothing at all when
             signed out — there is no `x-owner` header to read alerts with. */}
         <Alerts
@@ -964,7 +964,7 @@ export default function App({
           push={push}
         />
 
-        <ThemeToggle />
+        <ThemePicker />
 
         {/* Named for what it actually does. In Supabase mode this re-reads the
             quotes table — it does not fetch from Yahoo, so it cannot make

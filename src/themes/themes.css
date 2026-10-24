@@ -1,0 +1,393 @@
+/* ==========================================================================
+   Themes — one block per theme, every colour the interface uses.
+
+   `data-theme` on <html> picks the block (set before first paint by the inline
+   script in index.html, and by src/lib/theme.ts afterwards). The same attribute
+   on any element re-scopes the tokens beneath it, which is how the picker's
+   swatches show each theme's real colours without a second copy of them.
+
+   Token roles:
+     --canvas            page background
+     --surface           panels, cards, the table
+     --surface-hover     a row or control under the pointer
+     --surface-2         tracks, chips, field fills (the "inset" step)
+     --surface-3         things that float: menus, the drawer, sheets
+     --outline           borders; --outline-faint for hairlines between rows
+     --rule              the strong rule under the masthead and table head
+     --on-surface        text; --on-surface-variant muted text;
+                         --on-surface-faint captions (all ≥ 4.5:1)
+     --primary           the accent — focus, selection, the active option
+     --primary-hover / --primary-container / --on-primary
+     --up / --down       success and error (in a market: gains and losses)
+     --warn / --on-warn  warning
+     --ink-fill-hover    primary buttons are filled with --on-surface; this is
+                         their hover
+     --shadow-tint / --shadow-deep / --scrim   elevation and overlays
+
+   Adding a theme: copy a block, change the values, add its entry to
+   src/themes/index.ts, and run `npm run check:contrast` — it measures every
+   text/ground pair in every block and exits non-zero if one is under 4.5:1.
+
+   The first block doubles as the fallback for an unknown or missing id.
+   ========================================================================== */
+
+/* ---- Porcelain — light, cool neutral, cobalt. Auto's light half. ---------- */
+:root,
+[data-theme='porcelain'] {
+  color-scheme: light;
+  --canvas: #f6f7f9;
+  --surface: #ffffff;
+  --surface-hover: #f1f3f6;
+  --surface-2: #eceff3;
+  --surface-3: #ffffff;
+  --outline: rgba(16, 24, 40, 0.14);
+  --outline-faint: rgba(16, 24, 40, 0.08);
+  --rule: rgba(16, 24, 40, 0.78);
+  --on-surface: #12161c;
+  --on-surface-variant: #4a5361;
+  --on-surface-faint: #5c6573;
+  --primary: #2952cc;
+  --primary-hover: #1f43ad;
+  --primary-container: #e6ecfc;
+  --on-primary: #ffffff;
+  --ink-fill-hover: #2b323d;
+  --up: #08703f;
+  --up-container: #e0f2e8;
+  --down: #c0262d;
+  --down-container: #fde6e6;
+  --warn: #9a5800;
+  --on-warn: #ffffff;
+  --shadow-tint: rgba(16, 24, 40, 0.08);
+  --shadow-deep: rgba(16, 24, 40, 0.2);
+  --scrim: rgba(16, 24, 40, 0.38);
+}
+
+/* ---- Newsprint — light, warm paper, amber. ------------------------------- */
+[data-theme='newsprint'] {
+  color-scheme: light;
+  --canvas: #f5f3ee;
+  --surface: #fbfaf7;
+  --surface-hover: #f0ede6;
+  --surface-2: #ebe8e0;
+  --surface-3: #fefdfb;
+  --outline: rgba(33, 27, 16, 0.15);
+  --outline-faint: rgba(33, 27, 16, 0.085);
+  --rule: rgba(27, 25, 21, 0.82);
+  --on-surface: #1b1915;
+  --on-surface-variant: #545048;
+  --on-surface-faint: #65605a;
+  --primary: #8f4f00;
+  --primary-hover: #753f00;
+  --primary-container: #f6e6cc;
+  --on-primary: #ffffff;
+  --ink-fill-hover: #34302a;
+  --up: #0b6b40;
+  --up-container: #dff0e5;
+  --down: #b0241e;
+  --down-container: #f8e1dd;
+  --warn: #a35a00;
+  --on-warn: #ffffff;
+  --shadow-tint: rgba(33, 27, 16, 0.08);
+  --shadow-deep: rgba(33, 27, 16, 0.24);
+  --scrim: rgba(27, 25, 21, 0.36);
+}
+
+/* ---- Sandstone — light, earthy sand, petrol blue. ------------------------- */
+[data-theme='sandstone'] {
+  color-scheme: light;
+  --canvas: #eee8dc;
+  --surface: #f8f4ec;
+  --surface-hover: #ebe4d6;
+  --surface-2: #e5ddcd;
+  --surface-3: #fbf8f2;
+  --outline: rgba(60, 44, 24, 0.17);
+  --outline-faint: rgba(60, 44, 24, 0.09);
+  --rule: rgba(43, 34, 26, 0.75);
+  --on-surface: #2a2219;
+  --on-surface-variant: #574b3d;
+  --on-surface-faint: #66594a;
+  --primary: #1b5a6d;
+  --primary-hover: #134656;
+  --primary-container: #d9e5e2;
+  --on-primary: #ffffff;
+  --ink-fill-hover: #43382c;
+  --up: #2d6420;
+  --up-container: #dfe8d0;
+  --down: #a12f1a;
+  --down-container: #f2ddd2;
+  --warn: #8a5600;
+  --on-warn: #ffffff;
+  --shadow-tint: rgba(60, 44, 24, 0.09);
+  --shadow-deep: rgba(60, 44, 24, 0.24);
+  --scrim: rgba(43, 34, 26, 0.38);
+}
+
+/* ---- Monochrome — light, grayscale; the accent is ink itself. ------------ */
+[data-theme='monochrome'] {
+  color-scheme: light;
+  --canvas: #f4f4f4;
+  --surface: #ffffff;
+  --surface-hover: #efefef;
+  --surface-2: #e9e9e9;
+  --surface-3: #ffffff;
+  --outline: rgba(0, 0, 0, 0.14);
+  --outline-faint: rgba(0, 0, 0, 0.08);
+  --rule: rgba(0, 0, 0, 0.85);
+  --on-surface: #111111;
+  --on-surface-variant: #4a4a4a;
+  --on-surface-faint: #5e5e5e;
+  --primary: #111111;
+  --primary-hover: #333333;
+  --primary-container: #e4e4e4;
+  --on-primary: #ffffff;
+  --ink-fill-hover: #333333;
+  --up: #1b6843;
+  --up-container: #e3eee7;
+  --down: #ad2d2c;
+  --down-container: #f5e4e3;
+  --warn: #855600;
+  --on-warn: #ffffff;
+  --shadow-tint: rgba(0, 0, 0, 0.08);
+  --shadow-deep: rgba(0, 0, 0, 0.2);
+  --scrim: rgba(0, 0, 0, 0.4);
+}
+
+/* ---- Contrast — light, maximum legibility (AAA for body text). ----------- */
+[data-theme='contrast'] {
+  color-scheme: light;
+  --canvas: #ffffff;
+  --surface: #ffffff;
+  --surface-hover: #f0f0f0;
+  --surface-2: #ebebeb;
+  --surface-3: #ffffff;
+  --outline: rgba(0, 0, 0, 0.5);
+  --outline-faint: rgba(0, 0, 0, 0.28);
+  --rule: #000000;
+  --on-surface: #000000;
+  --on-surface-variant: #1e1e1e;
+  --on-surface-faint: #383838;
+  --primary: #0033a8;
+  --primary-hover: #002680;
+  --primary-container: #dde6fb;
+  --on-primary: #ffffff;
+  --ink-fill-hover: #2b2b2b;
+  --up: #00592c;
+  --up-container: #dbf1e3;
+  --down: #a3000c;
+  --down-container: #fde1e1;
+  --warn: #774800;
+  --on-warn: #ffffff;
+  --shadow-tint: rgba(0, 0, 0, 0.12);
+  --shadow-deep: rgba(0, 0, 0, 0.3);
+  --scrim: rgba(0, 0, 0, 0.5);
+}
+
+/* ---- Graphite — dark, cool neutral, cobalt. Auto's dark half. ------------- */
+[data-theme='graphite'] {
+  color-scheme: dark;
+  --canvas: #0f1114;
+  --surface: #16191d;
+  --surface-hover: #1c2025;
+  --surface-2: #23272d;
+  --surface-3: #272c33;
+  --outline: rgba(220, 230, 245, 0.12);
+  --outline-faint: rgba(220, 230, 245, 0.07);
+  --rule: rgba(225, 232, 242, 0.55);
+  --on-surface: #e8ebf0;
+  --on-surface-variant: #a4acb8;
+  --on-surface-faint: #8b94a1;
+  --primary: #86a8ff;
+  --primary-hover: #a6bfff;
+  --primary-container: rgba(134, 168, 255, 0.15);
+  --on-primary: #0b1330;
+  --ink-fill-hover: #ffffff;
+  --up: #4fd08f;
+  --up-container: rgba(79, 208, 143, 0.13);
+  --down: #ff7a7a;
+  --down-container: rgba(255, 122, 122, 0.14);
+  --warn: #f2b04a;
+  --on-warn: #1a1203;
+  --shadow-tint: rgba(0, 0, 0, 0.45);
+  --shadow-deep: rgba(0, 0, 0, 0.7);
+  --scrim: rgba(0, 0, 0, 0.6);
+}
+
+/* ---- Ink — dark, warm black, amber. -------------------------------------- */
+[data-theme='ink'] {
+  color-scheme: dark;
+  --canvas: #121110;
+  --surface: #181715;
+  --surface-hover: #1f1e1b;
+  --surface-2: #262420;
+  --surface-3: #2b2925;
+  --outline: rgba(255, 246, 228, 0.13);
+  --outline-faint: rgba(255, 246, 228, 0.075);
+  --rule: rgba(237, 233, 225, 0.6);
+  --on-surface: #ede9e1;
+  --on-surface-variant: #aaa397;
+  --on-surface-faint: #938c80;
+  --primary: #f2aa45;
+  --primary-hover: #f7be6c;
+  --primary-container: rgba(242, 170, 69, 0.14);
+  --on-primary: #1c1306;
+  --ink-fill-hover: #ffffff;
+  --up: #5ccc90;
+  --up-container: rgba(92, 204, 144, 0.13);
+  --down: #ff7b70;
+  --down-container: rgba(255, 123, 112, 0.14);
+  --warn: #f0a33a;
+  --on-warn: #1c1306;
+  --shadow-tint: rgba(0, 0, 0, 0.45);
+  --shadow-deep: rgba(0, 0, 0, 0.7);
+  --scrim: rgba(0, 0, 0, 0.62);
+}
+
+/* ---- Midnight — dark, deep navy, cyan. ----------------------------------- */
+[data-theme='midnight'] {
+  color-scheme: dark;
+  --canvas: #0a1020;
+  --surface: #0f172a;
+  --surface-hover: #141e35;
+  --surface-2: #1a2540;
+  --surface-3: #1e2a47;
+  --outline: rgba(170, 200, 255, 0.14);
+  --outline-faint: rgba(170, 200, 255, 0.075);
+  --rule: rgba(190, 210, 245, 0.5);
+  --on-surface: #e6edf9;
+  --on-surface-variant: #a6b4cd;
+  --on-surface-faint: #8a9bb8;
+  --primary: #5cc8ff;
+  --primary-hover: #8ad8ff;
+  --primary-container: rgba(92, 200, 255, 0.14);
+  --on-primary: #04121f;
+  --ink-fill-hover: #ffffff;
+  --up: #4ad295;
+  --up-container: rgba(74, 210, 149, 0.13);
+  --down: #ff7d8a;
+  --down-container: rgba(255, 125, 138, 0.14);
+  --warn: #f5b453;
+  --on-warn: #1a1203;
+  --shadow-tint: rgba(0, 3, 12, 0.5);
+  --shadow-deep: rgba(0, 3, 12, 0.75);
+  --scrim: rgba(2, 6, 18, 0.62);
+}
+
+/* ---- Fjord — dark, cool slate, frost blue. ------------------------------- */
+[data-theme='fjord'] {
+  color-scheme: dark;
+  --canvas: #242933;
+  --surface: #2b313c;
+  --surface-hover: #313845;
+  --surface-2: #373f4c;
+  --surface-3: #3b4352;
+  --outline: rgba(216, 222, 233, 0.15);
+  --outline-faint: rgba(216, 222, 233, 0.085);
+  --rule: rgba(216, 222, 233, 0.5);
+  --on-surface: #eceff4;
+  --on-surface-variant: #c3cad7;
+  --on-surface-faint: #aab3c3;
+  --primary: #8fc7d6;
+  --primary-hover: #aad6e2;
+  --primary-container: rgba(143, 199, 214, 0.16);
+  --on-primary: #1d2430;
+  --ink-fill-hover: #ffffff;
+  --up: #a6d98f;
+  --up-container: rgba(166, 217, 143, 0.14);
+  --down: #f5a0a5;
+  --down-container: rgba(245, 160, 165, 0.15);
+  --warn: #ebcb8b;
+  --on-warn: #1d2430;
+  --shadow-tint: rgba(10, 12, 18, 0.35);
+  --shadow-deep: rgba(10, 12, 18, 0.6);
+  --scrim: rgba(14, 17, 23, 0.55);
+}
+
+/* ---- Forest — dark, earthy green-black, brass. ---------------------------- */
+[data-theme='forest'] {
+  color-scheme: dark;
+  --canvas: #0f1511;
+  --surface: #151d18;
+  --surface-hover: #1b241e;
+  --surface-2: #212c25;
+  --surface-3: #26322a;
+  --outline: rgba(210, 230, 200, 0.13);
+  --outline-faint: rgba(210, 230, 200, 0.075);
+  --rule: rgba(215, 228, 205, 0.5);
+  --on-surface: #e7ece4;
+  --on-surface-variant: #a9b5a6;
+  --on-surface-faint: #909d8d;
+  --primary: #d9b45f;
+  --primary-hover: #e6c67e;
+  --primary-container: rgba(217, 180, 95, 0.14);
+  --on-primary: #1a1406;
+  --ink-fill-hover: #ffffff;
+  --up: #7bd89c;
+  --up-container: rgba(123, 216, 156, 0.13);
+  --down: #ff8a7a;
+  --down-container: rgba(255, 138, 122, 0.14);
+  --warn: #eda24a;
+  --on-warn: #1a1206;
+  --shadow-tint: rgba(0, 0, 0, 0.45);
+  --shadow-deep: rgba(0, 0, 0, 0.7);
+  --scrim: rgba(3, 6, 4, 0.62);
+}
+
+/* ---- Dusk — dark, warm aubergine, lavender. ------------------------------ */
+[data-theme='dusk'] {
+  color-scheme: dark;
+  --canvas: #17121a;
+  --surface: #1e1822;
+  --surface-hover: #251e2a;
+  --surface-2: #2d2532;
+  --surface-3: #322938;
+  --outline: rgba(240, 220, 255, 0.13);
+  --outline-faint: rgba(240, 220, 255, 0.075);
+  --rule: rgba(240, 225, 250, 0.5);
+  --on-surface: #f1eaf4;
+  --on-surface-variant: #bbafc3;
+  --on-surface-faint: #a093a9;
+  --primary: #c4abff;
+  --primary-hover: #d6c4ff;
+  --primary-container: rgba(196, 171, 255, 0.15);
+  --on-primary: #1c1230;
+  --ink-fill-hover: #ffffff;
+  --up: #62d49d;
+  --up-container: rgba(98, 212, 157, 0.13);
+  --down: #ff8799;
+  --down-container: rgba(255, 135, 153, 0.14);
+  --warn: #f3b25b;
+  --on-warn: #1c1206;
+  --shadow-tint: rgba(5, 0, 8, 0.45);
+  --shadow-deep: rgba(5, 0, 8, 0.7);
+  --scrim: rgba(8, 4, 10, 0.62);
+}
+
+/* ---- Terminal — dark, true black, phosphor yellow. Maximum contrast. ----- */
+[data-theme='terminal'] {
+  color-scheme: dark;
+  --canvas: #000000;
+  --surface: #0a0a0a;
+  --surface-hover: #161616;
+  --surface-2: #1c1c1c;
+  --surface-3: #141414;
+  --outline: rgba(255, 255, 255, 0.4);
+  --outline-faint: rgba(255, 255, 255, 0.22);
+  --rule: #ffffff;
+  --on-surface: #ffffff;
+  --on-surface-variant: #e6e6e6;
+  --on-surface-faint: #c4c4c4;
+  --primary: #ffd60a;
+  --primary-hover: #ffe24d;
+  --primary-container: rgba(255, 214, 10, 0.18);
+  --on-primary: #000000;
+  --ink-fill-hover: #e6e6e6;
+  --up: #3ef08a;
+  --up-container: rgba(62, 240, 138, 0.16);
+  --down: #ff6b6b;
+  --down-container: rgba(255, 107, 107, 0.18);
+  --warn: #ffb020;
+  --on-warn: #000000;
+  --shadow-tint: rgba(0, 0, 0, 0.6);
+  --shadow-deep: rgba(0, 0, 0, 0.85);
+  --scrim: rgba(0, 0, 0, 0.72);
+}

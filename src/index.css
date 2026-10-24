@@ -5,12 +5,13 @@
    scan two thousand rows of figures for the handful worth acting on, so the
    figures are the product and everything else is ruled paper around them.
 
-   - Ground: warm newsprint by day, warm ink-black by night. Never pure white,
-     never pure black — both read as a screen rather than a page.
-   - Structure: hairline rules, not cards and shadows. One ink rule under the
-     masthead and the table header, the way a stock page is set.
-   - Accent: terminal amber, on under 5% of the pixels — focus, selection, the
-     sorted column, the star. It cannot be mistaken for the market's green/red.
+   - Colour is a theme: twelve of them in src/themes/themes.css, chosen from
+     the palette button in the header. This file only ever names roles
+     (--canvas, --on-surface, --primary…), never a colour.
+   - Structure: hairline rules, not cards and shadows. One strong rule under
+     the masthead and the table header, the way a stock page is set.
+   - Accent: on under 5% of the pixels — focus, selection, the sorted column,
+     the star. Every theme keeps it clear of the market's green and red.
    - Pressed states are ink, not colour: an engaged filter is printed solid.
    - Type: Newsreader (display — headlines and the big figures) and IBM Plex
      Sans (everything else; its default figures are tabular, so columns of
@@ -60,69 +61,20 @@
 }
 
 :root {
-  /* One palette for both themes: `light-dark()` resolves against
-     `color-scheme`, so the toggle changes one property. */
-  color-scheme: light dark;
-
-  /* ---- neutrals ----------------------------------------------------------
-     A warm grey ramp, newsprint to ink. The steps matter more than the values:
-     canvas < surface-hover < surface-2 < surface-3 in "raisedness", each a
-     visible step, so a raised thing always reads as raised. In light, the
-     surface is *lighter* than the page (paper on a desk); in dark it is a
-     step up from the ground. */
-  --canvas: light-dark(#f5f3ee, #121110);
-  --surface: light-dark(#fbfaf7, #181715);
-  --surface-hover: light-dark(#f0ede6, #1f1e1b);
-  --surface-2: light-dark(#ebe8e0, #262420);
-  /* Raised: menus, the drawer, the sheet — the only things that float. */
-  --surface-3: light-dark(#fefdfb, #2b2925);
-
-  /* Hairlines are tints of whatever they cross, not solid greys, so a rule
-     keeps its weight running from the page onto a panel. */
-  --outline: light-dark(rgba(33, 27, 16, 0.15), rgba(255, 246, 228, 0.13));
-  --outline-faint: light-dark(rgba(33, 27, 16, 0.085), rgba(255, 246, 228, 0.075));
-  /* The ink rule: masthead, table header, the breadth band. */
-  --rule: light-dark(rgba(27, 25, 21, 0.82), rgba(237, 233, 225, 0.6));
-
-  /* ---- ink ---------------------------------------------------------------
-     All three clear 4.5:1 on canvas, surface and surface-2 in both themes —
-     `npm run check:contrast` measures every pair. `faint` is the binding one;
-     it is real text (captions, units, row numbers), not decoration. */
-  --on-surface: light-dark(#1b1915, #ede9e1);
-  --on-surface-variant: light-dark(#545048, #aaa397);
-  --on-surface-faint: light-dark(#65605a, #938c80);
-
-  /* ---- accent: terminal amber -------------------------------------------
-     Deep enough in light to be text (≥4.5:1 on every surface), bright in dark.
-     The container is alpha in dark so a tinted cell sits *in* its surface. */
-  --primary: light-dark(#8f4f00, #f2aa45);
-  --primary-hover: light-dark(#753f00, #f7be6c);
-  --primary-container: light-dark(#f6e6cc, rgba(242, 170, 69, 0.14));
-  --on-primary: light-dark(#ffffff, #1c1306);
+  /* ---- colour ------------------------------------------------------------
+     Every colour lives in src/themes/themes.css, one block per theme, chosen
+     by `data-theme` on <html>. What stays here is derived from those, so it
+     follows whichever theme is active. */
 
   /* Primary buttons are printed in ink, not in the accent: the accent marks
      *where you are*, ink marks *what you can press*. */
   --ink-fill: var(--on-surface);
-  --ink-fill-hover: light-dark(#34302a, #ffffff);
   --on-ink: var(--canvas);
 
-  /* ---- market + semantic -------------------------------------------------
-     Not the brand's to choose — green up, red down — tuned for both grounds. */
-  --up: light-dark(#0b6b40, #5ccc90);
-  --up-container: light-dark(#dff0e5, rgba(92, 204, 144, 0.13));
-  --down: light-dark(#b0241e, #ff7b70);
-  --down-container: light-dark(#f8e1dd, rgba(255, 123, 112, 0.14));
-  --warn: light-dark(#a35a00, #f0a33a);
-  --on-warn: light-dark(#ffffff, #1c1306);
-
-  /* ---- elevation ---------------------------------------------------------
-     Rules carry depth here. Shadows exist only for what genuinely floats. */
-  --shadow-tint: light-dark(rgba(33, 27, 16, 0.08), rgba(0, 0, 0, 0.45));
+  /* Rules carry depth; shadows exist only for what genuinely floats. */
   --elev-1: 0 1px 2px var(--shadow-tint);
   --elev-2: 0 4px 12px -2px var(--shadow-tint), 0 1px 2px var(--shadow-tint);
-  --elev-3: 0 24px 48px -16px light-dark(rgba(33, 27, 16, 0.24), rgba(0, 0, 0, 0.7)),
-    0 2px 6px light-dark(rgba(33, 27, 16, 0.06), rgba(0, 0, 0, 0.3));
-  --scrim: light-dark(rgba(27, 25, 21, 0.36), rgba(0, 0, 0, 0.62));
+  --elev-3: 0 24px 48px -16px var(--shadow-deep), 0 2px 6px var(--shadow-tint);
 
   /* ---- radius ------------------------------------------------------------
      Small and precise: a ledger is ruled, not rounded. 999px is for things
@@ -198,14 +150,6 @@
   --table-min: 420px;
   /* The phone's bottom tab bar, read by everything that has to clear it. */
   --nav-h: 0px;
-}
-
-:root[data-theme='light'] {
-  color-scheme: light;
-}
-
-:root[data-theme='dark'] {
-  color-scheme: dark;
 }
 
 * {
@@ -5998,20 +5942,6 @@ a.screen-count {
   margin: 0;
 }
 
-/* The new mode's icon turns in over the old one's place. */
-.theme-toggle svg {
-  transition: rotate var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out),
-    scale var(--dur-slow) var(--ease-out);
-}
-
-@starting-style {
-  .theme-toggle svg {
-    opacity: 0;
-    rotate: -90deg;
-    scale: 0.6;
-  }
-}
-
 /* ---------- keyboard hint ---------- */
 
 /* Sits at the right-hand end of the search box and gets out of the way the
@@ -6936,4 +6866,379 @@ a.screen-count {
 
 .login-error .icon {
   margin-top: 1px;
+}
+
+/* ---------- theme switch (src/lib/theme.ts) ----------
+
+   The whole page swaps in one composited crossfade: the old frame holds still
+   and the new theme fades in over it. Colour only — the page section is not
+   given its own transition here, or it would play the section change's rise. */
+:root[data-vt='theme'] .content,
+:root[data-vt='theme'] .report {
+  view-transition-name: none;
+}
+
+:root[data-vt='theme']::view-transition-old(root) {
+  display: block;
+  animation: none;
+}
+
+:root[data-vt='theme']::view-transition-new(root) {
+  animation: fade-in var(--dur-slow) var(--ease-out) both;
+}
+
+/* ---------- theme picker ---------- */
+
+.theme-btn[data-open='true'] {
+  background: var(--surface-2);
+  color: var(--on-surface);
+}
+
+/* PopMenu's shell clips; the panel is what scrolls, so the heading of a long
+   list on a short phone is one flick away rather than off the top. */
+.theme-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.theme-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.theme-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.theme-head span {
+  font-size: var(--fs-xs);
+  color: var(--on-surface-variant);
+}
+
+.theme-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.theme-group-label {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+}
+
+/* Three across in the panel's 452px, two on a phone — decided by the room,
+   not by a breakpoint. */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  gap: var(--sp-2);
+}
+
+.theme-grid-auto {
+  grid-template-columns: 1fr;
+}
+
+.theme-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sp-2);
+  min-width: 0;
+  min-height: var(--ctl-lg);
+  padding: var(--sp-2);
+  border: 1px solid var(--outline);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--on-surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .theme-opt:hover {
+    border-color: var(--on-surface-faint);
+    background: var(--surface-hover);
+  }
+}
+
+.theme-opt:active {
+  transform: scale(0.98);
+  background: var(--surface-hover);
+}
+
+/* The chosen one: a 2px accent edge (border + inset), so it reads without
+   colour too — the check mark beside the name says the same thing. */
+.theme-opt[aria-checked='true'] {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.theme-grid-auto .theme-opt {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.theme-grid-auto .theme-swatch {
+  flex: none;
+  width: 132px;
+}
+
+.theme-opt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.theme-opt-name {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+
+.theme-opt-name .icon {
+  color: var(--primary);
+}
+
+.theme-opt-note {
+  font-size: var(--fs-xs);
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A theme in miniature. Everything here reads tokens, and the element carries
+   the theme's own `data-theme`, so these are that theme's real colours. */
+.theme-swatch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--outline);
+  border-radius: var(--r-md);
+  background: var(--canvas);
+  color: var(--on-surface);
+  overflow: hidden;
+}
+
+.sw-aa {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.sw-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.sw-lines i {
+  display: block;
+  width: 80%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--on-surface);
+}
+
+.sw-lines i + i {
+  width: 55%;
+  background: var(--on-surface-faint);
+}
+
+.sw-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.sw-dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.sw-accent {
+  background: var(--primary);
+}
+
+.sw-up {
+  background: var(--up);
+}
+
+.sw-down {
+  background: var(--down);
+}
+
+/* Auto: its light and dark halves side by side. */
+.sw-auto {
+  gap: 0;
+  padding: 0;
+}
+
+.sw-auto > .theme-swatch {
+  flex: 1;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+/* ---- accent ---- */
+
+.theme-accent {
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--outline-faint);
+}
+
+.theme-accent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-2);
+}
+
+.theme-accent-head .theme-group-label {
+  margin: 0;
+}
+
+.theme-reset {
+  padding: var(--sp-1) var(--sp-2);
+  margin: calc(-1 * var(--sp-1)) calc(-1 * var(--sp-2));
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--primary);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .theme-reset:hover {
+    background: var(--surface-hover);
+  }
+}
+
+.accent-row,
+.accent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.accent-chip {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--outline);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .accent-chip:hover {
+    border-color: var(--on-surface-faint);
+  }
+}
+
+.accent-chip:active {
+  transform: scale(0.92);
+}
+
+/* Selected: a ring in ink, with a gap of the panel's own colour inside it, so
+   it reads on any dot — including one the same colour as the accent. */
+.accent-chip[aria-checked='true'],
+.accent-custom[data-on='true'] {
+  border-color: var(--on-surface);
+  box-shadow: inset 0 0 0 2px var(--surface-3);
+}
+
+.accent-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+}
+
+.accent-dot-theme {
+  background: var(--primary);
+}
+
+/* The native colour field, invisible over the chip: the system picker opens on
+   a tap anywhere on it, and the chip is what you see. */
+.accent-custom input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.accent-custom:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.theme-accent-note {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--on-surface-faint);
+}
+
+@media (pointer: coarse) {
+  .accent-chip {
+    width: var(--ctl-lg);
+    height: var(--ctl-lg);
+  }
+
+  .theme-reset {
+    min-height: var(--ctl-lg);
+    margin-block: -14px;
+  }
+}
+
+/* Half a swatch has no room for the text lines; the type and dots say enough. */
+.sw-auto .sw-lines {
+  display: none;
+}
+
+.sw-auto > .theme-swatch {
+  justify-content: space-between;
+}
+
+.theme-grid-auto .theme-opt-note {
+  white-space: normal;
 }
