@@ -1,393 +1,501 @@
 /* ==========================================================================
-   Themes — one block per theme, every colour the interface uses.
+   Themes — one block per theme, every colour (and a little character) the
+   interface uses.
+
+   Each is built from a published palette rather than invented: the open-source
+   ones by name, the products' as "-style" homages from their public tokens.
+     Geist ............ vercel.com/geist/vercel-brand.css (official tokens)
+     Primer ........... @primer/primitives functional themes (official)
+     Catppuccin ....... github.com/catppuccin/palette (official)
+     Rosé Pine ........ github.com/rose-pine/palette (official)
+     Tokyo Night ...... github.com/folke/tokyonight.nvim (official)
+     Nord ............. github.com/nordtheme/nord (official)
+     Charting ......... TradingView's lightweight-charts defaults + its UI greys
+     Indigo ........... Linear's app palette (near-black, #5e6ad2 / #7170ff)
+     Terminal Amber ... the Bloomberg Terminal's black and amber
+   Where a source colour fails WCAG AA as text on its own grounds (Catppuccin
+   Latte's green, Nord's red, Rosé Pine's muted greys…) it is moved the least
+   distance in lightness that clears 4.5:1, keeping its hue. Every other value
+   is the source's own.
 
    `data-theme` on <html> picks the block (set before first paint by the inline
    script in index.html, and by src/lib/theme.ts afterwards). The same attribute
-   on any element re-scopes the tokens beneath it, which is how the picker's
-   swatches show each theme's real colours without a second copy of them.
+   on any element re-scopes the tokens beneath it — how the picker's swatches
+   show each theme's real colours without a second copy of them.
 
-   Token roles:
-     --canvas            page background
-     --surface           panels, cards, the table
-     --surface-hover     a row or control under the pointer
-     --surface-2         tracks, chips, field fills (the "inset" step)
-     --surface-3         things that float: menus, the drawer, sheets
-     --outline           borders; --outline-faint for hairlines between rows
-     --rule              the strong rule under the masthead and table head
-     --on-surface        text; --on-surface-variant muted text;
-                         --on-surface-faint captions (all ≥ 4.5:1)
-     --primary           the accent — focus, selection, the active option
-     --primary-hover / --primary-container / --on-primary
-     --up / --down       success and error (in a market: gains and losses)
-     --warn / --on-warn  warning
-     --ink-fill-hover    primary buttons are filled with --on-surface; this is
-                         their hover
-     --shadow-tint / --shadow-deep / --scrim   elevation and overlays
+   Roles:
+     --canvas / --surface / --surface-hover / --surface-2 / --surface-3
+                         page, panels, hover, insets (tracks, chips, fields),
+                         floating (menus, drawer)
+     --raised            the selected option in a segmented control
+     --outline / --outline-faint / --rule
+                         borders, row hairlines, the masthead/table-head rule
+     --on-surface / --on-surface-variant / --on-surface-faint
+                         text, muted text, captions — all ≥ 4.5:1
+     --primary (+ -hover, -container, --on-primary)   the accent
+     --btn-bg / --btn-fg / --btn-hover                 primary buttons
+     --up / --down / --warn (+ containers, --on-warn)  success, error, warning
+     --shadow-tint / --shadow-deep / --scrim           elevation, overlays
+     --r-sm / --r-md / --r-lg / --r-xl                 corner radii (optional)
 
-   Adding a theme: copy a block, change the values, add its entry to
-   src/themes/index.ts, and run `npm run check:contrast` — it measures every
-   text/ground pair in every block and exits non-zero if one is under 4.5:1.
+   Adding a theme: copy a block, change it, add its entry to src/themes/index.ts,
+   and run `npm run check:contrast`, which measures every text/ground pair in
+   every block and exits non-zero under 4.5:1.
 
    The first block doubles as the fallback for an unknown or missing id.
    ========================================================================== */
 
-/* ---- Porcelain — light, cool neutral, cobalt. Auto's light half. ---------- */
+/* ---- Geist Light — Vercel. Monochrome, black buttons, blue accent. ------- */
 :root,
-[data-theme='porcelain'] {
+[data-theme='geist-light'] {
   color-scheme: light;
-  --canvas: #f6f7f9;
+  --canvas: #fafafa;
   --surface: #ffffff;
-  --surface-hover: #f1f3f6;
-  --surface-2: #eceff3;
+  --surface-hover: #f5f5f5;
+  --surface-2: #f2f2f2;
   --surface-3: #ffffff;
-  --outline: rgba(16, 24, 40, 0.14);
-  --outline-faint: rgba(16, 24, 40, 0.08);
-  --rule: rgba(16, 24, 40, 0.78);
-  --on-surface: #12161c;
-  --on-surface-variant: #4a5361;
-  --on-surface-faint: #5c6573;
-  --primary: #2952cc;
-  --primary-hover: #1f43ad;
-  --primary-container: #e6ecfc;
+  --raised: #ffffff;
+  --outline: rgba(0, 0, 0, 0.1);
+  --outline-faint: rgba(0, 0, 0, 0.06);
+  --rule: rgba(0, 0, 0, 0.14);
+  --on-surface: #171717;
+  --on-surface-variant: #4d4d4d;
+  --on-surface-faint: #666666;
+  --primary: #005ff2;
+  --primary-hover: #004ecc;
+  --primary-container: #f0f7ff;
   --on-primary: #ffffff;
-  --ink-fill-hover: #2b323d;
-  --up: #08703f;
-  --up-container: #e0f2e8;
-  --down: #c0262d;
-  --down-container: #fde6e6;
-  --warn: #9a5800;
+  --btn-bg: #171717;
+  --btn-fg: #ffffff;
+  --btn-hover: #383838;
+  --up: #107d32;
+  --up-container: #ecfdec;
+  --down: #d8001b;
+  --down-container: #ffeeef;
+  --warn: #aa4d00;
   --on-warn: #ffffff;
-  --shadow-tint: rgba(16, 24, 40, 0.08);
-  --shadow-deep: rgba(16, 24, 40, 0.2);
-  --scrim: rgba(16, 24, 40, 0.38);
+  --shadow-tint: rgba(0, 0, 0, 0.06);
+  --shadow-deep: rgba(0, 0, 0, 0.14);
+  --scrim: rgba(0, 0, 0, 0.32);
 }
 
-/* ---- Newsprint — light, warm paper, amber. ------------------------------- */
-[data-theme='newsprint'] {
+/* ---- Primer Light — GitHub. Cool neutral, blue. ----------------------- */
+[data-theme='primer-light'] {
   color-scheme: light;
-  --canvas: #f5f3ee;
-  --surface: #fbfaf7;
-  --surface-hover: #f0ede6;
-  --surface-2: #ebe8e0;
-  --surface-3: #fefdfb;
-  --outline: rgba(33, 27, 16, 0.15);
-  --outline-faint: rgba(33, 27, 16, 0.085);
-  --rule: rgba(27, 25, 21, 0.82);
-  --on-surface: #1b1915;
-  --on-surface-variant: #545048;
-  --on-surface-faint: #65605a;
-  --primary: #8f4f00;
-  --primary-hover: #753f00;
-  --primary-container: #f6e6cc;
-  --on-primary: #ffffff;
-  --ink-fill-hover: #34302a;
-  --up: #0b6b40;
-  --up-container: #dff0e5;
-  --down: #b0241e;
-  --down-container: #f8e1dd;
-  --warn: #a35a00;
-  --on-warn: #ffffff;
-  --shadow-tint: rgba(33, 27, 16, 0.08);
-  --shadow-deep: rgba(33, 27, 16, 0.24);
-  --scrim: rgba(27, 25, 21, 0.36);
-}
-
-/* ---- Sandstone — light, earthy sand, petrol blue. ------------------------- */
-[data-theme='sandstone'] {
-  color-scheme: light;
-  --canvas: #eee8dc;
-  --surface: #f8f4ec;
-  --surface-hover: #ebe4d6;
-  --surface-2: #e5ddcd;
-  --surface-3: #fbf8f2;
-  --outline: rgba(60, 44, 24, 0.17);
-  --outline-faint: rgba(60, 44, 24, 0.09);
-  --rule: rgba(43, 34, 26, 0.75);
-  --on-surface: #2a2219;
-  --on-surface-variant: #574b3d;
-  --on-surface-faint: #66594a;
-  --primary: #1b5a6d;
-  --primary-hover: #134656;
-  --primary-container: #d9e5e2;
-  --on-primary: #ffffff;
-  --ink-fill-hover: #43382c;
-  --up: #2d6420;
-  --up-container: #dfe8d0;
-  --down: #a12f1a;
-  --down-container: #f2ddd2;
-  --warn: #8a5600;
-  --on-warn: #ffffff;
-  --shadow-tint: rgba(60, 44, 24, 0.09);
-  --shadow-deep: rgba(60, 44, 24, 0.24);
-  --scrim: rgba(43, 34, 26, 0.38);
-}
-
-/* ---- Monochrome — light, grayscale; the accent is ink itself. ------------ */
-[data-theme='monochrome'] {
-  color-scheme: light;
-  --canvas: #f4f4f4;
+  --canvas: #f6f8fa;
   --surface: #ffffff;
-  --surface-hover: #efefef;
-  --surface-2: #e9e9e9;
+  --surface-hover: #f6f8fa;
+  --surface-2: #eff2f5;
   --surface-3: #ffffff;
-  --outline: rgba(0, 0, 0, 0.14);
-  --outline-faint: rgba(0, 0, 0, 0.08);
-  --rule: rgba(0, 0, 0, 0.85);
-  --on-surface: #111111;
-  --on-surface-variant: #4a4a4a;
-  --on-surface-faint: #5e5e5e;
-  --primary: #111111;
-  --primary-hover: #333333;
-  --primary-container: #e4e4e4;
+  --raised: #ffffff;
+  --outline: #d1d9e0;
+  --outline-faint: rgba(209, 217, 224, 0.7);
+  --rule: #d1d9e0;
+  --on-surface: #1f2328;
+  --on-surface-variant: #59636e;
+  --on-surface-faint: #59636e;
+  --primary: #0969da;
+  --primary-hover: #0757b5;
+  --primary-container: #ddf4ff;
   --on-primary: #ffffff;
-  --ink-fill-hover: #333333;
-  --up: #1b6843;
-  --up-container: #e3eee7;
-  --down: #ad2d2c;
-  --down-container: #f5e4e3;
-  --warn: #855600;
+  --btn-bg: #25292e;
+  --btn-fg: #ffffff;
+  --btn-hover: #3d444d;
+  --up: #1a7f37;
+  --up-container: #dafbe1;
+  --down: #d1242f;
+  --down-container: #ffebe9;
+  --warn: #9a6700;
   --on-warn: #ffffff;
-  --shadow-tint: rgba(0, 0, 0, 0.08);
-  --shadow-deep: rgba(0, 0, 0, 0.2);
-  --scrim: rgba(0, 0, 0, 0.4);
+  --shadow-tint: rgba(37, 41, 46, 0.07);
+  --shadow-deep: rgba(37, 41, 46, 0.18);
+  --scrim: rgba(140, 149, 159, 0.35);
 }
 
-/* ---- Contrast — light, maximum legibility (AAA for body text). ----------- */
-[data-theme='contrast'] {
+/* ---- Charting Light — TradingView-style. White, crisp grid, chart blue. ---- */
+[data-theme='chart-light'] {
   color-scheme: light;
   --canvas: #ffffff;
   --surface: #ffffff;
-  --surface-hover: #f0f0f0;
-  --surface-2: #ebebeb;
+  --surface-hover: #f0f3fa;
+  --surface-2: #f0f3fa;
   --surface-3: #ffffff;
-  --outline: rgba(0, 0, 0, 0.5);
-  --outline-faint: rgba(0, 0, 0, 0.28);
-  --rule: #000000;
-  --on-surface: #000000;
-  --on-surface-variant: #1e1e1e;
-  --on-surface-faint: #383838;
-  --primary: #0033a8;
-  --primary-hover: #002680;
-  --primary-container: #dde6fb;
+  --raised: #ffffff;
+  --outline: #e0e3eb;
+  --outline-faint: #eef0f5;
+  --rule: #e0e3eb;
+  --on-surface: #131722;
+  --on-surface-variant: #50535e;
+  --on-surface-faint: #5d606b;
+  --primary: #245bf8;
+  --primary-hover: #1e53e5;
+  --primary-container: #e3ecff;
   --on-primary: #ffffff;
-  --ink-fill-hover: #2b2b2b;
-  --up: #00592c;
-  --up-container: #dbf1e3;
-  --down: #a3000c;
-  --down-container: #fde1e1;
-  --warn: #774800;
+  --btn-bg: #2962ff;
+  --btn-fg: #ffffff;
+  --btn-hover: #1e53e5;
+  --up: #00796b;
+  --up-container: #e1f5f2;
+  --down: #cf2a2b;
+  --down-container: #fdeaea;
+  --warn: #a35a00;
   --on-warn: #ffffff;
-  --shadow-tint: rgba(0, 0, 0, 0.12);
-  --shadow-deep: rgba(0, 0, 0, 0.3);
-  --scrim: rgba(0, 0, 0, 0.5);
+  --shadow-tint: rgba(19, 23, 34, 0.06);
+  --shadow-deep: rgba(19, 23, 34, 0.16);
+  --scrim: rgba(19, 23, 34, 0.3);
+  --r-sm: 3px;
+  --r-md: 4px;
+  --r-lg: 6px;
+  --r-xl: 8px;
 }
 
-/* ---- Graphite — dark, cool neutral, cobalt. Auto's dark half. ------------- */
-[data-theme='graphite'] {
-  color-scheme: dark;
-  --canvas: #0f1114;
-  --surface: #16191d;
-  --surface-hover: #1c2025;
-  --surface-2: #23272d;
-  --surface-3: #272c33;
-  --outline: rgba(220, 230, 245, 0.12);
-  --outline-faint: rgba(220, 230, 245, 0.07);
-  --rule: rgba(225, 232, 242, 0.55);
-  --on-surface: #e8ebf0;
-  --on-surface-variant: #a4acb8;
-  --on-surface-faint: #8b94a1;
-  --primary: #86a8ff;
-  --primary-hover: #a6bfff;
-  --primary-container: rgba(134, 168, 255, 0.15);
-  --on-primary: #0b1330;
-  --ink-fill-hover: #ffffff;
-  --up: #4fd08f;
-  --up-container: rgba(79, 208, 143, 0.13);
-  --down: #ff7a7a;
-  --down-container: rgba(255, 122, 122, 0.14);
-  --warn: #f2b04a;
-  --on-warn: #1a1203;
-  --shadow-tint: rgba(0, 0, 0, 0.45);
-  --shadow-deep: rgba(0, 0, 0, 0.7);
-  --scrim: rgba(0, 0, 0, 0.6);
+/* ---- Rosé Pine Dawn — warm parchment, iris accent. -------------------- */
+[data-theme='rose-pine-dawn'] {
+  color-scheme: light;
+  --canvas: #faf4ed;
+  --surface: #fffaf3;
+  --surface-hover: #f4ede8;
+  --surface-2: #f2e9e1;
+  --surface-3: #fffaf3;
+  --raised: #fffaf3;
+  --outline: #dfdad9;
+  --outline-faint: #ebe5e0;
+  --rule: #cecacd;
+  --on-surface: #464261;
+  --on-surface-variant: #5f5b7a;
+  --on-surface-faint: #67637f;
+  --primary: #6e5a8c;
+  --primary-hover: #5c4a78;
+  --primary-container: #ece4f2;
+  --on-primary: #fffaf3;
+  --btn-bg: #286983;
+  --btn-fg: #fffaf3;
+  --btn-hover: #1f566c;
+  --up: #286b5f;
+  --up-container: #e1ece8;
+  --down: #a14c65;
+  --down-container: #f5e3e6;
+  --warn: #8f5a0d;
+  --on-warn: #fffaf3;
+  --shadow-tint: rgba(70, 66, 97, 0.07);
+  --shadow-deep: rgba(70, 66, 97, 0.18);
+  --scrim: rgba(70, 66, 97, 0.3);
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 14px;
 }
 
-/* ---- Ink — dark, warm black, amber. -------------------------------------- */
-[data-theme='ink'] {
-  color-scheme: dark;
-  --canvas: #121110;
-  --surface: #181715;
-  --surface-hover: #1f1e1b;
-  --surface-2: #262420;
-  --surface-3: #2b2925;
-  --outline: rgba(255, 246, 228, 0.13);
-  --outline-faint: rgba(255, 246, 228, 0.075);
-  --rule: rgba(237, 233, 225, 0.6);
-  --on-surface: #ede9e1;
-  --on-surface-variant: #aaa397;
-  --on-surface-faint: #938c80;
-  --primary: #f2aa45;
-  --primary-hover: #f7be6c;
-  --primary-container: rgba(242, 170, 69, 0.14);
-  --on-primary: #1c1306;
-  --ink-fill-hover: #ffffff;
-  --up: #5ccc90;
-  --up-container: rgba(92, 204, 144, 0.13);
-  --down: #ff7b70;
-  --down-container: rgba(255, 123, 112, 0.14);
-  --warn: #f0a33a;
-  --on-warn: #1c1306;
-  --shadow-tint: rgba(0, 0, 0, 0.45);
-  --shadow-deep: rgba(0, 0, 0, 0.7);
-  --scrim: rgba(0, 0, 0, 0.62);
+/* ---- Catppuccin Latte — soft pastel, mauve. --------------------------- */
+[data-theme='catppuccin-latte'] {
+  color-scheme: light;
+  --canvas: #e6e9ef;
+  --surface: #eff1f5;
+  --surface-hover: #e6e9ef;
+  --surface-2: #dce0e8;
+  --surface-3: #eff1f5;
+  --raised: #eff1f5;
+  --outline: #ccd0da;
+  --outline-faint: #dce0e8;
+  --rule: #bcc0cc;
+  --on-surface: #4c4f69;
+  --on-surface-variant: #535670;
+  --on-surface-faint: #5a5d76;
+  --primary: #7a2ed6;
+  --primary-hover: #6a23be;
+  --primary-container: #e6dcf6;
+  --on-primary: #eff1f5;
+  --btn-bg: #7a2ed6;
+  --btn-fg: #eff1f5;
+  --btn-hover: #6a23be;
+  --up: #267214;
+  --up-container: #dbe9d6;
+  --down: #c00d34;
+  --down-container: #f4d9df;
+  --warn: #a64608;
+  --on-warn: #eff1f5;
+  --shadow-tint: rgba(76, 79, 105, 0.08);
+  --shadow-deep: rgba(76, 79, 105, 0.2);
+  --scrim: rgba(76, 79, 105, 0.3);
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 14px;
 }
 
-/* ---- Midnight — dark, deep navy, cyan. ----------------------------------- */
-[data-theme='midnight'] {
-  color-scheme: dark;
-  --canvas: #0a1020;
-  --surface: #0f172a;
-  --surface-hover: #141e35;
-  --surface-2: #1a2540;
-  --surface-3: #1e2a47;
-  --outline: rgba(170, 200, 255, 0.14);
-  --outline-faint: rgba(170, 200, 255, 0.075);
-  --rule: rgba(190, 210, 245, 0.5);
-  --on-surface: #e6edf9;
-  --on-surface-variant: #a6b4cd;
-  --on-surface-faint: #8a9bb8;
-  --primary: #5cc8ff;
-  --primary-hover: #8ad8ff;
-  --primary-container: rgba(92, 200, 255, 0.14);
-  --on-primary: #04121f;
-  --ink-fill-hover: #ffffff;
-  --up: #4ad295;
-  --up-container: rgba(74, 210, 149, 0.13);
-  --down: #ff7d8a;
-  --down-container: rgba(255, 125, 138, 0.14);
-  --warn: #f5b453;
-  --on-warn: #1a1203;
-  --shadow-tint: rgba(0, 3, 12, 0.5);
-  --shadow-deep: rgba(0, 3, 12, 0.75);
-  --scrim: rgba(2, 6, 18, 0.62);
-}
-
-/* ---- Fjord — dark, cool slate, frost blue. ------------------------------- */
-[data-theme='fjord'] {
-  color-scheme: dark;
-  --canvas: #242933;
-  --surface: #2b313c;
-  --surface-hover: #313845;
-  --surface-2: #373f4c;
-  --surface-3: #3b4352;
-  --outline: rgba(216, 222, 233, 0.15);
-  --outline-faint: rgba(216, 222, 233, 0.085);
-  --rule: rgba(216, 222, 233, 0.5);
-  --on-surface: #eceff4;
-  --on-surface-variant: #c3cad7;
-  --on-surface-faint: #aab3c3;
-  --primary: #8fc7d6;
-  --primary-hover: #aad6e2;
-  --primary-container: rgba(143, 199, 214, 0.16);
-  --on-primary: #1d2430;
-  --ink-fill-hover: #ffffff;
-  --up: #a6d98f;
-  --up-container: rgba(166, 217, 143, 0.14);
-  --down: #f5a0a5;
-  --down-container: rgba(245, 160, 165, 0.15);
-  --warn: #ebcb8b;
-  --on-warn: #1d2430;
-  --shadow-tint: rgba(10, 12, 18, 0.35);
-  --shadow-deep: rgba(10, 12, 18, 0.6);
-  --scrim: rgba(14, 17, 23, 0.55);
-}
-
-/* ---- Forest — dark, earthy green-black, brass. ---------------------------- */
-[data-theme='forest'] {
-  color-scheme: dark;
-  --canvas: #0f1511;
-  --surface: #151d18;
-  --surface-hover: #1b241e;
-  --surface-2: #212c25;
-  --surface-3: #26322a;
-  --outline: rgba(210, 230, 200, 0.13);
-  --outline-faint: rgba(210, 230, 200, 0.075);
-  --rule: rgba(215, 228, 205, 0.5);
-  --on-surface: #e7ece4;
-  --on-surface-variant: #a9b5a6;
-  --on-surface-faint: #909d8d;
-  --primary: #d9b45f;
-  --primary-hover: #e6c67e;
-  --primary-container: rgba(217, 180, 95, 0.14);
-  --on-primary: #1a1406;
-  --ink-fill-hover: #ffffff;
-  --up: #7bd89c;
-  --up-container: rgba(123, 216, 156, 0.13);
-  --down: #ff8a7a;
-  --down-container: rgba(255, 138, 122, 0.14);
-  --warn: #eda24a;
-  --on-warn: #1a1206;
-  --shadow-tint: rgba(0, 0, 0, 0.45);
-  --shadow-deep: rgba(0, 0, 0, 0.7);
-  --scrim: rgba(3, 6, 4, 0.62);
-}
-
-/* ---- Dusk — dark, warm aubergine, lavender. ------------------------------ */
-[data-theme='dusk'] {
-  color-scheme: dark;
-  --canvas: #17121a;
-  --surface: #1e1822;
-  --surface-hover: #251e2a;
-  --surface-2: #2d2532;
-  --surface-3: #322938;
-  --outline: rgba(240, 220, 255, 0.13);
-  --outline-faint: rgba(240, 220, 255, 0.075);
-  --rule: rgba(240, 225, 250, 0.5);
-  --on-surface: #f1eaf4;
-  --on-surface-variant: #bbafc3;
-  --on-surface-faint: #a093a9;
-  --primary: #c4abff;
-  --primary-hover: #d6c4ff;
-  --primary-container: rgba(196, 171, 255, 0.15);
-  --on-primary: #1c1230;
-  --ink-fill-hover: #ffffff;
-  --up: #62d49d;
-  --up-container: rgba(98, 212, 157, 0.13);
-  --down: #ff8799;
-  --down-container: rgba(255, 135, 153, 0.14);
-  --warn: #f3b25b;
-  --on-warn: #1c1206;
-  --shadow-tint: rgba(5, 0, 8, 0.45);
-  --shadow-deep: rgba(5, 0, 8, 0.7);
-  --scrim: rgba(8, 4, 10, 0.62);
-}
-
-/* ---- Terminal — dark, true black, phosphor yellow. Maximum contrast. ----- */
-[data-theme='terminal'] {
+/* ---- Geist Dark — Vercel. Pure black, white buttons, blue accent. -------- */
+[data-theme='geist-dark'] {
   color-scheme: dark;
   --canvas: #000000;
   --surface: #0a0a0a;
-  --surface-hover: #161616;
-  --surface-2: #1c1c1c;
-  --surface-3: #141414;
-  --outline: rgba(255, 255, 255, 0.4);
-  --outline-faint: rgba(255, 255, 255, 0.22);
-  --rule: #ffffff;
-  --on-surface: #ffffff;
-  --on-surface-variant: #e6e6e6;
-  --on-surface-faint: #c4c4c4;
-  --primary: #ffd60a;
-  --primary-hover: #ffe24d;
-  --primary-container: rgba(255, 214, 10, 0.18);
+  --surface-hover: #1a1a1a;
+  --surface-2: #1a1a1a;
+  --surface-3: #111111;
+  --raised: #2e2e2e;
+  --outline: rgba(255, 255, 255, 0.14);
+  --outline-faint: rgba(255, 255, 255, 0.08);
+  --rule: rgba(255, 255, 255, 0.14);
+  --on-surface: #ededed;
+  --on-surface-variant: #a0a0a0;
+  --on-surface-faint: #8f8f8f;
+  --primary: #47a8ff;
+  --primary-hover: #7cc0ff;
+  --primary-container: #06193a;
   --on-primary: #000000;
-  --ink-fill-hover: #e6e6e6;
-  --up: #3ef08a;
-  --up-container: rgba(62, 240, 138, 0.16);
-  --down: #ff6b6b;
-  --down-container: rgba(255, 107, 107, 0.18);
-  --warn: #ffb020;
+  --btn-bg: #ededed;
+  --btn-fg: #0a0a0a;
+  --btn-hover: #ffffff;
+  --up: #00ca50;
+  --up-container: #002608;
+  --down: #ff565f;
+  --down-container: #330a11;
+  --warn: #ff9300;
+  --on-warn: #000000;
+  --shadow-tint: rgba(0, 0, 0, 0.5);
+  --shadow-deep: rgba(0, 0, 0, 0.8);
+  --scrim: rgba(0, 0, 0, 0.7);
+}
+
+/* ---- Indigo — Linear-style. Near-black, quiet greys, indigo. ------------ */
+[data-theme='indigo'] {
+  color-scheme: dark;
+  --canvas: #08090a;
+  --surface: #0f1011;
+  --surface-hover: #17181b;
+  --surface-2: #1c1d21;
+  --surface-3: #141517;
+  --raised: #2a2b31;
+  --outline: rgba(255, 255, 255, 0.1);
+  --outline-faint: rgba(255, 255, 255, 0.06);
+  --rule: rgba(255, 255, 255, 0.1);
+  --on-surface: #f7f8f8;
+  --on-surface-variant: #b4bcd0;
+  --on-surface-faint: #8a8f98;
+  --primary: #8b8aff;
+  --primary-hover: #a7a6ff;
+  --primary-container: rgba(113, 112, 255, 0.16);
+  --on-primary: #08090a;
+  --btn-bg: #5e6ad2;
+  --btn-fg: #ffffff;
+  --btn-hover: #626dd4;
+  --up: #4cb782;
+  --up-container: rgba(76, 183, 130, 0.14);
+  --down: #eb5757;
+  --down-container: rgba(235, 87, 87, 0.15);
+  --warn: #f2c94c;
+  --on-warn: #08090a;
+  --shadow-tint: rgba(0, 0, 0, 0.5);
+  --shadow-deep: rgba(0, 0, 0, 0.75);
+  --scrim: rgba(0, 0, 0, 0.6);
+}
+
+/* ---- Charting Dark — TradingView-style. Navy charcoal, chart blue. ------- */
+[data-theme='chart-dark'] {
+  color-scheme: dark;
+  --canvas: #131722;
+  --surface: #1e222d;
+  --surface-hover: #2a2e39;
+  --surface-2: #2a2e39;
+  --surface-3: #1e222d;
+  --raised: #363a45;
+  --outline: #363a45;
+  --outline-faint: #2a2e39;
+  --rule: #363a45;
+  --on-surface: #d1d4dc;
+  --on-surface-variant: #b2b5be;
+  --on-surface-faint: #9598a1;
+  --primary: #6395ff;
+  --primary-hover: #7da3ff;
+  --primary-container: rgba(41, 98, 255, 0.2);
+  --on-primary: #0d1220;
+  --btn-bg: #2962ff;
+  --btn-fg: #ffffff;
+  --btn-hover: #1e53e5;
+  --up: #32ada1;
+  --up-container: rgba(38, 166, 154, 0.16);
+  --down: #f77272;
+  --down-container: rgba(239, 83, 80, 0.16);
+  --warn: #ffa726;
+  --on-warn: #131722;
+  --shadow-tint: rgba(0, 0, 0, 0.4);
+  --shadow-deep: rgba(0, 0, 0, 0.65);
+  --scrim: rgba(10, 12, 18, 0.6);
+  --r-sm: 3px;
+  --r-md: 4px;
+  --r-lg: 6px;
+  --r-xl: 8px;
+}
+
+/* ---- Primer Dimmed — GitHub's low-glare dark. Soft slate, blue. --------- */
+[data-theme='primer-dimmed'] {
+  color-scheme: dark;
+  --canvas: #212830;
+  --surface: #262c36;
+  --surface-hover: #2f3742;
+  --surface-2: #2a313c;
+  --surface-3: #2a313c;
+  --raised: #3d444d;
+  --outline: #3d444d;
+  --outline-faint: rgba(61, 68, 77, 0.7);
+  --rule: #3d444d;
+  --on-surface: #d1d7e0;
+  --on-surface-variant: #a9b1bb;
+  --on-surface-faint: #9299a2;
+  --primary: #5da5ff;
+  --primary-hover: #6cb6ff;
+  --primary-container: rgba(65, 132, 228, 0.16);
+  --on-primary: #1c2128;
+  --btn-bg: #cdd9e5;
+  --btn-fg: #1c2128;
+  --btn-hover: #f0f6fc;
+  --up: #63b766;
+  --up-container: rgba(70, 149, 74, 0.18);
+  --down: #fb766d;
+  --down-container: rgba(229, 83, 75, 0.15);
+  --warn: #c69026;
+  --on-warn: #1c2128;
+  --shadow-tint: rgba(1, 4, 9, 0.35);
+  --shadow-deep: rgba(1, 4, 9, 0.55);
+  --scrim: rgba(28, 33, 40, 0.6);
+}
+
+/* ---- Catppuccin Mocha — pastels on warm charcoal, mauve. -------------- */
+[data-theme='catppuccin-mocha'] {
+  color-scheme: dark;
+  --canvas: #181825;
+  --surface: #1e1e2e;
+  --surface-hover: #313244;
+  --surface-2: #313244;
+  --surface-3: #1e1e2e;
+  --raised: #45475a;
+  --outline: #45475a;
+  --outline-faint: #313244;
+  --rule: #45475a;
+  --on-surface: #cdd6f4;
+  --on-surface-variant: #bac2de;
+  --on-surface-faint: #a6adc8;
+  --primary: #cba6f7;
+  --primary-hover: #dcc4fa;
+  --primary-container: rgba(203, 166, 247, 0.15);
+  --on-primary: #11111b;
+  --btn-bg: #cba6f7;
+  --btn-fg: #11111b;
+  --btn-hover: #dcc4fa;
+  --up: #a6e3a1;
+  --up-container: rgba(166, 227, 161, 0.13);
+  --down: #f38ba8;
+  --down-container: rgba(243, 139, 168, 0.14);
+  --warn: #fab387;
+  --on-warn: #11111b;
+  --shadow-tint: rgba(17, 17, 27, 0.5);
+  --shadow-deep: rgba(17, 17, 27, 0.75);
+  --scrim: rgba(17, 17, 27, 0.6);
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+}
+
+/* ---- Tokyo Night — deep indigo, neon pastels. ------------------------- */
+[data-theme='tokyo-night'] {
+  color-scheme: dark;
+  --canvas: #16161e;
+  --surface: #1a1b26;
+  --surface-hover: #292e42;
+  --surface-2: #1f2335;
+  --surface-3: #1f2335;
+  --raised: #3b4261;
+  --outline: #3b4261;
+  --outline-faint: #292e42;
+  --rule: #3b4261;
+  --on-surface: #c0caf5;
+  --on-surface-variant: #a9b1d6;
+  --on-surface-faint: #8790bd;
+  --primary: #7aa2f7;
+  --primary-hover: #9cbcff;
+  --primary-container: rgba(122, 162, 247, 0.15);
+  --on-primary: #16161e;
+  --btn-bg: #7aa2f7;
+  --btn-fg: #16161e;
+  --btn-hover: #9cbcff;
+  --up: #9ece6a;
+  --up-container: rgba(158, 206, 106, 0.13);
+  --down: #f7768e;
+  --down-container: rgba(247, 118, 142, 0.14);
+  --warn: #e0af68;
+  --on-warn: #16161e;
+  --shadow-tint: rgba(0, 0, 0, 0.45);
+  --shadow-deep: rgba(0, 0, 0, 0.7);
+  --scrim: rgba(12, 14, 20, 0.62);
+}
+
+/* ---- Nord — arctic slate, frost. ------------------------------------- */
+[data-theme='nord'] {
+  color-scheme: dark;
+  --canvas: #2e3440;
+  --surface: #3b4252;
+  --surface-hover: #434c5e;
+  --surface-2: #434c5e;
+  --surface-3: #3b4252;
+  --raised: #4c566a;
+  --outline: #4c566a;
+  --outline-faint: rgba(76, 86, 106, 0.6);
+  --rule: #4c566a;
+  --on-surface: #eceff4;
+  --on-surface-variant: #d8dee9;
+  --on-surface-faint: #c0c8d6;
+  --primary: #9ad2e2;
+  --primary-hover: #8fbcbb;
+  --primary-container: rgba(136, 192, 208, 0.16);
+  --on-primary: #2e3440;
+  --btn-bg: #88c0d0;
+  --btn-fg: #2e3440;
+  --btn-hover: #8fbcbb;
+  --up: #b4d29b;
+  --up-container: rgba(163, 190, 140, 0.16);
+  --down: #f8aab1;
+  --down-container: rgba(191, 97, 106, 0.22);
+  --warn: #ebcb8b;
+  --on-warn: #2e3440;
+  --shadow-tint: rgba(20, 24, 31, 0.3);
+  --shadow-deep: rgba(20, 24, 31, 0.5);
+  --scrim: rgba(20, 24, 31, 0.55);
+}
+
+/* ---- Terminal Amber — Bloomberg-style. Black, amber, square. ------------ */
+[data-theme='terminal-amber'] {
+  color-scheme: dark;
+  --canvas: #000000;
+  --surface: #0b0b0b;
+  --surface-hover: #1a1a1a;
+  --surface-2: #141414;
+  --surface-3: #111111;
+  --raised: #2b2b2b;
+  --outline: #333333;
+  --outline-faint: #222222;
+  --rule: rgba(255, 160, 40, 0.55);
+  --on-surface: #f2f2f2;
+  --on-surface-variant: #ffa028;
+  --on-surface-faint: #c98a3c;
+  --primary: #ffa028;
+  --primary-hover: #ffb85c;
+  --primary-container: rgba(255, 160, 40, 0.16);
+  --on-primary: #000000;
+  --btn-bg: #ffa028;
+  --btn-fg: #000000;
+  --btn-hover: #ffb85c;
+  --up: #2fd56b;
+  --up-container: rgba(47, 213, 107, 0.14);
+  --down: #ff4d4d;
+  --down-container: rgba(255, 77, 77, 0.16);
+  --warn: #ffd60a;
   --on-warn: #000000;
   --shadow-tint: rgba(0, 0, 0, 0.6);
   --shadow-deep: rgba(0, 0, 0, 0.85);
   --scrim: rgba(0, 0, 0, 0.72);
+  --r-xs: 0px;
+  --r-sm: 0px;
+  --r-md: 2px;
+  --r-lg: 2px;
+  --r-xl: 4px;
 }

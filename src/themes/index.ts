@@ -1,13 +1,13 @@
 /**
  * The theme catalogue.
  *
- * A theme is two things: its colours, as one block in `./themes.css`, and its
- * entry here — what the picker calls it and which half of Auto it could stand
- * in for. Nothing else in the app names a theme; components only ever read the
- * role tokens (--canvas, --on-surface, --primary…), so a new block plus a new
- * entry is the whole job. `npm run check:contrast` then measures it.
+ * A theme is two things: its tokens, as one block in `./themes.css`, and its
+ * entry here — what the picker calls it and where it comes from. Nothing else
+ * in the app names a theme; components only ever read role tokens (--canvas,
+ * --on-surface, --primary…), so a new block plus a new entry is the whole job.
+ * `npm run check:contrast` then measures it.
  *
- * Keep the ids in step with index.html's pre-paint script only where it names
+ * Keep the ids in step with index.html's pre-paint script where it names
  * them: the Auto pair and the legacy mapping.
  */
 
@@ -18,36 +18,60 @@ export interface Theme {
   id: string;
   name: string;
   scheme: Scheme;
-  /** One line under the name in the picker. */
+  /** One line under the name in the picker: the source, then the character. */
   note: string;
 }
 
 export const THEMES: readonly Theme[] = [
-  { id: 'porcelain', name: 'Porcelain', scheme: 'light', note: 'Cool white, cobalt' },
-  { id: 'newsprint', name: 'Newsprint', scheme: 'light', note: 'Warm paper, amber' },
-  { id: 'sandstone', name: 'Sandstone', scheme: 'light', note: 'Earthy sand, petrol' },
-  { id: 'monochrome', name: 'Monochrome', scheme: 'light', note: 'Grayscale, ink accent' },
-  { id: 'contrast', name: 'Contrast', scheme: 'light', note: 'Black on white, AAA' },
-  { id: 'graphite', name: 'Graphite', scheme: 'dark', note: 'Neutral dark, cobalt' },
-  { id: 'ink', name: 'Ink', scheme: 'dark', note: 'Warm black, amber' },
-  { id: 'midnight', name: 'Midnight', scheme: 'dark', note: 'Deep navy, cyan' },
-  { id: 'fjord', name: 'Fjord', scheme: 'dark', note: 'Cool slate, frost' },
-  { id: 'forest', name: 'Forest', scheme: 'dark', note: 'Green-black, brass' },
-  { id: 'dusk', name: 'Dusk', scheme: 'dark', note: 'Aubergine, lavender' },
-  { id: 'terminal', name: 'Terminal', scheme: 'dark', note: 'True black, phosphor' },
+  { id: 'geist-light', name: 'Geist Light', scheme: 'light', note: 'Vercel · monochrome' },
+  { id: 'primer-light', name: 'Primer Light', scheme: 'light', note: 'GitHub · cool neutral' },
+  { id: 'chart-light', name: 'Charting Light', scheme: 'light', note: 'TradingView-style' },
+  { id: 'rose-pine-dawn', name: 'Rosé Pine Dawn', scheme: 'light', note: 'Warm parchment · iris' },
+  { id: 'catppuccin-latte', name: 'Catppuccin Latte', scheme: 'light', note: 'Soft pastel · mauve' },
+  { id: 'geist-dark', name: 'Geist Dark', scheme: 'dark', note: 'Vercel · pure black' },
+  { id: 'indigo', name: 'Indigo', scheme: 'dark', note: 'Linear-style' },
+  { id: 'chart-dark', name: 'Charting Dark', scheme: 'dark', note: 'TradingView-style' },
+  { id: 'primer-dimmed', name: 'Primer Dimmed', scheme: 'dark', note: 'GitHub · low glare' },
+  { id: 'catppuccin-mocha', name: 'Catppuccin Mocha', scheme: 'dark', note: 'Pastels on charcoal' },
+  { id: 'tokyo-night', name: 'Tokyo Night', scheme: 'dark', note: 'Deep indigo · neon' },
+  { id: 'nord', name: 'Nord', scheme: 'dark', note: 'Arctic slate · frost' },
+  { id: 'terminal-amber', name: 'Terminal Amber', scheme: 'dark', note: 'Bloomberg-style' },
 ];
 
 /** What Auto resolves to for each device setting. */
-export const AUTO = { light: 'porcelain', dark: 'graphite' } as const;
+export const AUTO = { light: 'geist-light', dark: 'geist-dark' } as const;
+
+/**
+ * Ids that no longer exist, mapped to their nearest successor so a saved choice
+ * survives a catalogue change: the first toggle's light/dark/system, and the
+ * previous set of themes.
+ */
+export const LEGACY: Readonly<Record<string, string>> = {
+  system: 'auto',
+  light: 'geist-light',
+  dark: 'geist-dark',
+  porcelain: 'geist-light',
+  monochrome: 'geist-light',
+  contrast: 'primer-light',
+  newsprint: 'rose-pine-dawn',
+  sandstone: 'rose-pine-dawn',
+  graphite: 'geist-dark',
+  ink: 'terminal-amber',
+  terminal: 'terminal-amber',
+  midnight: 'tokyo-night',
+  fjord: 'nord',
+  forest: 'catppuccin-mocha',
+  dusk: 'catppuccin-mocha',
+};
 
 /** Accent presets offered on top of any theme. Each is a *hue*: the exact
  *  shade is fitted to the theme by `fitAccent` so it always reads as text. */
 export const ACCENTS: readonly { id: string; name: string; hex: string }[] = [
-  { id: 'cobalt', name: 'Cobalt', hex: '#3b6cf6' },
+  { id: 'blue', name: 'Blue', hex: '#2962ff' },
+  { id: 'indigo', name: 'Indigo', hex: '#5e6ad2' },
   { id: 'teal', name: 'Teal', hex: '#0fa3a3' },
   { id: 'amber', name: 'Amber', hex: '#f0a020' },
   { id: 'violet', name: 'Violet', hex: '#8b5cf6' },
-  { id: 'slate', name: 'Slate', hex: '#64748b' },
 ];
 
 export const themeById = (id: string): Theme | undefined => THEMES.find((t) => t.id === id);

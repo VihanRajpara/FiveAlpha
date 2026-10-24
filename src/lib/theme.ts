@@ -1,5 +1,5 @@
 import { flushSync } from 'react-dom';
-import { AUTO, themeById } from '../themes';
+import { AUTO, LEGACY, themeById } from '../themes';
 import { reducedMotion } from './motion';
 
 /**
@@ -28,9 +28,6 @@ export interface ThemeState {
 const PREF_KEY = 'nse.theme';
 const ACCENT_KEY = 'nse.accent';
 const COLOR_KEY = 'nse.theme-color';
-
-/** What the old light/dark toggle stored, carried over rather than discarded. */
-const LEGACY: Record<string, string> = { system: 'auto', light: AUTO.light, dark: AUTO.dark };
 
 const ACCENT_TOKENS = ['--primary', '--primary-hover', '--primary-container', '--on-primary'];
 

@@ -33,20 +33,24 @@ function onRadioKeys(e: React.KeyboardEvent<HTMLElement>) {
   radios[next].click();
 }
 
-/** A theme in miniature: its ground, its type, two lines of text, and its
- *  accent, gain and loss colours. */
+/** The app in miniature, in the theme's own colours: a header with its
+ *  button, a selected row in its accent, and a gain and a loss. */
 function Swatch({ id }: { id: string }) {
   return (
     <span className="theme-swatch" data-theme={id} aria-hidden>
-      <span className="sw-aa">Aa</span>
-      <span className="sw-lines">
-        <i />
-        <i />
+      <span className="sw-bar">
+        <i className="sw-mark" />
+        <i className="sw-btn" />
       </span>
-      <span className="sw-dots">
-        <i className="sw-accent" />
-        <i className="sw-up" />
-        <i className="sw-down" />
+      <span className="sw-rows">
+        <span className="sw-row sw-row-on">
+          <i className="sw-txt" />
+          <b className="sw-up">+2.4%</b>
+        </span>
+        <span className="sw-row">
+          <i className="sw-txt sw-txt-short" />
+          <b className="sw-down">−1.1%</b>
+        </span>
       </span>
     </span>
   );

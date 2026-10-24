@@ -1,28 +1,25 @@
 /* ==========================================================================
-   FIVEALPHA — "Ledger".
+   FIVEALPHA
 
-   A financial broadsheet that behaves like a terminal. The people reading this
-   scan two thousand rows of figures for the handful worth acting on, so the
-   figures are the product and everything else is ruled paper around them.
+   A screener: two thousand rows of figures scanned for the handful worth
+   acting on, so the figures are the product and everything else gets out of
+   their way.
 
-   - Colour is a theme: twelve of them in src/themes/themes.css, chosen from
-     the palette button in the header. This file only ever names roles
+   - Colour is a theme: thirteen of them in src/themes/themes.css, each built
+     from a published palette (Geist, Primer, Catppuccin, Rosé Pine, Tokyo
+     Night, Nord, and TradingView-, Linear- and Bloomberg-style homages), chosen
+     from the palette button in the header. This file only ever names roles
      (--canvas, --on-surface, --primary…), never a colour.
-   - Structure: hairline rules, not cards and shadows. One strong rule under
-     the masthead and the table header, the way a stock page is set.
+   - Structure: hairline rules and a few surfaces, not stacks of cards.
    - Accent: on under 5% of the pixels — focus, selection, the sorted column,
      the star. Every theme keeps it clear of the market's green and red.
-   - Pressed states are ink, not colour: an engaged filter is printed solid.
-   - Type: Newsreader (display — headlines and the big figures) and IBM Plex
-     Sans (everything else; its default figures are tabular, so columns of
-     numbers line up on the digit without a third, monospaced face).
+   - Type: IBM Plex Sans throughout. Its default figures are tabular, so columns
+     of numbers line up on the digit without a monospaced face.
    ========================================================================== */
 
-/* Self-hosted, subset to Latin + ₹ + the arrows/minus the tables print
-   (scripts in the commit that added them). One file per family, both
-   variable on weight; Newsreader's optical size is pinned at 24, which is the
-   size range it is used at. `swap` so text paints in the fallback at once and
-   never waits on a font. */
+/* Self-hosted, subset to Latin + ₹ + the arrows/minus the tables print, and
+   variable on weight. `swap` so text paints in the fallback at once and never
+   waits on a font. */
 @font-face {
   font-family: 'IBM Plex Sans';
   src: url('/fonts/plex-sans.woff2') format('woff2');
@@ -31,15 +28,7 @@
   font-display: swap;
 }
 
-@font-face {
-  font-family: 'Newsreader';
-  src: url('/fonts/newsreader.woff2') format('woff2');
-  font-weight: 400 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-/* Metric-matched fallbacks, so the swap moves nothing: the system face is
+/* A metric-matched fallback, so the swap moves nothing: the system face is
    scaled to the web font's widths and heights before the web font arrives.
    This is what keeps CLS at zero on a cold load of a table of figures. */
 @font-face {
@@ -51,14 +40,6 @@
   line-gap-override: 0%;
 }
 
-@font-face {
-  font-family: 'Newsreader Fallback';
-  src: local('Georgia'), local('Times New Roman'), local('Liberation Serif');
-  size-adjust: 96%;
-  ascent-override: 98%;
-  descent-override: 26%;
-  line-gap-override: 0%;
-}
 
 :root {
   /* ---- colour ------------------------------------------------------------
@@ -66,10 +47,9 @@
      by `data-theme` on <html>. What stays here is derived from those, so it
      follows whichever theme is active. */
 
-  /* Primary buttons are printed in ink, not in the accent: the accent marks
-     *where you are*, ink marks *what you can press*. */
-  --ink-fill: var(--on-surface);
-  --on-ink: var(--canvas);
+  /* The selected option in a segmented control sits *on* its track like a
+     key: the theme's raised surface, a hairline, and a soft drop. */
+  --seg-shadow: 0 1px 2px var(--shadow-tint), 0 0 0 1px var(--outline-faint);
 
   /* Rules carry depth; shadows exist only for what genuinely floats. */
   --elev-1: 0 1px 2px var(--shadow-tint);
@@ -99,7 +79,10 @@
   --fs-2xl: clamp(21px, 1rem + 1vw, 28px);
   --fs-3xl: clamp(28px, 1.25rem + 2vw, 40px);
 
-  --font-display: 'Newsreader', 'Newsreader Fallback', Georgia, serif;
+  /* Headlines and the big figures. The same family as the body, set heavier:
+     every theme's references (Geist, Linear, Primer, TradingView) are sans
+     throughout, and a serif read as editorial rather than as an instrument. */
+  --font-display: var(--font-sans);
   --font-sans: 'IBM Plex Sans', 'Plex Fallback', -apple-system, 'Segoe UI', Arial, sans-serif;
   /* Figures. Plex's default digits are tabular, so this is the body face —
      kept as its own token so every "this is a number" site still says so. */
@@ -955,9 +938,9 @@ body {
   gap: 2px;
   flex: none;
   padding: 2px;
-  border: 1px solid var(--outline);
+  border: 1px solid var(--outline-faint);
   border-radius: var(--r-md);
-  background: var(--surface);
+  background: var(--surface-2);
 }
 
 .segmented button:disabled {
@@ -1002,12 +985,14 @@ body {
   transform: scale(0.97);
 }
 
-/* Tonal rather than a raised white pill: in dark mode --surface sits *below*
-   --surface-2, so a surface-coloured thumb reads as the unselected one. */
+/* Raised, not filled: the chosen option is the one lifted off the track, in
+   the theme's own `--raised` surface. A solid fill made five controls in a row
+   into five bright blocks competing with the data. */
 .segmented button[data-active='true'] {
-  background: var(--ink-fill);
-  color: var(--on-ink);
+  background: var(--raised);
+  color: var(--on-surface);
   font-weight: 600;
+  box-shadow: var(--seg-shadow);
 }
 
 /* The sliding thumb (src/lib/segmentedPill.ts). Once a track has been
@@ -1031,7 +1016,8 @@ body {
   translate: var(--pill-x, 0) var(--pill-y, 0);
   opacity: var(--pill-o, 0);
   border-radius: var(--r-sm);
-  background: var(--ink-fill);
+  background: var(--raised);
+  box-shadow: var(--seg-shadow);
   pointer-events: none;
 }
 
@@ -1063,8 +1049,8 @@ body {
   padding: 0 var(--sp-4);
   border: 1px solid transparent;
   border-radius: var(--r-md);
-  background: var(--ink-fill);
-  color: var(--on-ink);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
   font-family: inherit;
   font-size: var(--fs-base);
   font-weight: 600;
@@ -1077,7 +1063,7 @@ body {
 
 @media (hover: hover) and (pointer: fine) {
   .btn:hover:not(:disabled) {
-    background: var(--ink-fill-hover);
+    background: var(--btn-hover);
   }
 }
 
@@ -4472,8 +4458,8 @@ body {
  */
 .chart-tool-primary {
   border-color: transparent;
-  background: var(--ink-fill);
-  color: var(--on-ink);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
 }
 
 .chart-tool-primary span {
@@ -4483,9 +4469,9 @@ body {
 
 @media (hover: hover) and (pointer: fine) {
   .chart-tool-primary:hover {
-    background: var(--ink-fill-hover);
+    background: var(--btn-hover);
     border-color: transparent;
-    color: var(--on-ink);
+    color: var(--btn-fg);
   }
 }
 
@@ -4926,8 +4912,8 @@ body {
   margin-top: var(--sp-3);
   border: none;
   border-radius: var(--r-md);
-  background: var(--ink-fill);
-  color: var(--on-ink);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
   font-family: var(--font-sans);
   font-size: var(--fs-md);
   font-weight: 600;
@@ -4937,7 +4923,7 @@ body {
 
 @media (hover: hover) and (pointer: fine) {
   .login-submit:hover:not(:disabled) {
-    background: var(--ink-fill-hover);
+    background: var(--btn-hover);
   }
 }
 
@@ -6018,6 +6004,7 @@ a.screen-count {
 }
 
 .viewnav.segmented[data-pill]::before {
+  box-shadow: none;
   height: 2px;
   translate: var(--pill-x, 0) calc(var(--pill-y, 0) + var(--pill-h, 0) - 2px);
   border-radius: 0;
@@ -6996,9 +6983,9 @@ a.screen-count {
   gap: var(--sp-3);
 }
 
-.theme-grid-auto .theme-swatch {
+.theme-grid-auto .sw-auto {
   flex: none;
-  width: 132px;
+  width: 184px;
 }
 
 .theme-opt-text {
@@ -7023,85 +7010,114 @@ a.screen-count {
 .theme-opt-note {
   font-size: var(--fs-xs);
   color: var(--on-surface-variant);
-  white-space: nowrap;
+  /* Two lines at most, for a longer translation or a narrow phone. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-/* A theme in miniature. Everything here reads tokens, and the element carries
-   the theme's own `data-theme`, so these are that theme's real colours. */
+/* The app in miniature. Everything here reads tokens, and the element carries
+   the theme's own `data-theme`, so these are that theme's real colours. Fixed
+   radii and sizes: a preview should not inherit the *current* theme's shape. */
 .theme-swatch {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 40px;
-  padding: 0 var(--sp-2);
+  flex-direction: column;
+  height: 54px;
   border: 1px solid var(--outline);
-  border-radius: var(--r-md);
+  border-radius: 6px;
   background: var(--canvas);
-  color: var(--on-surface);
   overflow: hidden;
 }
 
-.sw-aa {
-  font-family: var(--font-display);
-  font-size: var(--fs-lg);
-  font-weight: 600;
-  line-height: 1;
-}
-
-.sw-lines {
-  flex: 1;
+.sw-bar {
   display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  height: 15px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--outline-faint);
+  background: var(--surface);
 }
 
-.sw-lines i {
-  display: block;
-  width: 80%;
-  height: 3px;
+.sw-mark {
+  width: 18px;
+  height: 4px;
   border-radius: 2px;
   background: var(--on-surface);
 }
 
-.sw-lines i + i {
-  width: 55%;
-  background: var(--on-surface-faint);
+.sw-btn {
+  width: 16px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--btn-bg);
 }
 
-.sw-dots {
+.sw-rows {
   display: flex;
+  flex-direction: column;
+  justify-content: center;
   gap: 3px;
+  flex: 1;
+  padding: 0 4px;
 }
 
-.sw-dots i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+.sw-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  height: 13px;
+  padding: 0 4px;
+  border-radius: 2px;
 }
 
-.sw-accent {
-  background: var(--primary);
+.sw-row-on {
+  background: var(--primary-container);
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+
+.sw-txt {
+  flex: 0 1 34px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--on-surface-variant);
+}
+
+.sw-txt-short {
+  flex-basis: 22px;
+}
+
+.sw-row b {
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .sw-up {
-  background: var(--up);
+  color: var(--up);
 }
 
 .sw-down {
-  background: var(--down);
+  color: var(--down);
 }
 
-/* Auto: its light and dark halves side by side. */
+/* Auto: its light and dark halves side by side, one window split down the
+   middle. */
 .sw-auto {
-  gap: 0;
-  padding: 0;
+  flex-direction: row;
+  height: 54px;
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 .sw-auto > .theme-swatch {
   flex: 1;
+  min-width: 0;
   height: 100%;
   border: 0;
   border-radius: 0;
@@ -7228,17 +7244,4 @@ a.screen-count {
     min-height: var(--ctl-lg);
     margin-block: -14px;
   }
-}
-
-/* Half a swatch has no room for the text lines; the type and dots say enough. */
-.sw-auto .sw-lines {
-  display: none;
-}
-
-.sw-auto > .theme-swatch {
-  justify-content: space-between;
-}
-
-.theme-grid-auto .theme-opt-note {
-  white-space: normal;
 }

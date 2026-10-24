@@ -66,8 +66,9 @@ const CHECKS = [
   ['down', [...GROUNDS, 'down-container']],
   ['on-primary', ['primary']],
   ['on-warn', ['warn']],
-  // Primary buttons: canvas-coloured text on an ink fill, and on its hover.
-  ['canvas', ['on-surface', 'ink-fill-hover']],
+  // Primary buttons, at rest and hovered; the selected segment of a control.
+  ['btn-fg', ['btn-bg', 'btn-hover']],
+  ['on-surface', ['raised']],
 ];
 
 const themes = readThemes(readFileSync(CSS, 'utf8'));
