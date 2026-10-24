@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import { formatGap, peekSignal, signalGapPct } from '../lib/signals';
 import { describePush, type PushResult } from '../lib/push';
 import type { SecurityWithQuote } from '../types';
+import { Icon } from './Icon';
 
 /**
  * The notifications this account has been sent, and how many are new.
@@ -287,20 +288,7 @@ export function Alerts({ signedIn, lookup, onOpen, push }: Props) {
         }
         aria-label={unread > 0 ? `Alerts, ${unread} new` : 'Alerts'}
       >
-        <svg
-          width="19"
-          height="19"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M18 8.5a6 6 0 1 0-12 0c0 6-2 7.5-2 7.5h16s-2-1.5-2-7.5" />
-          <path d="M10.3 19.5a2 2 0 0 0 3.4 0" />
-        </svg>
+        <Icon name="bell" size={19} />
         {/* Capped at 9+: the count is "is there anything new", not a total.
             The unregistered mark takes precedence — a count of unread alerts is
             beside the point on a device that will not receive the next one. */}

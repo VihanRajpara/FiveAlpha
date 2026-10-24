@@ -1,6 +1,7 @@
 import { formatAge, formatIstDateTime } from '../lib/format';
 import type { ScreenMatches } from '../hooks/useScreenMatches';
 import type { ScreenDef } from '../lib/screens';
+import { Icon } from './Icon';
 
 /**
  * The screen control: what the shortlist is, when it was taken, and whether the
@@ -103,19 +104,7 @@ export function ScreenBar({ screen, matches, shown, matchesOnly, onMatchesOnlyCh
               aria-label={matches.loading ? 'Refreshing the screen list' : 'Refresh the screen list'}
               title="Re-read the list. It is rescraped from Chartink every five minutes during the session, so this only picks up a newer one."
             >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                aria-hidden
-              >
-                <path d="M20 11a8 8 0 1 0-2.3 5.7" />
-                <path d="M20 4v7h-7" />
-              </svg>
+              <Icon name="refresh" size={15} weight={2} className={matches.loading ? 'spin' : undefined} />
               <span className="screen-refresh-label">
                 {matches.loading ? 'Refreshing…' : 'Refresh'}
               </span>

@@ -29,6 +29,7 @@ import {
   type Mapo,
 } from '../lib/signals';
 import { formatPrice, formatVolume } from '../lib/format';
+import { Icon } from './Icon';
 
 /**
  * Candles, with the two studies the screener decides on drawn over them.
@@ -734,7 +735,7 @@ export function CandleChart({
             {/* The arrows carry it at a glance; the word is the confirmation.
                 This is the control people go looking for, so it is the one that
                 does not make you read the toolbar to find it. */}
-            <span aria-hidden>{full ? '⤡' : '⤢'}</span>
+            <Icon name={full ? 'minimize' : 'maximize'} size={13} weight={2} />
             {full ? 'Exit' : 'Full'}
           </button>
         </div>

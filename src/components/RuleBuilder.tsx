@@ -8,6 +8,7 @@ import {
   RULE_FIELDS,
   type Rule,
 } from '../lib/rules';
+import { Icon } from './Icon';
 
 /**
  * The conditions editor: one row per rule, ANDed, added and removed by hand.
@@ -124,7 +125,7 @@ export function RuleBuilder({ rules, onChange }: Props) {
                 title="Remove this condition"
                 onClick={() => onChange(rules.filter((r) => r.id !== rule.id))}
               >
-                ✕
+                <Icon name="close" size={18} />
               </button>
             </li>
           );

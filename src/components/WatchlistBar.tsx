@@ -3,6 +3,7 @@ import { useWatchlists } from '../hooks/useWatchlist';
 import { PopMenu } from './PopMenu';
 import { clearList, createList, deleteList, renameList, setActiveList } from '../lib/watchlist';
 import { onTabListKeys } from '../hooks/useFocusTrap';
+import { Icon } from './Icon';
 
 /**
  * The Watchlists section's control: which list you are looking at, and what you
@@ -160,11 +161,7 @@ export function WatchlistBar({ shown, pane, onPane }: Props) {
             title={`Actions for ${active.name}`}
             onClick={() => setMenuOpen((v) => !v)}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <circle cx="5" cy="12" r="1.8" />
-              <circle cx="12" cy="12" r="1.8" />
-              <circle cx="19" cy="12" r="1.8" />
-            </svg>
+            <Icon name="more" size={18} weight={2.5} />
           </button>
 
           {menuOpen && (

@@ -7,6 +7,7 @@ import { useClosing } from '../hooks/useClosing';
 import { useBackClose } from '../hooks/useBackClose';
 import { RuleBuilder } from './RuleBuilder';
 import { describeRule, type Rule } from '../lib/rules';
+import { Icon } from './Icon';
 
 export interface FilterOption {
   value: string;
@@ -225,7 +226,7 @@ export function Filters({
               onClick={() => onRulesChange(rules.filter((r) => r.id !== rule.id))}
             >
               {describeRule(rule)}
-              <span aria-hidden>✕</span>
+              <Icon name="close" size={14} weight={2} />
               <span className="sr-only">— remove</span>
             </button>
           ))}
@@ -241,9 +242,7 @@ export function Filters({
           aria-haspopup="dialog"
           aria-expanded={open}
         >
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-            <path d="M4 6h16M7 12h10M10 18h4" />
-          </svg>
+          <Icon name="filters" size={17} />
           {/* One word at both widths, because it now opens the same thing at
               both. "More" said "the rest of them", which stopped being true. */}
           Filters
@@ -281,7 +280,7 @@ export function Filters({
                   onClick={close}
                   aria-label="Close filters"
                 >
-                  ✕
+                  <Icon name="close" size={20} />
                 </button>
               </div>
 

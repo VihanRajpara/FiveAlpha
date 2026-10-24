@@ -1,163 +1,205 @@
 /* ==========================================================================
-   SALPHA — modern-tool register (Linear / Raycast lineage).
+   FIVEALPHA — "Ledger".
 
-   What changed and why: this used to be Google Finance — Material elevation,
-   Roboto, full-pill controls, a raised white card on grey. It read as someone
-   else's product with our mark stuck on it. The structure was right; the
-   costume was borrowed.
+   A financial broadsheet that behaves like a terminal. The people reading this
+   scan two thousand rows of figures for the handful worth acting on, so the
+   figures are the product and everything else is ruled paper around them.
 
-   Now: hairlines instead of shadows, a warm near-black ground instead of
-   graphite, modest radii instead of pills, and one accent — the indigo the
-   brand gradient already ends on — carried on under 5% of the pixels. The
-   figures are the product, so they are set in a real mono and everything
-   else gets out of their way.
-
-   Green/red stay the market's colours, retuned for the darker ground.
-   Type: Inter Tight (display), Inter (body), JetBrains Mono (figures).
+   - Ground: warm newsprint by day, warm ink-black by night. Never pure white,
+     never pure black — both read as a screen rather than a page.
+   - Structure: hairline rules, not cards and shadows. One ink rule under the
+     masthead and the table header, the way a stock page is set.
+   - Accent: terminal amber, on under 5% of the pixels — focus, selection, the
+     sorted column, the star. It cannot be mistaken for the market's green/red.
+   - Pressed states are ink, not colour: an engaged filter is printed solid.
+   - Type: Newsreader (display — headlines and the big figures) and IBM Plex
+     Sans (everything else; its default figures are tabular, so columns of
+     numbers line up on the digit without a third, monospaced face).
    ========================================================================== */
 
-:root {
-  /* One palette rather than two. `light-dark()` resolves against the element's
-     `color-scheme`, so the theme toggle only has to change that one property —
-     no duplicated dark block to keep in sync. */
-  color-scheme: light dark;
-
-  /* ---- surfaces ----------------------------------------------------------
-     Dark is warm off-black. It started at #08090A — the Linear ground — and
-     that read as a hole in the screen on a real monitor rather than as a dark
-     surface, so the whole ramp moved up one step. Still unmistakably dark
-     (the canvas reflects about 0.6% of white), but there is now something
-     under the hairlines for them to sit on.
-
-     The steps are what matter, not the absolute values: canvas < surface <
-     hover < surface-2 < surface-3, each about seven points apart, so a raised
-     thing always reads as raised. Move one and move them all.
-
-     Light is a near-white that is *not* #fff, so the surfaces sitting on it
-     have something to be lighter than. */
-  --canvas: light-dark(#fbfbfc, #101114);
-  --surface: light-dark(#ffffff, #17181c);
-  --surface-2: light-dark(#f1f2f4, #232429);
-  --surface-hover: light-dark(#f6f7f8, #1e1f24);
-  /* Raised: menus and the drawer, the only things allowed to float. */
-  --surface-3: light-dark(#ffffff, #2a2b31);
-
-  /* ---- outlines ----------------------------------------------------------
-     Alpha, not solid hex. A hairline that is a *tint of whatever is under it*
-     stays a hairline when it crosses from canvas onto a surface; a solid one
-     changes weight at every boundary. This is the single detail that carries
-     the register — panels are separated by light, not by shadow. */
-  --outline: light-dark(rgba(9, 9, 11, 0.11), rgba(255, 255, 255, 0.105));
-  --outline-faint: light-dark(rgba(9, 9, 11, 0.065), rgba(255, 255, 255, 0.065));
-
-  /* ---- content -----------------------------------------------------------
-     All three clear 4.5:1 against every surface they are used on, in both
-     themes. `faint` is real text in ~25 places and is the one that historically
-     failed, so it is measured against the *worst* of the three grounds rather
-     than against the page: on light that is --surface-2 (chips, the segmented
-     track, the search field), where it lands at 4.64:1, and on dark the same
-     surface, where lifting the ramp brought it down to 4.68:1.
-
-     Both are now the binding constraint — `npm run check:contrast` before
-     lightening the dark ground any further, because this is the pair that goes
-     under 4.5 first. */
-  --on-surface: light-dark(#101113, #f7f8f8);
-  --on-surface-variant: light-dark(#5a616b, #9ca3af);
-  --on-surface-faint: light-dark(#666d7c, #858e9c);
-
-  /* ---- accent ------------------------------------------------------------
-     The indigo the brand gradient ends on — kept, not swapped for the recipe's
-     purple. It is the one stop of the mark that reads as an interface colour,
-     and borrowing another product's accent is how you end up back where this
-     file started. Containers are alpha in dark so a tinted chip sits *in* the
-     surface rather than on a second opaque slab. */
-  --primary: light-dark(#4e5ad4, #a5aeff);
-  --primary-hover: light-dark(#3f4bc4, #bfc5ff);
-  --primary-container: light-dark(#eef0fd, rgba(165, 174, 255, 0.13));
-  --on-primary: light-dark(#ffffff, #0d0f1c);
-
-  /* ---- market ------------------------------------------------------------
-     Not the brand's to choose. Retuned only for legibility on the new ground. */
-  --up: light-dark(#0f7b45, #4ed08a);
-  --up-container: light-dark(#e7f5ec, rgba(78, 208, 138, 0.13));
-  --down: light-dark(#c42d3c, #ff6b76);
-  --down-container: light-dark(#fdecec, rgba(255, 107, 118, 0.14));
-
-  /* ---- elevation ---------------------------------------------------------
-     Barely there, and only on things that genuinely float. Material's two-part
-     key+ambient stack is gone: on a near-black ground a cast shadow is
-     invisible anyway, so depth is carried by the hairline and the surface step.
-     `--elev-3` is the exception — a drawer over a scrim has to read as above
-     the page, and that is the one place a real shadow earns its cost. */
-  --shadow-tint: light-dark(rgba(9, 9, 11, 0.09), rgba(0, 0, 0, 0.5));
-  --elev-1: 0 1px 2px var(--shadow-tint);
-  --elev-2: 0 2px 6px -1px var(--shadow-tint);
-  --elev-3: 0 16px 40px -12px light-dark(rgba(9, 9, 11, 0.22), rgba(0, 0, 0, 0.72));
-  --scrim: light-dark(rgba(9, 9, 11, 0.42), rgba(0, 0, 0, 0.68));
-
-  /* ---- radius ------------------------------------------------------------
-     Modest, precise, never gummy — and never above 16. The 999px pills that
-     used to be on every button and chip were the loudest Material tell in the
-     file; 8px is what replaces them. Genuinely round things (dots, avatars,
-     the progress track) still use 999px, which is why it stays as a token. */
-  --r-xs: 4px;
-  --r-sm: 6px;
-  --r-md: 8px;
-  --r-lg: 12px;
-  --r-xl: 16px;
-  --r-full: 999px;
-
-  /* ---- motion ------------------------------------------------------------
-     Bare `ease` was on 18 declarations and it is too weak to read as intent —
-     it looks like lag. These are the curves that make the same duration feel
-     deliberate. Nothing here is bouncy: this is a scanning tool, and a
-     spring on a filter chip is a distraction with a physics engine. */
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
-  --t-press: 110ms;
-  --t-fast: 130ms;
-  --t: 170ms;
-  --t-slow: 240ms;
-
-  /**
-   * The detail panel's width — and, when it docks, exactly the space the shell
-   * holds open for it. Two readings of one number: if they ever disagree the
-   * panel either overlaps the table or leaves a stripe of canvas beside it.
-   */
-  --drawer-w: clamp(520px, 40vw, 680px);
-
-  /* The `#` track. Read twice: once as the first grid track, once as the `left`
-     the frozen Symbol column sticks at. They were two typed numbers and drifted
-     the moment one changed — 4px of Symbol slid under `#`. One token now. */
-  --col-idx-w: 56px;
-  --row-h: 48px;
-  --gutter: 20px;
-  /* How wide the filter sheet's contents are allowed to run. Past this a row
-     of chips is a reading line nobody can follow across. */
-  --sheet-max: 1060px;
-  /* The least the table may be squeezed to before the page scrolls instead —
-     about eight rows plus the header, which is enough to still read as a table. */
-  --table-min: 420px;
-
-  /* brand — the SALPHA gradient sampled off the artwork, deepened on the light
-     canvas so the pastel original still carries against white. Painted through
-     `mask-image`, so one alpha PNG per lockup serves both themes. */
-  --brand-gradient: linear-gradient(100deg,
-      light-dark(#d64c86, #fad0e7) 0%,
-      light-dark(#8b5cf6, #e0c6fb) 45%,
-      light-dark(#4e5ad4, #a5aeff) 100%);
-
-  /* Inter Tight for display only — plain Inter at default weight is the
-     AI-default look, and the tight cut at 600 is what stops it reading that
-     way. The mono is not decoration: every figure in the table is set in it,
-     so columns of numbers line up on the digit rather than on luck. */
-  --font-display: 'Inter Tight', 'Inter', -apple-system, 'Segoe UI', Arial, sans-serif;
-  --font-sans: 'Inter', -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+/* Self-hosted, subset to Latin + ₹ + the arrows/minus the tables print
+   (scripts in the commit that added them). One file per family, both
+   variable on weight; Newsreader's optical size is pinned at 24, which is the
+   size range it is used at. `swap` so text paints in the fallback at once and
+   never waits on a font. */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('/fonts/plex-sans.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
 }
 
-/* The toggle writes `data-theme`; no attribute means follow the OS. */
+@font-face {
+  font-family: 'Newsreader';
+  src: url('/fonts/newsreader.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Metric-matched fallbacks, so the swap moves nothing: the system face is
+   scaled to the web font's widths and heights before the web font arrives.
+   This is what keeps CLS at zero on a cold load of a table of figures. */
+@font-face {
+  font-family: 'Plex Fallback';
+  src: local('Arial'), local('Helvetica Neue'), local('Liberation Sans');
+  size-adjust: 102%;
+  ascent-override: 100%;
+  descent-override: 27%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Newsreader Fallback';
+  src: local('Georgia'), local('Times New Roman'), local('Liberation Serif');
+  size-adjust: 96%;
+  ascent-override: 98%;
+  descent-override: 26%;
+  line-gap-override: 0%;
+}
+
+:root {
+  /* One palette for both themes: `light-dark()` resolves against
+     `color-scheme`, so the toggle changes one property. */
+  color-scheme: light dark;
+
+  /* ---- neutrals ----------------------------------------------------------
+     A warm grey ramp, newsprint to ink. The steps matter more than the values:
+     canvas < surface-hover < surface-2 < surface-3 in "raisedness", each a
+     visible step, so a raised thing always reads as raised. In light, the
+     surface is *lighter* than the page (paper on a desk); in dark it is a
+     step up from the ground. */
+  --canvas: light-dark(#f5f3ee, #121110);
+  --surface: light-dark(#fbfaf7, #181715);
+  --surface-hover: light-dark(#f0ede6, #1f1e1b);
+  --surface-2: light-dark(#ebe8e0, #262420);
+  /* Raised: menus, the drawer, the sheet — the only things that float. */
+  --surface-3: light-dark(#fefdfb, #2b2925);
+
+  /* Hairlines are tints of whatever they cross, not solid greys, so a rule
+     keeps its weight running from the page onto a panel. */
+  --outline: light-dark(rgba(33, 27, 16, 0.15), rgba(255, 246, 228, 0.13));
+  --outline-faint: light-dark(rgba(33, 27, 16, 0.085), rgba(255, 246, 228, 0.075));
+  /* The ink rule: masthead, table header, the breadth band. */
+  --rule: light-dark(rgba(27, 25, 21, 0.82), rgba(237, 233, 225, 0.6));
+
+  /* ---- ink ---------------------------------------------------------------
+     All three clear 4.5:1 on canvas, surface and surface-2 in both themes —
+     `npm run check:contrast` measures every pair. `faint` is the binding one;
+     it is real text (captions, units, row numbers), not decoration. */
+  --on-surface: light-dark(#1b1915, #ede9e1);
+  --on-surface-variant: light-dark(#545048, #aaa397);
+  --on-surface-faint: light-dark(#65605a, #938c80);
+
+  /* ---- accent: terminal amber -------------------------------------------
+     Deep enough in light to be text (≥4.5:1 on every surface), bright in dark.
+     The container is alpha in dark so a tinted cell sits *in* its surface. */
+  --primary: light-dark(#8f4f00, #f2aa45);
+  --primary-hover: light-dark(#753f00, #f7be6c);
+  --primary-container: light-dark(#f6e6cc, rgba(242, 170, 69, 0.14));
+  --on-primary: light-dark(#ffffff, #1c1306);
+
+  /* Primary buttons are printed in ink, not in the accent: the accent marks
+     *where you are*, ink marks *what you can press*. */
+  --ink-fill: var(--on-surface);
+  --ink-fill-hover: light-dark(#34302a, #ffffff);
+  --on-ink: var(--canvas);
+
+  /* ---- market + semantic -------------------------------------------------
+     Not the brand's to choose — green up, red down — tuned for both grounds. */
+  --up: light-dark(#0b6b40, #5ccc90);
+  --up-container: light-dark(#dff0e5, rgba(92, 204, 144, 0.13));
+  --down: light-dark(#b0241e, #ff7b70);
+  --down-container: light-dark(#f8e1dd, rgba(255, 123, 112, 0.14));
+  --warn: light-dark(#a35a00, #f0a33a);
+  --on-warn: light-dark(#ffffff, #1c1306);
+
+  /* ---- elevation ---------------------------------------------------------
+     Rules carry depth here. Shadows exist only for what genuinely floats. */
+  --shadow-tint: light-dark(rgba(33, 27, 16, 0.08), rgba(0, 0, 0, 0.45));
+  --elev-1: 0 1px 2px var(--shadow-tint);
+  --elev-2: 0 4px 12px -2px var(--shadow-tint), 0 1px 2px var(--shadow-tint);
+  --elev-3: 0 24px 48px -16px light-dark(rgba(33, 27, 16, 0.24), rgba(0, 0, 0, 0.7)),
+    0 2px 6px light-dark(rgba(33, 27, 16, 0.06), rgba(0, 0, 0, 0.3));
+  --scrim: light-dark(rgba(27, 25, 21, 0.36), rgba(0, 0, 0, 0.62));
+
+  /* ---- radius ------------------------------------------------------------
+     Small and precise: a ledger is ruled, not rounded. 999px is for things
+     that are genuinely round (dots, meters). */
+  --r-xs: 2px;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 12px;
+  --r-full: 999px;
+
+  /* ---- type --------------------------------------------------------------
+     A dense data tool, so the base is 13px; display sizes are fluid. Every
+     font-size in this file is one of these. */
+  --fs-micro: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: clamp(17px, 0.9rem + 0.45vw, 20px);
+  --fs-2xl: clamp(21px, 1rem + 1vw, 28px);
+  --fs-3xl: clamp(28px, 1.25rem + 2vw, 40px);
+
+  --font-display: 'Newsreader', 'Newsreader Fallback', Georgia, serif;
+  --font-sans: 'IBM Plex Sans', 'Plex Fallback', -apple-system, 'Segoe UI', Arial, sans-serif;
+  /* Figures. Plex's default digits are tabular, so this is the body face —
+     kept as its own token so every "this is a number" site still says so. */
+  --font-mono: var(--font-sans);
+
+  /* ---- space -------------------------------------------------------------
+     4px grid. 1px and 2px survive only as hairline/optical corrections. */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 28px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-14: 56px;
+  --sp-16: 64px;
+
+  /* Control heights: compact, default, and the touch floor. */
+  --ctl-sm: 28px;
+  --ctl: 36px;
+  --ctl-lg: 44px;
+
+  /* ---- motion ------------------------------------------------------------
+     One curve for everything that arrives or responds (out-quint), one for
+     exits, and one spring kept for the two "count changed" pops. Three
+     durations. Script reads the same numbers from src/lib/motion.ts. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0, 0.75, 0.2);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 280ms;
+
+  /* ---- layout ------------------------------------------------------------ */
+  /* The detail panel's width — and, docked, the space the shell holds for it.
+     One number read twice, so the two can never disagree. */
+  --drawer-w: clamp(520px, 40vw, 680px);
+  /* The `#` track, read as the first grid track and as the frozen Symbol
+     column's `left`. */
+  --col-idx-w: 56px;
+  --row-h: 48px;
+  --gutter: max(clamp(12px, 0.5rem + 1.2vw, 24px), env(safe-area-inset-left), env(safe-area-inset-right));
+  --sheet-max: 1060px;
+  --table-min: 420px;
+  /* The phone's bottom tab bar, read by everything that has to clear it. */
+  --nav-h: 0px;
+}
+
 :root[data-theme='light'] {
   color-scheme: light;
 }
@@ -173,32 +215,59 @@
 html,
 body,
 #root {
-  /* Not `height: 100%`. A fixed-height shell has nowhere to put a page that
-     outgrows the viewport, and this one does that routinely — open the screen's
-     clause panel on a laptop and the bars above the table are most of the
-     screen. The document scrolls instead; see `.content`, which is what stops
-     the table being the thing that gives way. */
+  /* Not `height: 100%`: the shell grows past the viewport when the bars above
+     the table do, and the document scrolls instead of the table vanishing. */
   min-height: 100%;
   margin: 0;
 }
 
+html {
+  /* No double-tap zoom delay on controls, no font inflation on rotate. */
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* The page never scrolls sideways; anything wider scrolls inside itself. */
+  overflow-x: clip;
+}
 
 body {
   background: var(--canvas);
   color: var(--on-surface);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1.45;
-  /* Inter runs a touch loose at UI sizes; this is the tracking the tight cut
-     already has, applied to the body so the two faces agree. */
-  letter-spacing: -0.006em;
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-wrap: break-word;
+}
+
+:where(h1, h2, h3, h4) {
+  text-wrap: balance;
+}
+
+:where(p) {
+  text-wrap: pretty;
+}
+
+:where(button, input, select, textarea) {
+  font: inherit;
+  color: inherit;
+}
+
+:where(a) {
+  color: var(--primary);
+  text-underline-offset: 3px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--primary) 30%, transparent);
+  color: var(--on-surface);
 }
 
 .num {
   font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum' 1;
 }
 
 /* Left in the accessibility tree, taken out of the picture. */
@@ -213,22 +282,30 @@ body {
   white-space: nowrap;
 }
 
-/* Google's focus treatment: a visible ring, but only for keyboard users. */
+/* Keyboard focus: an amber ring, only for keyboard users, never removed. */
 :focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
   border-radius: var(--r-xs);
 }
 
-/* Slim, unobtrusive scrollbars — the Workspace/Finance signature. */
+/* Icons inherit the ink of whatever they sit in and never catch the pointer —
+   the button around them is the target. */
+.icon {
+  flex: none;
+  display: block;
+  pointer-events: none;
+}
+
+/* Scrollbars: thin, warm, and on the page's own colours. */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--outline) transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
 }
 
 *::-webkit-scrollbar-track {
@@ -237,12 +314,13 @@ body {
 
 *::-webkit-scrollbar-thumb {
   background: var(--outline);
-  border: 3px solid var(--surface);
+  border: 3px solid transparent;
+  background-clip: padding-box;
   border-radius: var(--r-full);
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--on-surface-faint);
+  background-color: var(--on-surface-faint);
 }
 
 /* ---------- shell ---------- */
@@ -251,10 +329,12 @@ body {
   display: flex;
   flex-direction: column;
   /* Fills the viewport, then grows past it rather than compressing. dvh so the
-     mobile browser chrome collapsing on scroll doesn't leave a gap. */
+  mobile browser chrome collapsing on scroll doesn't leave a gap. */
   min-height: 100vh;
   min-height: 100dvh;
   background: var(--canvas);
+  /* Clears the phone's tab bar; zero everywhere else. */
+  padding-bottom: var(--nav-h);
 }
 
 /**
@@ -299,11 +379,13 @@ body {
 .topbar {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--sp-4);
   flex-wrap: wrap;
-  padding: 10px var(--gutter);
-  background: var(--surface);
-  border-bottom: 1px solid var(--outline-faint);
+  padding: var(--sp-3) var(--gutter);
+  padding-top: max(var(--sp-3), env(safe-area-inset-top));
+  background: var(--canvas);
+  /* The masthead rule — the one full-ink line at the top of the page. */
+  border-bottom: 1px solid var(--rule);
 }
 
 .brand {
@@ -311,7 +393,7 @@ body {
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -321,23 +403,23 @@ body {
    Files come from scripts/icons.py. */
 .brand-logo {
   margin: 0;
-  height: 28px;
+  height: 26px;
   aspect-ratio: 4.433;
-  background: var(--brand-gradient);
+  /* Printed in ink: the artwork is an alpha mask, so the mark takes the page's
+  own ink in both themes rather than carrying a colour of its own. */
+  background: var(--on-surface);
   -webkit-mask: url('/brand/lockup.png') left center / contain no-repeat;
   mask: url('/brand/lockup.png') left center / contain no-repeat;
 }
 
 .brand .count {
   display: block;
-  /* The lockup sets the brand's width now, and this line is the longer of the
-     two — it clips rather than pushing the search bar off the row. */
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
-  font-weight: 400;
+  font-size: var(--fs-xs);
+  font-weight: 500;
   color: var(--on-surface-variant);
   letter-spacing: 0.01em;
 }
@@ -355,17 +437,16 @@ body {
 
 .search input {
   width: 100%;
-  height: 44px;
-  padding: 0 16px 0 46px;
-  border: 1px solid var(--outline-faint);
+  height: 40px;
+  padding: 0 var(--sp-4) 0 var(--sp-10);
+  border: 1px solid var(--outline);
   border-radius: var(--r-md);
-  background: var(--surface-2);
+  background: var(--surface);
   color: var(--on-surface);
   font-family: inherit;
-  font-size: 14px;
-  transition: background var(--t-fast) var(--ease-out),
-    border-color var(--t-fast) var(--ease-out),
-    box-shadow var(--t-fast) var(--ease-out);
+  font-size: var(--fs-md);
+  transition: border-color var(--dur-fast) var(--ease-out),
+  box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .search input::placeholder {
@@ -374,7 +455,7 @@ body {
 
 @media (hover: hover) and (pointer: fine) {
   .search input:hover {
-    border-color: var(--outline);
+    border-color: var(--on-surface-faint);
   }
 }
 
@@ -382,17 +463,16 @@ body {
    the field grows a ring rather than lifting off the page. */
 .search input:focus {
   outline: none;
-  background: var(--surface);
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
 }
 
 .search svg {
   position: absolute;
-  left: 15px;
+  left: 13px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--on-surface-variant);
+  color: var(--on-surface-faint);
   pointer-events: none;
 }
 
@@ -406,9 +486,9 @@ body {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px 12px;
-  padding: 10px var(--gutter);
-  background: var(--surface);
+  gap: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) var(--gutter);
+  background: var(--canvas);
 }
 
 /* Scrolls rather than collapsing. The sheet is now reserved for touch widths
@@ -417,7 +497,7 @@ body {
 .filters-inline {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: var(--sp-5);
   flex: 1;
   min-width: 0;
   overflow-x: auto;
@@ -471,20 +551,20 @@ body {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 14px;
+  gap: var(--sp-2);
+  height: var(--ctl);
+  padding: 0 var(--sp-3);
   border: 1px solid var(--outline);
   border-radius: var(--r-md);
-  background: transparent;
+  background: var(--surface);
   color: var(--on-surface);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 500;
   cursor: pointer;
-  transition: background var(--t-fast) var(--ease-out),
-    border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
-    transform var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out),
+  border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+  transform var(--dur-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -500,22 +580,21 @@ body {
 
 .filter-trigger[data-active='true'] {
   background: var(--primary-container);
-  border-color: transparent;
+  border-color: color-mix(in srgb, var(--primary) 40%, transparent);
   color: var(--primary);
 }
 
 .filter-count {
   display: grid;
   place-items: center;
-  min-width: 19px;
-  height: 19px;
-  padding: 0 5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--sp-1);
   border-radius: var(--r-sm);
   background: var(--primary);
   color: var(--on-primary);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 600;
+  font-size: var(--fs-micro);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -526,7 +605,7 @@ body {
   inset: 0;
   background: var(--scrim);
   z-index: 50;
-  animation: fade-in var(--t) var(--ease-out);
+  animation: fade-in var(--dur) var(--ease-out);
 }
 
 .sheet {
@@ -544,7 +623,7 @@ body {
   background: var(--surface);
   border-radius: var(--r-xl) var(--r-xl) 0 0;
   box-shadow: var(--elev-3);
-  animation: sheet-up 260ms var(--ease-drawer);
+  animation: sheet-up var(--dur-slow) var(--ease-out);
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
@@ -553,7 +632,7 @@ body {
   display: block;
   width: 36px;
   height: 4px;
-  margin: 8px auto 0;
+  margin: var(--sp-2) auto 0;
   border-radius: var(--r-full);
   background: var(--outline);
   flex: none;
@@ -576,31 +655,31 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px 20px 12px;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-5) var(--sp-3);
   background: var(--surface);
 }
 
 .sheet-head h3 {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--sp-2);
   margin: 0;
   font-family: var(--font-display);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 /* How many filters are on, next to the word they belong to. */
 .sheet-count {
   min-width: 20px;
-  padding: 0 6px;
+  padding: 0 var(--sp-2);
   border-radius: var(--r-full);
   background: var(--primary-container);
   color: var(--primary);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   line-height: 20px;
   text-align: center;
@@ -630,7 +709,7 @@ body {
  */
 .sheet-head,
 .sheet-foot {
-  padding-inline: max(20px, calc((100% - var(--sheet-max)) / 2));
+  padding-inline: max(var(--sp-5), calc((100% - var(--sheet-max)) / 2));
 }
 
 /**
@@ -641,30 +720,42 @@ body {
  * difference between "which filters are there" and "which filter do I want".
  */
 .sheet-section {
-  padding: 14px 20px 18px;
+  padding: var(--sp-4) var(--sp-5) var(--sp-5);
   border-top: 1px solid var(--outline-faint);
 }
 
 .sheet-section-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
-  font-size: 11px;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--on-surface-faint);
+  color: var(--on-surface-variant);
 }
+
+.sheet-section-title::before,
+.factset-label::before,
+.report-h::before,
+.mis-panel-title::before {
+  content: '';
+  flex: none;
+  width: 10px;
+  height: 2px;
+  background: var(--primary);
+}
+
 
 .sheet-section-count {
   min-width: 17px;
-  padding: 0 5px;
+  padding: 0 var(--sp-1);
   border-radius: var(--r-xs);
   background: var(--primary-container);
   color: var(--primary);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   line-height: 17px;
   text-align: center;
@@ -682,7 +773,7 @@ body {
 .sheet-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 16px 20px;
+  gap: var(--sp-4) var(--sp-5);
 }
 
 /* A cell of that grid now. The padding and the hairline moved up to the
@@ -695,7 +786,7 @@ body {
 .sheet-group .filter-group {
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--sp-3);
 }
 
 /**
@@ -710,14 +801,12 @@ body {
   display: flex;
   flex-wrap: wrap;
   width: 100%;
-  border-radius: var(--r-lg);
+  border-radius: var(--r-md);
 }
 
 .sheet-group .segmented button {
-  /* The options share the full-width track rather than huddling at its left
-     end over an empty stripe of it. */
   flex: 1 0 auto;
-  border-radius: var(--r-md);
+  border-radius: var(--r-sm);
 }
 
 /* ---------- conditions: the rule builder ---------- */
@@ -733,14 +822,14 @@ body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
-  margin-top: 10px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
 }
 
 .rules-empty {
   margin: 0;
   max-width: 68ch;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.55;
   color: var(--on-surface-faint);
 }
@@ -748,7 +837,7 @@ body {
 .rules-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-2);
   width: 100%;
   margin: 0;
   padding: 0;
@@ -761,8 +850,8 @@ body {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--outline-faint);
   border-radius: var(--r-md);
   background: var(--surface-2);
@@ -771,21 +860,21 @@ body {
 .rule-operands {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   min-width: 0;
 }
 
 .rule-num {
   width: 96px;
   height: 34px;
-  padding: 0 10px;
+  padding: 0 var(--sp-3);
   border: 1px solid var(--outline);
   border-radius: var(--r-md);
   background: var(--surface);
   color: var(--on-surface);
   /* The operand is a figure, set in the same mono the column it filters is. */
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-variant-numeric: tabular-nums;
 }
 
@@ -809,7 +898,7 @@ body {
 
 .rule-and,
 .rule-unit {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--on-surface-variant);
   white-space: nowrap;
 }
@@ -832,24 +921,24 @@ body {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   height: 30px;
-  padding: 0 10px 0 12px;
+  padding: 0 var(--sp-3) 0 var(--sp-3);
   border: 1px solid var(--primary);
   border-radius: var(--r-md);
   background: var(--primary-container);
   color: var(--primary);
   font-family: var(--font-sans);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
-  transition: background var(--t-fast) var(--ease-out), transform var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 
 .rule-chip > span[aria-hidden] {
   opacity: 0.6;
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -866,8 +955,8 @@ body {
   position: sticky;
   bottom: 0;
   display: flex;
-  gap: 12px;
-  padding: 12px 20px;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-5);
   border-top: 1px solid var(--outline-faint);
   background: var(--surface);
 }
@@ -878,14 +967,14 @@ body {
 
 .btn.ghost {
   background: transparent;
-  color: var(--primary);
+  color: var(--on-surface);
   border: 1px solid var(--outline);
   box-shadow: none;
 }
 
 .btn.ghost:hover:not(:disabled) {
-  background: var(--primary-container);
-  box-shadow: none;
+  background: var(--surface-hover);
+  border-color: var(--on-surface-faint);
 }
 
 .btn.ghost:disabled {
@@ -899,13 +988,13 @@ body {
 .filter-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 .filter-label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--on-surface-faint);
   white-space: nowrap;
@@ -918,10 +1007,10 @@ body {
   display: inline-flex;
   gap: 2px;
   flex: none;
-  padding: 3px;
-  border: 1px solid var(--outline-faint);
+  padding: 2px;
+  border: 1px solid var(--outline);
   border-radius: var(--r-md);
-  background: var(--surface-2);
+  background: var(--surface);
 }
 
 .segmented button:disabled {
@@ -939,20 +1028,20 @@ body {
 }
 
 .segmented button {
-  height: 28px;
-  padding: 0 12px;
+  height: 30px;
+  padding: 0 var(--sp-3);
   border: 0;
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--on-surface-variant);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 500;
   letter-spacing: 0;
   white-space: nowrap;
   cursor: pointer;
-  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
-    transform var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-slow) var(--ease-out),
+  transform var(--dur-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -969,8 +1058,8 @@ body {
 /* Tonal rather than a raised white pill: in dark mode --surface sits *below*
    --surface-2, so a surface-coloured thumb reads as the unselected one. */
 .segmented button[data-active='true'] {
-  background: var(--primary-container);
-  color: var(--primary);
+  background: var(--ink-fill);
+  color: var(--on-ink);
   font-weight: 600;
 }
 
@@ -995,13 +1084,13 @@ body {
   translate: var(--pill-x, 0) var(--pill-y, 0);
   opacity: var(--pill-o, 0);
   border-radius: var(--r-sm);
-  background: var(--primary-container);
+  background: var(--ink-fill);
   pointer-events: none;
 }
 
 .segmented[data-pill='live']::before {
-  transition: translate var(--t-slow) var(--ease-out), width var(--t-slow) var(--ease-out),
-    height var(--t-slow) var(--ease-out), opacity var(--t) var(--ease-out);
+  transition: translate var(--dur-slow) var(--ease-out), width var(--dur-slow) var(--ease-out),
+    height var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out);
 }
 
 /* `:hover` in the selector so it outranks the hover tint, which would
@@ -1013,7 +1102,7 @@ body {
 
 /* The sheet's tracks are one step rounder, and so is everything in them. */
 .sheet-group .segmented[data-pill]::before {
-  border-radius: var(--r-md);
+  border-radius: var(--r-sm);
 }
 
 /* ---------- buttons ---------- */
@@ -1022,27 +1111,26 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 16px;
-  border: 0;
+  gap: var(--sp-2);
+  height: var(--ctl);
+  padding: 0 var(--sp-4);
+  border: 1px solid transparent;
   border-radius: var(--r-md);
-  background: var(--primary);
-  color: var(--on-primary);
+  background: var(--ink-fill);
+  color: var(--on-ink);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
   letter-spacing: 0;
+  white-space: nowrap;
   cursor: pointer;
-  /* No elevation. On a near-black ground a cast shadow is invisible, and on
-     the light one it was the last Material tell left on the primary control. */
-  transition: background var(--t-fast) var(--ease-out),
-    opacity var(--t-fast) var(--ease-out), transform var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+  color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
   .btn:hover:not(:disabled) {
-    background: var(--primary-hover);
+    background: var(--ink-fill-hover);
   }
 }
 
@@ -1055,21 +1143,19 @@ body {
 
 .btn:disabled {
   background: var(--surface-2);
+  border-color: transparent;
   color: var(--on-surface-faint);
-  cursor: default;
+  cursor: not-allowed;
 }
 
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--outline-faint);
-  border-radius: var(--r-sm);
-  background: var(--surface-2);
+  gap: var(--sp-2);
+  height: 24px;
+  padding: 0;
   color: var(--on-surface-variant);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -1084,7 +1170,7 @@ body {
 
 .dot.busy {
   background: var(--primary);
-  animation: pulse 1.2s ease-in-out infinite;
+  animation: pulse 1.2s var(--ease-in-out) infinite;
 }
 
 /* Market closed — grey rather than red; it's a neutral fact, not a fault. */
@@ -1094,7 +1180,7 @@ body {
 
 .statusbar .dot {
   display: inline-block;
-  margin-right: 6px;
+  margin-right: var(--sp-2);
   vertical-align: middle;
 }
 
@@ -1113,20 +1199,19 @@ body {
 .screenbar {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 0 var(--gutter) 10px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--outline-faint);
+  gap: var(--sp-2);
+  padding: 0 var(--gutter) var(--sp-2);
+  background: var(--canvas);
 }
 
 .screenbar-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-3);
   flex-wrap: wrap;
   /* The filter row above is the same band, separated by a hairline rather than
      by a second background — the two are one control strip, read top to bottom. */
-  padding-top: 10px;
+  padding-top: var(--sp-3);
   border-top: 1px solid var(--outline-faint);
   /**
    * The height every control on this row takes.
@@ -1147,7 +1232,7 @@ body {
 }
 
 .screenbar-row .btn {
-  padding: 0 18px;
+  padding: 0 var(--sp-5);
 }
 
 /* Stretches to the track it sits in rather than carrying its own height — the
@@ -1177,9 +1262,9 @@ body {
   display: inline-flex;
   align-items: stretch;
   flex: none;
-  border: 1px solid var(--outline-faint);
+  border: 1px solid var(--outline);
   border-radius: var(--r-md);
-  background: var(--surface-2);
+  background: var(--surface);
   overflow: hidden;
 }
 
@@ -1187,9 +1272,9 @@ body {
 .screen-results > * {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 13px;
-  font-size: 12px;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-sm);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   color: var(--on-surface-variant);
@@ -1213,11 +1298,11 @@ body {
 .screen-refresh {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--sp-2);
 }
 
 .screen-phase {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--on-surface-variant);
   font-variant-numeric: tabular-nums;
 }
@@ -1230,7 +1315,7 @@ body {
 
 .screen-error {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   color: var(--down);
 }
@@ -1238,7 +1323,7 @@ body {
 .screen-note {
   margin: 0;
   max-width: 88ch;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.55;
   color: var(--on-surface-variant);
 }
@@ -1258,8 +1343,13 @@ body {
 .summary {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 12px;
-  padding: 16px var(--gutter) 4px;
+  /* The rules between cells are the band's own background showing through a
+  1px gap — they meet cleanly at every wrap, which per-cell borders do not. */
+  gap: 1px;
+  margin: var(--sp-3) var(--gutter) 0;
+  background: var(--outline-faint);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--outline);
 }
 
 /* Under about 150px a tile truncates its own label, so six stop fitting here. */
@@ -1295,15 +1385,18 @@ body {
 }
 
 .stat {
-  animation: stat-in var(--t-slow) var(--ease-out) both;
+  animation: stat-in var(--dur-slow) var(--ease-out) both;
   animation-delay: calc(var(--i, 0) * 40ms);
-  background: var(--surface);
-  border: 1px solid var(--outline-faint);
-  border-radius: var(--r-lg);
-  padding: 12px 14px;
-  transition: border-color var(--t-fast) var(--ease-out),
-    background var(--t-fast) var(--ease-out), transform var(--t-press) var(--ease-out);
-  /* They are buttons now — undo the UA's font, alignment and colour. */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--canvas);
+  border: 0;
+  border-radius: 0;
+  transition: background var(--dur-fast) var(--ease-out);
   font: inherit;
   color: inherit;
   text-align: left;
@@ -1313,46 +1406,69 @@ body {
 
 @media (hover: hover) and (pointer: fine) {
   .stat:hover {
-    border-color: var(--outline);
     background: var(--surface-hover);
   }
 }
 
 .stat:active {
-  transform: scale(0.99);
+  background: var(--surface-2);
 }
 
 .stat.active {
-  border-color: var(--primary);
   background: var(--primary-container);
 }
+
+/* The engaged figure is underlined from above in amber — a rule drawn across
+   the cell, the way a marked line in a ledger is ruled off. Scale, so it draws
+   in from the left rather than appearing. */
+.stat::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+
+.stat.active::before {
+  transform: scaleX(1);
+}
+
 
 .stat-label {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.03em;
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .stat-value {
-  margin-top: 3px;
-  /* The figure is the point of the tile, so it is set in the same mono the
-     table's columns use — the number reads as data, not as a headline. */
-  font-family: var(--font-mono);
-  font-size: clamp(19px, 2.4vw, 23px);
+  margin-top: 2px;
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl);
   font-weight: 600;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 .stat-sub {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--on-surface-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---------- section change: Screener ⇄ Watchlists ---------- */
@@ -1388,16 +1504,16 @@ body {
 }
 
 ::view-transition-group(page) {
-  animation-duration: var(--t-slow);
+  animation-duration: var(--dur-slow);
   animation-timing-function: var(--ease-out);
 }
 
 ::view-transition-old(page) {
-  animation: fade-out 120ms var(--ease-out) both;
+  animation: fade-out var(--dur-fast) var(--ease-out) both;
 }
 
 ::view-transition-new(page) {
-  animation: page-in var(--t-slow) var(--ease-out) both;
+  animation: page-in var(--dur-slow) var(--ease-out) both;
 }
 
 @keyframes page-in {
@@ -1421,28 +1537,28 @@ body {
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 16px var(--gutter) 24px;
+  gap: var(--sp-5);
+  padding: var(--sp-4) var(--gutter) var(--sp-6);
 }
 
 .report-head {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: var(--sp-3);
   flex-wrap: wrap;
 }
 
 .report-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(17px, 2.2vw, 20px);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .report-sub {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--on-surface-variant);
 }
 
@@ -1455,16 +1571,19 @@ body {
 /* Section heads, not page heads — the same small-caps label the tiles and
    panels use, so the page reads as one object rather than four. */
 .report-h {
-  margin: 0 0 8px;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.03em;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--on-surface-variant);
 }
 
 .report-empty {
-  padding: 48px 0;
+  padding: var(--sp-12) 0;
 }
 
 /* ---- the roll-up tiles ---- */
@@ -1472,7 +1591,10 @@ body {
 .mis-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
-  gap: 10px;
+  gap: 1px;
+  background: var(--outline-faint);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--outline);
 }
 
 /* Borrows `.stat` for the type scale and nothing else: these state a figure,
@@ -1500,23 +1622,23 @@ body {
 .report-lists {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 10px;
+  gap: var(--sp-3);
 }
 
 .lcard {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px 13px;
+  gap: var(--sp-1);
+  padding: var(--sp-3) var(--sp-4) var(--sp-3);
   background: var(--surface);
-  border: 1px solid var(--outline-faint);
+  border: 1px solid var(--outline);
   border-radius: var(--r-lg);
   font: inherit;
   color: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color var(--t-fast) var(--ease-out),
-    background var(--t-fast) var(--ease-out), transform var(--t-press) var(--ease-out);
+  transition: border-color var(--dur-fast) var(--ease-out),
+  background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1533,14 +1655,13 @@ body {
 .lcard-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 .lcard-name {
   font-family: var(--font-display);
-  font-size: 13px;
+  font-size: var(--fs-lg);
   font-weight: 600;
-  letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1550,27 +1671,27 @@ body {
    a number. */
 .lcard-badge {
   flex: none;
-  padding: 1px 6px;
+  padding: 1px var(--sp-2);
   border-radius: var(--r-sm);
   background: var(--primary-container);
   color: var(--primary);
-  font-size: 10px;
+  font-size: var(--fs-micro);
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .lcard-move {
-  font-family: var(--font-mono);
-  font-size: clamp(19px, 2.4vw, 23px);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl);
   font-weight: 600;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 .lcard-meta {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--on-surface-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -1580,9 +1701,9 @@ body {
 .lcard-figs {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 2px 10px;
-  margin-top: 6px;
-  padding-top: 8px;
+  gap: 2px var(--sp-3);
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
   border-top: 1px solid var(--outline-faint);
 }
 
@@ -1590,18 +1711,18 @@ body {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 6px;
+  gap: var(--sp-2);
 }
 
 .lcard-figs i {
   font-style: normal;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--on-surface-variant);
 }
 
 .lcard-figs b {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -1611,29 +1732,29 @@ body {
 .mis-panels {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 10px;
+  gap: var(--sp-3);
   align-items: start;
 }
 
 .mis-panel {
   background: var(--surface);
-  border: 1px solid var(--outline-faint);
+  border: 1px solid var(--outline);
   border-radius: var(--r-lg);
-  padding: 10px 12px 12px;
+  padding: var(--sp-3) var(--sp-3) var(--sp-3);
 }
 
 .mis-panel-title,
 .mis-sub {
-  margin: 0 0 6px;
-  font-size: 11px;
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-xs);
   font-weight: 500;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--on-surface-variant);
 }
 
 .mis-sub {
-  margin-bottom: 4px;
+  margin-bottom: var(--sp-1);
 }
 
 /* Up and down side by side rather than stacked: the pair is a comparison, and
@@ -1641,7 +1762,7 @@ body {
 .mis-movers {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: var(--sp-3);
 }
 
 .mis-list {
@@ -1655,9 +1776,9 @@ body {
 .mis-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   width: 100%;
-  padding: 5px 6px;
+  padding: var(--sp-1) var(--sp-2);
   border: 0;
   border-radius: var(--r-sm);
   background: none;
@@ -1675,9 +1796,9 @@ body {
 
 .mis-sym {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   /* Truncates rather than wraps: a two-line symbol would break the row rhythm
      the panel is scanned by. */
   overflow: hidden;
@@ -1693,7 +1814,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--on-surface-faint);
 }
 
@@ -1702,10 +1823,10 @@ body {
 .mis-reason {
   flex: none;
   margin-left: auto;
-  padding: 1px 7px;
+  padding: 1px var(--sp-2);
   border-radius: var(--r-sm);
   background: var(--surface-2);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   color: var(--on-surface-variant);
   white-space: nowrap;
@@ -1724,7 +1845,7 @@ body {
 .mis-chg {
   flex: none;
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1737,7 +1858,7 @@ body {
 
 .mis-empty {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   color: var(--on-surface-faint);
 }
@@ -1745,7 +1866,7 @@ body {
 .mis-comp {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--sp-2);
 }
 
 .mis-comp b {
@@ -1773,27 +1894,19 @@ body {
 .content {
   flex: 1 1 auto;
   min-height: var(--table-min);
-  /* On a short window the floor itself would be most of the viewport and push
-     nearly everything below the fold, so it gives way there — never below the
-     point where the table stops being readable, and never above 60% of the
-     screen. The plain declaration above is the fallback where `min()` and
-     `dvh` are not understood. */
   min-height: min(var(--table-min), 60dvh);
   display: flex;
-  padding: 12px var(--gutter) 16px;
+  padding: var(--sp-4) var(--gutter);
 }
 
 .card {
   flex: 1;
   min-height: 0;
-  /* A flex item defaults to its content's width as a floor, and the sort bar's
-     is 340px — so at 320 the card overhung the screen instead of letting the
-     sort menu, which is built to shrink, give up the difference. */
   min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border: 1px solid var(--outline-faint);
+  border: 1px solid var(--outline);
   border-radius: var(--r-lg);
   overflow: hidden;
 }
@@ -1984,22 +2097,24 @@ body {
   top: 0;
   z-index: 2;
   background: var(--surface);
-  border-bottom: 1px solid var(--outline);
+  /* The table's head rule, in ink — the line every stock page draws under its
+  column names. Body rows below are hairlines. */
+  border-bottom: 1px solid var(--rule);
 }
 
 .th {
-  padding: 9px 12px 11px;
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.015em;
+  padding: var(--sp-2) var(--sp-3) var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.01em;
   color: var(--on-surface-variant);
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
   display: flex;
   align-items: center;
-  gap: 4px;
-  transition: color var(--t-fast) var(--ease-out);
+  gap: var(--sp-1);
+  transition: color var(--dur-fast) var(--ease-out);
 }
 
 /* A column with no group heading takes both header rows. Bottom-aligned, so
@@ -2029,10 +2144,10 @@ body {
 /* The heading over a set of columns — quieter and smaller than the column
    names under it, so the eye reads the leaves first and the grouping second. */
 .th-group {
-  padding: 8px 12px 5px;
-  font-size: 9.5px;
+  padding: var(--sp-2) var(--sp-3) var(--sp-1);
+  font-size: var(--fs-micro);
   font-weight: 600;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--on-surface-faint);
   cursor: default;
@@ -2076,10 +2191,10 @@ body {
 
 .th .caret {
   display: inline-block;
-  font-size: 10px;
+  font-size: var(--fs-micro);
   line-height: 1;
-  transition: rotate var(--t-slow) var(--ease-out), opacity var(--t) var(--ease-out),
-    scale var(--t) var(--ease-out);
+  transition: rotate var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out),
+    scale var(--dur) var(--ease-out);
 }
 
 .th .caret[data-dir='desc'],
@@ -2099,7 +2214,7 @@ body {
 
 .sortbar .dir-arrow {
   display: inline-block;
-  transition: rotate var(--t-slow) var(--ease-out);
+  transition: rotate var(--dur-slow) var(--ease-out);
 }
 
 .th.right {
@@ -2121,7 +2236,7 @@ body {
   /* Deliberately the fastest thing in the file. A row highlight is seen
      hundreds of times a minute while scanning; anything slower reads as the
      table lagging behind the pointer. */
-  transition: background 90ms linear;
+  transition: background var(--dur-fast) linear;
 }
 
 /* Gated: on a touch screen this fires on tap and then stays lit, so the row
@@ -2139,7 +2254,7 @@ body {
 }
 
 .td {
-  padding: 0 12px;
+  padding: 0 var(--sp-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2158,8 +2273,7 @@ body {
 }
 
 .td.idx {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--on-surface-faint);
 }
 
@@ -2168,37 +2282,37 @@ body {
 .td.sym {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
   min-width: 0;
-  font-family: var(--font-display);
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .td.name {
   color: var(--on-surface-variant);
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 
 .td.muted {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--on-surface-faint);
 }
 
 .td.right .num {
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   font-weight: 500;
 }
 
 .badge {
   display: inline-block;
-  padding: 2px 7px;
+  padding: 2px var(--sp-2);
   border-radius: var(--r-xs);
   background: var(--surface-2);
   color: var(--on-surface-variant);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: 0.02em;
 }
@@ -2223,7 +2337,7 @@ body {
   background: transparent;
   border: 1px solid var(--outline);
   color: var(--on-surface-variant);
-  padding: 1px 7px;
+  padding: 1px var(--sp-2);
 }
 
 .badge.cap-large {
@@ -2242,8 +2356,8 @@ body {
   background: transparent;
   border: 1px solid var(--outline);
   color: var(--on-surface-faint);
-  padding: 1px 6px;
-  font-size: 10.5px;
+  padding: 1px var(--sp-2);
+  font-size: var(--fs-xs);
   letter-spacing: 0.03em;
 }
 
@@ -2259,7 +2373,7 @@ body {
 .exch-cell {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 
 .tr[data-selected='true'] .badge.cap {
@@ -2279,11 +2393,11 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 3px;
+  gap: var(--sp-1);
   min-width: 78px;
-  padding: 3px 9px;
+  padding: var(--sp-1) var(--sp-2);
   border-radius: var(--r-md);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
 }
 
@@ -2296,7 +2410,7 @@ body {
 }
 
 .chg-chip .arrow {
-  font-size: 9px;
+  font-size: var(--fs-micro);
   line-height: 1;
 }
 
@@ -2326,7 +2440,7 @@ body {
  */
 .tick {
   display: inline-block;
-  padding: 1px 4px;
+  padding: 1px var(--sp-1);
   margin: 0 -4px;
   border-radius: var(--r-xs);
   transition: background-color 620ms var(--ease-out);
@@ -2365,15 +2479,15 @@ body {
 .sig-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
   min-width: 0;
 }
 
 .sig-badge {
   flex: none;
-  padding: 2px 6px;
+  padding: 2px var(--sp-2);
   border-radius: var(--r-sm);
-  font-size: 10px;
+  font-size: var(--fs-micro);
   font-weight: 700;
   letter-spacing: 0.05em;
 }
@@ -2389,7 +2503,7 @@ body {
 }
 
 .sig-head .num {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2398,7 +2512,7 @@ body {
 /* The date the flip happened. Quieter than the price it happened at — one is
    the trigger, the other is only when. */
 .sig-when {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--on-surface-faint);
 }
 
@@ -2407,15 +2521,15 @@ body {
 .sortbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px var(--gutter);
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--gutter);
   background: var(--surface);
   border-bottom: 1px solid var(--outline);
   flex: none;
 }
 
 .sortbar-label {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   color: var(--on-surface-variant);
   flex: none;
@@ -2427,21 +2541,21 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--sp-2);
   flex: none;
   min-width: 0;
   height: 34px;
-  padding: 0 8px 0 12px;
+  padding: 0 var(--sp-2) 0 var(--sp-3);
   border: 1px solid var(--outline);
   border-radius: var(--r-md);
   background: var(--surface);
   color: var(--on-surface);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 500;
   cursor: pointer;
-  transition: background var(--t-fast) var(--ease-out),
-    border-color var(--t-fast) var(--ease-out), transform var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 
 .menu-btn span {
@@ -2469,7 +2583,7 @@ body {
 .menu-btn svg {
   flex: none;
   color: var(--on-surface-variant);
-  transition: transform var(--t) var(--ease-out);
+  transition: transform var(--dur) var(--ease-out);
 }
 
 .menu-btn[data-open='true'] svg {
@@ -2484,7 +2598,7 @@ body {
   /* Without this, reaching the end of the list hands the remaining scroll to
      the table underneath — the menu stays put and the page moves instead. */
   overscroll-behavior: contain;
-  padding: 5px;
+  padding: var(--sp-1);
   border-radius: var(--r-lg);
   background: var(--surface-3);
   border: 1px solid var(--outline);
@@ -2497,7 +2611,7 @@ body {
   transform-origin: var(--menu-origin, top left);
   opacity: 1;
   transform: scale(1);
-  transition: opacity var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 
 .menu[data-drop='down'] {
@@ -2528,15 +2642,15 @@ body {
 .menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   height: 36px;
-  padding: 0 10px;
+  padding: 0 var(--sp-3);
   border-radius: var(--r-sm);
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: var(--on-surface);
   cursor: pointer;
   white-space: nowrap;
-  transition: transform var(--t-press) var(--ease-out);
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 
 .menu-item:active {
@@ -2546,7 +2660,7 @@ body {
 /* Keyboard and pointer share one highlight, so arrowing through the list looks
    the same as hovering it. */
 .menu-item[data-active='true'] {
-  background: var(--surface-2);
+  background: var(--surface-hover);
 }
 
 .menu-item[data-selected='true'] {
@@ -2557,7 +2671,7 @@ body {
 .menu-check {
   width: 14px;
   flex: none;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--primary);
 }
 
@@ -2567,7 +2681,7 @@ body {
   height: auto;
   min-height: 58px;
   align-items: flex-start;
-  padding: 9px 12px;
+  padding: var(--sp-2) var(--sp-3);
 }
 
 .menu-item:has(.menu-hint) .menu-check {
@@ -2582,7 +2696,7 @@ body {
 }
 
 .menu-hint {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   font-weight: 400;
   color: var(--on-surface-variant);
   white-space: normal;
@@ -2604,10 +2718,10 @@ body {
   border-radius: var(--r-md);
   background: transparent;
   color: var(--on-surface-variant);
-  font-size: 15px;
+  font-size: var(--fs-md);
   cursor: pointer;
-  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
-    transform var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -2633,8 +2747,8 @@ body {
 .tr.row-stack {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding: 12px var(--gutter);
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--gutter);
 }
 
 /**
@@ -2652,10 +2766,10 @@ body {
 .stack-foot {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-3);
   min-width: 0;
   margin-top: 2px;
-  padding-top: 9px;
+  padding-top: var(--sp-2);
   border-top: 1px solid var(--outline-faint);
 }
 
@@ -2664,17 +2778,17 @@ body {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--sp-3);
   min-width: 0;
 }
 
 .stack-sym {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   min-width: 0;
-  font-family: var(--font-display);
-  font-size: 15px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
   font-weight: 700;
   letter-spacing: -0.01em;
 }
@@ -2682,7 +2796,7 @@ body {
 .stack-name {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--on-surface-variant);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2708,7 +2822,7 @@ body {
 .stack-screen {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px 6px;
+  gap: var(--sp-2) var(--sp-2);
   min-width: 0;
 }
 
@@ -2727,9 +2841,9 @@ body {
 .mapo {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 9.5px;
-  letter-spacing: 0.05em;
+  gap: var(--sp-2);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--on-surface-faint);
 }
@@ -2771,7 +2885,7 @@ body {
   flex: none;
   min-width: 22px;
   text-align: right;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   letter-spacing: 0;
 }
@@ -2804,7 +2918,7 @@ body {
   flex: none;
   min-width: 22px;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 400;
   letter-spacing: 0;
   color: var(--on-surface-faint);
@@ -2816,8 +2930,8 @@ body {
   align-items: flex-start;
   gap: 0;
   color: var(--on-surface-faint);
-  font-size: 9.5px;
-  letter-spacing: 0.05em;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -2834,7 +2948,7 @@ body {
  */
 .metric b {
   color: var(--on-surface-variant);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
@@ -2842,8 +2956,8 @@ body {
 
 .stack-price {
   flex: none;
-  font-family: var(--font-display);
-  font-size: 16px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-lg);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -2885,9 +2999,9 @@ body {
 .sig-strip {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--sp-1);
   min-width: 0;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   line-height: 1.35;
 }
 
@@ -2930,7 +3044,7 @@ body {
 .sig-strip-head {
   display: flex;
   align-items: baseline;
-  gap: 7px;
+  gap: var(--sp-2);
   min-width: 0;
   font-weight: 600;
 }
@@ -2961,7 +3075,7 @@ body {
 }
 
 .sig-strip-when {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--on-surface-faint);
   white-space: nowrap;
   overflow: hidden;
@@ -2969,7 +3083,7 @@ body {
 }
 
 .sig-strip.muted {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   font-weight: 400;
   color: var(--on-surface-faint);
 }
@@ -3001,20 +3115,20 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px 20px;
+  gap: var(--sp-2) var(--sp-5);
   flex-wrap: wrap;
   flex: none;
-  padding: 8px var(--gutter);
+  padding: var(--sp-2) var(--gutter);
   border-top: 1px solid var(--outline-faint);
   background: var(--surface);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--on-surface-variant);
 }
 
 .pagebar-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 .pagebar-label {
@@ -3029,8 +3143,8 @@ body {
 
 .pagebar .menu-btn {
   height: 32px;
-  padding: 0 6px 0 12px;
-  font-size: 12px;
+  padding: 0 var(--sp-2) 0 var(--sp-3);
+  font-size: var(--fs-sm);
 }
 
 .page-btn {
@@ -3044,8 +3158,8 @@ body {
   background: transparent;
   color: var(--on-surface-variant);
   cursor: pointer;
-  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
-    transform var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -3076,12 +3190,13 @@ body {
 .statusbar {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--sp-1) var(--sp-4);
   flex-wrap: wrap;
-  padding: 10px var(--gutter);
-  border-top: 1px solid var(--outline-faint);
-  background: var(--surface);
-  font-size: 12px;
+  padding: var(--sp-2) var(--gutter);
+  padding-bottom: max(var(--sp-2), env(safe-area-inset-bottom));
+  border-top: 1px solid var(--outline);
+  background: var(--canvas);
+  font-size: var(--fs-xs);
   color: var(--on-surface-variant);
 }
 
@@ -3105,7 +3220,7 @@ body {
      second while a refresh runs. A transform is composited and free. */
   transform-origin: left center;
   transform: scaleX(var(--p, 0));
-  transition: transform var(--t-slow) var(--ease-out);
+  transition: transform var(--dur-slow) var(--ease-out);
 }
 
 /* ---------- detail drawer ---------- */
@@ -3115,7 +3230,7 @@ body {
   inset: 0;
   background: var(--scrim);
   z-index: 40;
-  animation: fade-in var(--t) var(--ease-out);
+  animation: fade-in var(--dur) var(--ease-out);
 }
 
 /**
@@ -3145,7 +3260,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: slide-in var(--t-slow) var(--ease-drawer);
+  animation: slide-in var(--dur-slow) var(--ease-out);
 }
 
 /* The header stays put; the document under it scrolls. On a sheet this is the
@@ -3164,7 +3279,7 @@ body {
   -webkit-overflow-scrolling: touch;
   /* The last section is otherwise flush with the bottom edge — and on a phone,
      under the home indicator. */
-  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(var(--sp-6) + env(safe-area-inset-bottom, 0px));
 }
 
 @keyframes fade-in {
@@ -3196,12 +3311,12 @@ body {
  * rather than a layer that fades.
  */
 .drawer[data-closing] {
-  animation: slide-out 200ms var(--ease-drawer) forwards;
+  animation: slide-out var(--dur) var(--ease-in) forwards;
 }
 
 .drawer-scrim[data-closing],
 .sheet-scrim[data-closing] {
-  animation: fade-out 200ms var(--ease-out) forwards;
+  animation: fade-out var(--dur) var(--ease-in) forwards;
 }
 
 @keyframes slide-out {
@@ -3228,9 +3343,9 @@ body {
   flex: none;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 18px 20px 14px;
-  border-bottom: 1px solid var(--outline-faint);
+  gap: var(--sp-3);
+  padding: var(--sp-5) var(--sp-5) var(--sp-4);
+  border-bottom: 1px solid var(--outline);
 }
 
 .drawer-id {
@@ -3245,14 +3360,14 @@ body {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 7px;
+  gap: var(--sp-1);
+  margin-top: var(--sp-2);
 }
 
 .drawer-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-1);
   flex: none;
 }
 
@@ -3270,17 +3385,17 @@ body {
 .drawer-live {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--sp-2);
   flex: none;
   align-self: center;
   margin-left: auto;
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   visibility: hidden;
   opacity: 0;
   transform: translateY(4px);
-  transition: opacity var(--t) var(--ease-out), transform var(--t) var(--ease-out),
-    visibility var(--t);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out),
+    visibility var(--dur);
 }
 
 .drawer-live[data-shown] {
@@ -3299,16 +3414,16 @@ body {
 .drawer-head h2 {
   margin: 0 0 2px;
   font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
 }
 
 .drawer-head p {
   margin: 0;
   color: var(--on-surface-variant);
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 
 /* ---------------------------------------------------------------------------
@@ -3338,13 +3453,13 @@ body {
   right: 3px;
   min-width: 15px;
   height: 15px;
-  padding: 0 3px;
+  padding: 0 var(--sp-1);
   display: grid;
   place-items: center;
-  border-radius: 999px;
+  border-radius: var(--r-full);
   background: var(--down);
-  color: #fff;
-  font-size: 9.5px;
+  color: var(--canvas);
+  font-size: var(--fs-micro);
   font-weight: 700;
   line-height: 1;
   /* Against the topbar behind it, so the badge reads as sitting on the bell
@@ -3357,19 +3472,17 @@ body {
    three new alerts" and "you will not receive the next one" are opposite kinds
    of news and must not look alike. */
 .alerts-dot-warn {
-  /* A literal, not a token: this app has no warning colour, and inventing
-     `--warn` for one 15px dot would be a palette entry with one caller. Amber
-     reads as a caution against both themes' topbar, which is the whole job. */
-  background: #c77700;
-  font-size: 10.5px;
+  background: var(--warn);
+  color: var(--on-warn);
+  font-size: var(--fs-xs);
 }
 
 .alerts-warn {
-  margin: 0 0 4px;
-  padding: 8px 9px;
+  margin: 0 0 var(--sp-1);
+  padding: var(--sp-2) var(--sp-2);
   border-radius: var(--r-md);
   background: var(--down-container);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.45;
   color: var(--on-surface);
 }
@@ -3384,9 +3497,9 @@ body {
    end. */
 .alerts-detail {
   display: block;
-  margin-top: 5px;
+  margin-top: var(--sp-1);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   line-height: 1.4;
   color: var(--on-surface-variant);
   overflow-wrap: anywhere;
@@ -3410,10 +3523,10 @@ body {
   /* Negative margin against the menu's own 5px padding so the bar spans the
      full width — without it rows scroll past in the 5px gutters either side
      and show through beside a heading that is supposed to be opaque. */
-  margin: -5px -5px 0;
-  padding: 7px 14px 8px;
+  margin: -4px -4px 0;
+  padding: var(--sp-2) var(--sp-4) var(--sp-2);
   background: var(--surface-3);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 650;
   color: var(--on-surface);
 }
@@ -3431,12 +3544,12 @@ body {
 .alerts-clear {
   border: 0;
   background: transparent;
-  padding: 2px 4px;
+  padding: 2px var(--sp-1);
   margin: -2px -4px;
   border-radius: var(--r-sm);
   color: var(--on-surface-variant);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   cursor: pointer;
 }
@@ -3460,7 +3573,7 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: flex-end;
-    margin: -14px -4px;
+    margin: -16px -4px;
   }
 }
 
@@ -3476,20 +3589,20 @@ body {
   z-index: 1;
   /* Full-bleed for the same reason as the header: an opaque bar has to cover
      the menu's padding or rows show through beside it. */
-  margin: 0 -5px;
-  padding: 6px 14px 3px;
+  margin: 0 -4px;
+  padding: var(--sp-2) var(--sp-4) var(--sp-1);
   background: var(--surface-3);
-  font-size: 10px;
+  font-size: var(--fs-micro);
   font-weight: 650;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--on-surface-variant);
 }
 
 .alerts-empty {
   margin: 0;
-  padding: 4px 9px 10px;
-  font-size: 12px;
+  padding: var(--sp-1) var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
   line-height: 1.5;
   color: var(--on-surface-variant);
 }
@@ -3497,9 +3610,9 @@ body {
 .alert-row {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--sp-1);
   width: 100%;
-  padding: 7px 9px;
+  padding: var(--sp-2) var(--sp-2);
   border: 0;
   border-radius: var(--r-md);
   background: transparent;
@@ -3528,12 +3641,12 @@ body {
 .alert-line {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
   min-width: 0;
 }
 
 .alert-symbol {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 650;
   /* A long symbol must not push the age off the row. */
   overflow: hidden;
@@ -3542,20 +3655,20 @@ body {
 }
 
 .alert-src {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   flex: none;
 }
 
 .alert-ago {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   flex: none;
 }
 
 .alert-body {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.4;
 }
 
@@ -3615,11 +3728,11 @@ body {
   width: 36px;
   height: 36px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: var(--fs-lg);
   line-height: 1;
   flex: none;
-  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
-    transform var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -3637,8 +3750,8 @@ body {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 12px;
-  padding: 20px 20px 6px;
+  gap: var(--sp-3);
+  padding: var(--sp-5) var(--sp-5) var(--sp-2);
   /* So the headline below can size against this panel rather than the window. */
   container-type: inline-size;
 }
@@ -3652,24 +3765,24 @@ body {
  * never once ran. Against the panel it actually does.
  */
 .drawer-price .ltp {
-  font-family: var(--font-mono);
-  font-size: clamp(30px, 7cqi, 40px);
+  font-family: var(--font-display);
+  font-size: clamp(32px, 8cqi, 44px);
   font-weight: 600;
-  letter-spacing: -0.04em;
-  line-height: 1.05;
-  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.015em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 .chart-box {
-  padding: 8px 16px 4px;
+  padding: var(--sp-2) var(--sp-4) var(--sp-1);
 }
 
 .range-row {
   display: flex;
-  gap: 10px 12px;
+  gap: var(--sp-3) var(--sp-3);
   align-items: center;
   flex-wrap: wrap;
-  padding: 10px 20px 18px;
+  padding: var(--sp-3) var(--sp-5) var(--sp-5);
 }
 
 /**
@@ -3715,7 +3828,7 @@ body {
    now only runs on the first paint, which is the one that needed it. */
 .chart-box {
   opacity: 1;
-  transition: opacity 220ms var(--ease-out);
+  transition: opacity var(--dur) var(--ease-out);
 }
 
 @starting-style {
@@ -3734,17 +3847,20 @@ body {
  * not a section title competing with the price.
  */
 .factset + .factset {
-  margin-top: 4px;
+  margin-top: var(--sp-1);
 }
 
 .factset-label {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
   margin: 0;
-  padding: 16px 20px 8px;
-  font-size: 10.5px;
+  padding: var(--sp-4) var(--sp-5) var(--sp-2);
+  font-size: var(--fs-xs);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--on-surface-faint);
+  color: var(--on-surface-variant);
 }
 
 .facts {
@@ -3758,7 +3874,7 @@ body {
 
 .fact {
   background: var(--surface);
-  padding: 13px 20px;
+  padding: var(--sp-3) var(--sp-5);
 }
 
 /**
@@ -3804,20 +3920,19 @@ body {
 }
 
 .fact dt {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--on-surface-faint);
-  margin-bottom: 3px;
+  margin-bottom: var(--sp-1);
 }
 
 .fact dd {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: 15px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
   font-weight: 600;
-  letter-spacing: -0.01em;
 }
 
 /**
@@ -3832,9 +3947,7 @@ body {
  * which is a legible answer, where an ellipsis would be a lost one.
  */
 .fact dd.num {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  letter-spacing: -0.02em;
+  font-size: var(--fs-md);
 }
 
 /* ---------- candles & studies ---------- */
@@ -3860,9 +3973,9 @@ body {
   /* Tighter across than down: when this wraps — and at 680px with a four-figure
      share it will — the second line should read as a continuation of the first,
      not as a separate row of data. */
-  gap: 1px 9px;
-  padding: 0 2px 6px;
-  font-size: 10.5px;
+  gap: 1px var(--sp-2);
+  padding: 0 2px var(--sp-2);
+  font-size: var(--fs-xs);
   line-height: 1.5;
   color: var(--on-surface-variant);
 }
@@ -3875,7 +3988,7 @@ body {
 .chart-read span {
   display: inline-flex;
   align-items: baseline;
-  gap: 4px;
+  gap: var(--sp-1);
   white-space: nowrap;
 }
 
@@ -3884,15 +3997,15 @@ body {
  * under it and a little more room. In the panel it stays a caption.
  */
 .chart-full[data-full] .chart-read {
-  gap: 2px 16px;
-  padding: 2px 6px 8px;
+  gap: 2px var(--sp-4);
+  padding: 2px var(--sp-2) var(--sp-2);
   margin-bottom: 2px;
   border-bottom: 1px solid var(--outline-faint);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
 }
 
 .chart-full[data-full] .chart-read b {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 
 .chart-read em {
@@ -3902,7 +4015,7 @@ body {
 
 .chart-read b {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--on-surface);
@@ -3952,17 +4065,17 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 14px;
+  gap: var(--sp-1) var(--sp-4);
   margin: 0;
-  padding: 8px 2px 0;
-  font-size: 10.5px;
+  padding: var(--sp-2) 2px 0;
+  font-size: var(--fs-xs);
   color: var(--on-surface-faint);
 }
 
 .chart-legend span {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--sp-1);
 }
 
 /* The two study keys, drawn the way the chart draws them: the stop is a dashed
@@ -3998,8 +4111,8 @@ body {
   z-index: 60;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 0 14px calc(14px + env(safe-area-inset-bottom, 0px));
+  gap: var(--sp-3);
+  padding: 0 var(--sp-4) calc(var(--sp-4) + env(safe-area-inset-bottom, 0px));
   background: var(--canvas);
   overflow: hidden;
 }
@@ -4015,9 +4128,9 @@ body {
 .chart-full-head {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--sp-4);
   flex: none;
-  padding: 12px 0 11px;
+  padding: var(--sp-3) 0 var(--sp-3);
   border-bottom: 1px solid var(--outline-faint);
 }
 
@@ -4028,15 +4141,15 @@ body {
 .chart-full-head h2 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 19px;
+  font-size: var(--fs-xl);
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   line-height: 1.15;
 }
 
 .chart-full-head p {
   margin: 1px 0 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--on-surface-variant);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4046,16 +4159,16 @@ body {
 .chart-full-px {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-3);
   margin-left: auto;
   flex: none;
 }
 
 .chart-full-px > .num {
-  font-family: var(--font-mono);
-  font-size: 20px;
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
   font-weight: 600;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -4065,7 +4178,7 @@ body {
   background: var(--surface);
   border: 1px solid var(--outline-faint);
   border-radius: var(--r-lg);
-  padding: 10px 4px 6px 10px;
+  padding: var(--sp-3) var(--sp-1) var(--sp-2) var(--sp-3);
   overflow: hidden;
 }
 
@@ -4099,7 +4212,7 @@ body {
  */
 .chart-full[data-full] .range-row {
   flex: none;
-  padding: 10px 12px;
+  padding: var(--sp-3) var(--sp-3);
   background: var(--surface);
   border: 1px solid var(--outline-faint);
   border-radius: var(--r-lg);
@@ -4111,7 +4224,7 @@ body {
 
 .chart-full[data-full] .chart-plain {
   margin: 0;
-  padding: 0 0 0 10px;
+  padding: 0 0 0 var(--sp-3);
 }
 
 /* Below this the row cannot hold all three groups, so the break is chosen
@@ -4127,7 +4240,7 @@ body {
   /* Three classes deliberately: `.screenbar-row .btn` sets the phone padding in
      a later block, and an equal-specificity rule here would lose to it. */
   .screenbar-row .btn.screen-refresh {
-    padding: 0 11px;
+    padding: 0 var(--sp-3);
   }
 
   /**
@@ -4152,12 +4265,12 @@ body {
    tightly buys the plot back its height. */
 @media (max-width: 700px) {
   .chart-full[data-full] {
-    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
-    gap: 6px;
+    padding: var(--sp-2) var(--sp-2) calc(var(--sp-2) + env(safe-area-inset-bottom, 0px));
+    gap: var(--sp-2);
   }
 
   .chart-full[data-full] .range-row {
-    gap: 6px 8px;
+    gap: var(--sp-2) var(--sp-2);
   }
 
   /* The legend and the plain-English line are both explanation, and full screen
@@ -4190,10 +4303,10 @@ body {
  * where the jargon ran out.
  */
 .chart-plain {
-  margin: 6px 0 0;
-  padding: 8px 10px;
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-2) var(--sp-3);
   border-left: 2px solid var(--outline);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.55;
   color: var(--on-surface-variant);
   text-wrap: pretty;
@@ -4232,11 +4345,11 @@ body {
   position: absolute;
   display: inline-flex;
   align-items: baseline;
-  gap: 5px;
-  padding: 3px 7px;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
   border-radius: var(--r-sm);
   transform: translate(-50%, calc(-100% - 12px));
-  font-size: 10px;
+  font-size: var(--fs-micro);
   font-weight: 700;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -4344,7 +4457,7 @@ body {
   top: 4px;
   right: 56px;
   display: flex;
-  gap: 4px;
+  gap: var(--sp-1);
   z-index: 60;
   pointer-events: auto;
 }
@@ -4363,8 +4476,8 @@ body {
   }
 
   .chart-read {
-    font-size: 10px;
-    gap: 1px 7px;
+    font-size: var(--fs-micro);
+    gap: 1px var(--sp-2);
   }
 
   /* Two fields the phone can spare: the exact session volume and the second
@@ -4392,21 +4505,21 @@ body {
 .chart-tool {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-1);
   height: 26px;
-  padding: 0 10px;
+  padding: 0 var(--sp-3);
   border: 1px solid var(--outline);
   border-radius: var(--r-sm);
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   color: var(--on-surface);
   box-shadow: var(--elev-1);
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   cursor: pointer;
-  transition: background var(--t-fast) var(--ease-out),
-    border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
-    transform var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -4441,7 +4554,7 @@ body {
 }
 
 .chart-tool-primary span {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1;
 }
 
@@ -4456,7 +4569,7 @@ body {
 @media (pointer: coarse) {
   .chart-tool {
     height: 32px;
-    padding: 0 12px;
+    padding: 0 var(--sp-3);
   }
 }
 
@@ -4482,27 +4595,27 @@ body {
  */
 .study-toggles {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
 }
 
 .study {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
   height: 28px;
-  padding: 0 10px;
+  padding: 0 var(--sp-3);
   border: 1px solid var(--outline);
   border-radius: var(--r-md);
   background: transparent;
   color: var(--on-surface-variant);
   font-family: inherit;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
-  transition: background var(--t-fast) var(--ease-out),
-    border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
-    transform var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 /* Off is the state that has to look off: the key line goes grey with the label,
@@ -4545,20 +4658,20 @@ body {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
-  padding: 18px 24px 10px;
+  gap: var(--sp-3);
+  padding: var(--sp-5) var(--sp-6) var(--sp-3);
 }
 
 .company-head h3 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 700;
   letter-spacing: -0.01em;
 }
 
 .company-head a {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--primary);
   text-decoration: none;
 }
@@ -4570,29 +4683,29 @@ body {
 .company-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px 24px 28px;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-6) var(--sp-7);
 }
 
 /* Screener's own green/red framing, in this app's colours. */
 .proscons {
   display: grid;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-4);
   border: 1px solid var(--outline-faint);
   border-radius: var(--r-lg);
 }
 
 .proscons .cons {
-  padding-top: 12px;
+  padding-top: var(--sp-3);
   border-top: 1px solid var(--outline-faint);
 }
 
 .proscons h4 {
-  margin: 0 0 6px;
-  font-size: 11px;
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-xs);
   font-weight: 600;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -4606,10 +4719,10 @@ body {
 
 .proscons ul {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--sp-5);
   display: grid;
-  gap: 4px;
-  font-size: 12.5px;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
   line-height: 1.5;
   color: var(--on-surface-variant);
 }
@@ -4625,12 +4738,12 @@ body {
 .fin summary {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: var(--sp-3);
   flex-wrap: wrap;
-  padding: 11px 14px;
+  padding: var(--sp-3) var(--sp-4);
   cursor: pointer;
   font-family: var(--font-display);
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -4641,7 +4754,7 @@ body {
 
 .fin-note {
   font-family: var(--font-sans);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 400;
   color: var(--on-surface-faint);
 }
@@ -4657,14 +4770,14 @@ body {
 .fin-table {
   border-collapse: collapse;
   width: 100%;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .fin-table th,
 .fin-table td {
-  padding: 8px 12px;
+  padding: var(--sp-2) var(--sp-3);
   text-align: right;
   font-weight: 500;
   color: var(--on-surface);
@@ -4675,7 +4788,7 @@ body {
   top: 0;
   background: var(--surface);
   color: var(--on-surface-faint);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   border-bottom: 1px solid var(--outline-faint);
 }
@@ -4719,8 +4832,8 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 56px 24px;
+  gap: var(--sp-3);
+  padding: var(--sp-14) var(--sp-6);
   color: var(--on-surface-variant);
   text-align: center;
   max-width: 560px;
@@ -4732,20 +4845,20 @@ body {
    the sign-in card. Only the width differs, so only the width is set per use. */
 .brand-splash {
   aspect-ratio: 1.431;
-  background: var(--brand-gradient);
+  background: var(--on-surface);
   -webkit-mask: url('/brand/stacked.png') center / contain no-repeat;
   mask: url('/brand/stacked.png') center / contain no-repeat;
 }
 
 .center-msg .brand-splash {
   width: min(190px, 60%);
-  margin-bottom: 6px;
+  margin-bottom: var(--sp-2);
 }
 
 .center-msg strong {
   font-family: var(--font-display);
   color: var(--on-surface);
-  font-size: 16px;
+  font-size: var(--fs-xl);
   font-weight: 600;
 }
 
@@ -4753,8 +4866,8 @@ body {
   font-family: var(--font-mono);
   background: var(--surface-2);
   border-radius: var(--r-xs);
-  padding: 2px 6px;
-  font-size: 12px;
+  padding: 2px var(--sp-2);
+  font-size: var(--fs-sm);
 }
 
 /* ---------- sign-in ---------- */
@@ -4764,10 +4877,13 @@ body {
    everything else is the same graphite and indigo as the app it opens into, so
    the two do not read as different products. */
 .login-page {
+  position: relative;
   display: flex;
   min-height: 100vh;
   min-height: 100dvh;
-  padding: 28px var(--gutter);
+  padding: var(--sp-7) var(--gutter);
+  padding-top: max(var(--sp-7), env(safe-area-inset-top));
+  padding-bottom: max(var(--sp-7), env(safe-area-inset-bottom));
   background: var(--canvas);
 }
 
@@ -4775,40 +4891,35 @@ body {
    no `overflow: hidden` to contain it — and `overflow: hidden` here is exactly
    what would put the top of the card out of reach on a short screen. */
 .login-page::before {
+  /* Ledger paper: faint rules every 32px, fading out from behind the card. Fixed,
+  so it adds nothing to the page's height and never clips the card. */
   content: '';
   position: fixed;
-  top: -30vh;
-  left: 50%;
-  width: min(900px, 140vw);
-  aspect-ratio: 1;
-  translate: -50% 0;
-  border-radius: 50%;
-  background: var(--brand-gradient);
-  filter: blur(110px);
-  opacity: light-dark(0.16, 0.2);
+  inset: 0;
+  background-image: repeating-linear-gradient(to bottom,
+  transparent 0 31px, var(--outline-faint) 31px 32px);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 20%, transparent 75%);
   pointer-events: none;
 }
 
 .login-card {
   position: relative;
   z-index: 1;
-  /* Centred with `margin: auto` instead of the parent's `align-items`, which
-     centres by overflowing equally in both directions — on a landscape phone
-     that pushes the logo above the top of the window with no way to scroll to
-     it. This just stops centring and starts scrolling when it runs out of room. */
   margin: auto;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 10px;
+  gap: var(--sp-3);
   width: min(400px, 100%);
-  padding: 34px 30px 26px;
-  border: 1px solid var(--outline-faint);
-  border-radius: var(--r-xl);
+  padding: var(--sp-8) var(--sp-7) var(--sp-6);
+  border: 1px solid var(--outline);
+  border-top: 2px solid var(--rule);
+  border-radius: var(--r-lg);
   background: var(--surface);
-  box-shadow: var(--elev-3);
+  box-shadow: var(--elev-2);
   text-align: center;
-  animation: login-in 0.35s ease-out;
+  animation: login-in var(--dur-slow) var(--ease-out);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4825,22 +4936,22 @@ body {
 }
 
 .login-mark {
-  width: 132px;
-  margin: 0 auto 14px;
+  width: 120px;
+  margin: 0 auto var(--sp-3);
 }
 
 .login-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 21px;
+  font-size: var(--fs-2xl);
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--on-surface);
 }
 
 .login-sub {
-  margin: 0 0 12px;
-  font-size: 13px;
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-base);
   color: var(--on-surface-variant);
 }
 
@@ -4848,74 +4959,63 @@ body {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
+  gap: var(--sp-2);
   text-align: left;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--on-surface-faint);
+  color: var(--on-surface-variant);
 }
 
 .login-field input {
   width: 100%;
-  height: 46px;
-  padding: 0 14px;
-  border: 1px solid transparent;
-  border-radius: var(--r-lg);
-  background: var(--surface-2);
+  height: var(--ctl-lg);
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--outline);
+  border-radius: var(--r-md);
+  background: var(--canvas);
   color: var(--on-surface);
   font-family: inherit;
-  /* Not 14: Safari on iOS zooms the whole page in when a field under 16px takes
-     focus, and it does not zoom back out. */
-  font-size: 16px;
+  /* Not 14: Safari on iOS zooms the page when a field under 16px takes focus. */
+  font-size: var(--fs-lg);
   letter-spacing: normal;
   text-transform: none;
-  transition: background var(--t-fast) var(--ease-out),
-    border-color var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .login-field input:focus {
   outline: none;
-  background: var(--surface);
-  /* A ring rather than a border, so the field does not shift by a pixel when it
-     takes focus. */
-  box-shadow: 0 0 0 2px var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
 }
 
 /* Four characters that are a code, not a word: centred, spaced and monospaced
    so the dots are countable at a glance. */
 .login-field-pin input {
   text-align: center;
-  font-family: var(--font-mono);
-  font-size: 19px;
+  font-size: var(--fs-xl);
   letter-spacing: 0.6em;
-  /* Letter-spacing trails the last dot as well, which pushes centred text half
-     a space to the left. This puts it back. */
   text-indent: 0.3em;
 }
 
 .login-submit {
-  height: 46px;
-  margin-top: 14px;
+  height: var(--ctl-lg);
+  margin-top: var(--sp-3);
   border: none;
-  border-radius: var(--r-lg);
-  background: var(--brand-gradient);
-  /* Not white: the gradient is deep in light mode and pastel in dark, so the
-     label follows it — the same pairing `--primary` and `--on-primary` already
-     have everywhere else. */
-  color: var(--on-primary);
-  font-family: var(--font-display);
-  font-size: 14.5px;
+  border-radius: var(--r-md);
+  background: var(--ink-fill);
+  color: var(--on-ink);
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
   font-weight: 600;
-  letter-spacing: 0.01em;
   cursor: pointer;
-  transition: filter var(--t-fast) var(--ease-out), transform var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
   .login-submit:hover:not(:disabled) {
-    filter: saturate(1.08) brightness(1.06);
+    background: var(--ink-fill-hover);
   }
 }
 
@@ -4924,32 +5024,36 @@ body {
 }
 
 .login-submit:disabled {
-  opacity: 0.6;
-  cursor: default;
+  background: var(--surface-2);
+  color: var(--on-surface-faint);
+  cursor: progress;
 }
 
 .login-error {
-  animation: fade-in var(--t) var(--ease-out);
-  margin: 12px 0 0;
-  padding: 9px 12px;
+  animation: fade-in var(--dur) var(--ease-out);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-md);
   background: var(--down-container);
   color: var(--down);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-align: left;
 }
 
 .login-foot {
-  margin: 18px 0 0;
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
+  margin: var(--sp-4) 0 0;
+  font-size: var(--fs-xs);
+  letter-spacing: 0.02em;
   color: var(--on-surface-faint);
 }
 
 /* Who is signed in, beside the button that ends it. Hidden on a phone, where
    the header has no room for a name nobody needs reminding of. */
 .whoami {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   color: var(--on-surface-variant);
   max-width: 140px;
@@ -4960,7 +5064,7 @@ body {
 
 @media (max-width: 700px) {
   .login-card {
-    padding: 28px 22px 22px;
+    padding: var(--sp-7) var(--sp-6) var(--sp-6);
   }
 
   .whoami {
@@ -4973,25 +5077,25 @@ body {
    be just as short. */
 @media (max-height: 640px) {
   .login-page {
-    padding: 16px var(--gutter);
+    padding: var(--sp-4) var(--gutter);
   }
 
   .login-card {
-    gap: 8px;
-    padding: 22px 24px 18px;
+    gap: var(--sp-2);
+    padding: var(--sp-6) var(--sp-6) var(--sp-5);
   }
 
   .login-mark {
     width: 96px;
-    margin-bottom: 8px;
+    margin-bottom: var(--sp-2);
   }
 
   .login-title {
-    font-size: 19px;
+    font-size: var(--fs-xl);
   }
 
   .login-sub {
-    margin-bottom: 6px;
+    margin-bottom: var(--sp-2);
   }
 
   /* Decoration, and the first thing that can go. */
@@ -5001,13 +5105,19 @@ body {
 }
 
 .spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid var(--outline-faint);
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--outline);
   border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
+
+/* An icon that is busy — the refresh arrows while a re-read is in flight. */
+.icon.spin {
+  animation: spin 0.9s linear infinite;
+}
+
 
 @keyframes spin {
   to {
@@ -5019,10 +5129,6 @@ body {
 
 /* Laptop: tighten the frame before anything has to be dropped. */
 @media (max-width: 1100px) {
-  :root {
-    --gutter: 16px;
-  }
-
   .search {
     flex: 0 1 380px;
   }
@@ -5032,8 +5138,8 @@ body {
    so it takes a full-width row of its own beneath them. */
 @media (max-width: 900px) {
   .topbar {
-    gap: 10px 12px;
-    padding-bottom: 12px;
+    gap: var(--sp-3) var(--sp-3);
+    padding-bottom: var(--sp-3);
   }
 
   .topbar > .spacer {
@@ -5062,12 +5168,8 @@ body {
 /* Phone: stacked rows, a bottom sheet instead of a side drawer, and a status
    bar that wraps instead of scrolling. */
 @media (max-width: 700px) {
-  :root {
-    --gutter: 12px;
-  }
-
   .brand .count {
-    font-size: 10px;
+    font-size: var(--fs-micro);
   }
 
   .center-msg .brand-splash {
@@ -5076,12 +5178,12 @@ body {
 
   .btn {
     height: 36px;
-    padding: 0 16px;
+    padding: 0 var(--sp-4);
   }
 
   .subbar {
-    gap: 8px;
-    padding: 8px var(--gutter);
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--gutter);
   }
 
   /* Shares one row with the Filters button, so it gives up its separator and
@@ -5095,21 +5197,21 @@ body {
   }
 
   .viewnav button {
-    padding: 0 11px;
-    font-size: 12.5px;
+    padding: 0 var(--sp-3);
+    font-size: var(--fs-sm);
   }
 
   .screenbar {
-    gap: 6px;
-    padding: 0 var(--gutter) 8px;
+    gap: var(--sp-2);
+    padding: 0 var(--gutter) var(--sp-2);
   }
 
   /* A condition row on a phone is four controls on one line; the field name is
      the longest and the only one that can give way, and its menu shows the full
      label anyway. */
   .rule {
-    gap: 6px;
-    padding: 8px;
+    gap: var(--sp-2);
+    padding: var(--sp-2);
   }
 
   .rule-num {
@@ -5124,8 +5226,8 @@ body {
      itself the bar broke mid-phrase, truncating the screen's name to
      "Near all-ti…" and leaving two ragged lines. */
   .screenbar-row {
-    gap: 8px;
-    padding-top: 8px;
+    gap: var(--sp-2);
+    padding-top: var(--sp-2);
     --row-h: 32px;
   }
 
@@ -5146,13 +5248,13 @@ body {
   }
 
   .screenbar-row .btn {
-    padding: 0 14px;
-    font-size: 12px;
+    padding: 0 var(--sp-4);
+    font-size: var(--fs-sm);
   }
 
   .screen-results > * {
-    padding: 0 10px;
-    font-size: 11px;
+    padding: 0 var(--sp-3);
+    font-size: var(--fs-xs);
   }
 
   .screenbar-row .segmented {
@@ -5160,8 +5262,8 @@ body {
   }
 
   .screenbar-row .segmented button {
-    padding: 0 12px;
-    font-size: 12px;
+    padding: 0 var(--sp-3);
+    font-size: var(--fs-sm);
   }
 
   /* Comfortable tap targets inside the sheet, where there is room for them. */
@@ -5175,34 +5277,33 @@ body {
   .sheet-head,
   .sheet-section,
   .sheet-foot {
-    padding-inline: 16px;
+    padding-inline: var(--sp-4);
   }
 
   .sheet-section {
-    padding-top: 12px;
-    padding-bottom: 14px;
+    padding-top: var(--sp-3);
+    padding-bottom: var(--sp-4);
   }
 
   .sheet-grid {
-    gap: 14px;
+    gap: var(--sp-4);
   }
 
   .sheet-head h3 {
-    font-size: 17px;
+    font-size: var(--fs-xl);
   }
 
   .statusbar .pill {
     height: 24px;
-    padding: 0 10px;
-    font-size: 11px;
+    padding: 0 var(--sp-3);
+    font-size: var(--fs-xs);
   }
 
   /* Still two rows of three — three rows of two would push the table most of a
      screen further down, and the table is what the tiles are describing. */
   .summary {
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-    padding: 12px var(--gutter) 0;
+    margin-top: var(--sp-2);
   }
 
   /* A third of a phone's width rather than a half, so the type comes down with
@@ -5214,31 +5315,31 @@ body {
      different surfaces. One value for the cards, and the square edge stays
      square because it is full-bleed rather than a card at all. */
   .stat {
-    padding: 9px 10px;
+    padding: var(--sp-2) var(--sp-3);
   }
 
   .stat-label {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: 0.02em;
   }
 
   .stat-value {
-    font-size: clamp(16px, 4.6vw, 20px);
+    font-size: var(--fs-xl);
   }
 
   .stat-sub {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     line-height: 1.35;
   }
 
   .report {
-    gap: 14px;
-    padding: 12px var(--gutter) 20px;
+    gap: var(--sp-4);
+    padding: var(--sp-3) var(--gutter) var(--sp-5);
   }
 
   .mis-tiles {
     grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
+    gap: var(--sp-2);
   }
 
   /* One list per line. Two 240px cards on a 360px screen is a name truncated
@@ -5269,7 +5370,7 @@ body {
     /* No floor and no growing: the list itself is the height now. */
     flex: 0 0 auto;
     min-height: auto;
-    padding: 10px 0 0;
+    padding: var(--sp-3) 0 0;
   }
 
   /* Full-bleed rather than an inset card: the rows need the width, and a card
@@ -5305,13 +5406,13 @@ body {
     /* Clears the sticky sort bar when a sort or page change scrolls here. */
     scroll-margin-top: 56px;
     background: var(--canvas);
-    padding: 10px;
+    padding: var(--sp-3);
   }
 
   .table-wrap[data-layout='mobile'] .tbody {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--sp-3);
   }
 
   /* Rows are in normal flow rather than placed by the virtualiser, and are free
@@ -5320,7 +5421,7 @@ body {
     position: static;
     height: auto;
     min-height: 64px;
-    padding: 13px 14px;
+    padding: var(--sp-3) var(--sp-4);
     background: var(--surface);
     border: 1px solid var(--outline-faint);
     border-radius: var(--r-lg);
@@ -5343,19 +5444,19 @@ body {
     position: sticky;
     bottom: 0;
     z-index: 3;
-    padding-bottom: max(8px, env(safe-area-inset-bottom, 0));
+    padding-bottom: max(var(--sp-2), env(safe-area-inset-bottom, 0));
   }
 
   .statusbar {
-    gap: 4px 12px;
-    padding: 8px var(--gutter);
-    font-size: 11px;
+    gap: var(--sp-1) var(--sp-3);
+    padding: var(--sp-2) var(--gutter);
+    font-size: var(--fs-xs);
   }
 
   .pagebar {
     justify-content: space-between;
-    gap: 6px 10px;
-    font-size: 11px;
+    gap: var(--sp-2) var(--sp-3);
+    font-size: var(--fs-xs);
   }
 
   /* The chip's number says "rows per page" well enough at this width. */
@@ -5378,14 +5479,14 @@ body {
     height: 92vh;
     height: 92dvh;
     border-radius: var(--r-xl) var(--r-xl) 0 0;
-    animation: sheet-up 260ms var(--ease-drawer);
+    animation: sheet-up var(--dur-slow) var(--ease-out);
   }
 
   /* Overrides the sideways exit above: at this width the drawer arrived from
      the bottom, so it leaves that way. Declared beside the entry it mirrors —
      the two are one decision. */
   .drawer[data-closing] {
-    animation: sheet-down 200ms var(--ease-drawer) forwards;
+    animation: sheet-down var(--dur) var(--ease-in) forwards;
   }
 
   /**
@@ -5398,7 +5499,7 @@ body {
    */
   .drawer-head {
     position: relative;
-    padding: 20px 16px 14px;
+    padding: var(--sp-5) var(--sp-4) var(--sp-4);
     touch-action: none;
   }
 
@@ -5412,10 +5513,10 @@ body {
     left: 50%;
     width: 36px;
     height: 4px;
-    margin-left: -18px;
+    margin-left: -20px;
     border-radius: var(--r-full);
     background: var(--outline);
-    transition: background var(--t-fast) var(--ease-out);
+    transition: background var(--dur-fast) var(--ease-out);
   }
 
   /* Confirms the bar is live the moment it is touched, before the sheet has
@@ -5432,16 +5533,16 @@ body {
 
   .drawer-price,
   .range-row {
-    padding-left: 16px;
-    padding-right: 16px;
+    padding-left: var(--sp-4);
+    padding-right: var(--sp-4);
   }
 
   .fact {
-    padding: 12px 16px;
+    padding: var(--sp-3) var(--sp-4);
   }
 
   .chart-box {
-    padding: 8px 4px 4px;
+    padding: var(--sp-2) var(--sp-1) var(--sp-1);
   }
 
   /* A vertical scroller nested inside the sheet's own is a trap on touch: a
@@ -5464,7 +5565,7 @@ body {
 }
 
 .sheet[data-closing] {
-  animation: sheet-down 200ms var(--ease-drawer) forwards;
+  animation: sheet-down var(--dur) var(--ease-in) forwards;
 }
 
 @keyframes sheet-down {
@@ -5490,12 +5591,12 @@ body {
   }
 
   .stack-name {
-    font-size: 11px;
+    font-size: var(--fs-xs);
   }
 
   .chg-chip {
     min-width: 0;
-    font-size: 12px;
+    font-size: var(--fs-sm);
   }
 
   /* The range readout already says where you are; the page counter is the
@@ -5536,13 +5637,13 @@ body {
 }
 
 :is(button, a[href], input, select, textarea, [role='tab'], [role='option'], [tabindex='0']):not(.stat, .rule-chip):focus-visible {
-  animation: focus-ring-in var(--t) var(--ease-out);
+  animation: focus-ring-in var(--dur) var(--ease-out);
 }
 
 /* The watchlist menu's rows: the highlight eases between rows as the pointer
    or the arrow keys move it, and a toggle is felt. */
 .wl-opt {
-  transition: background var(--t-fast) var(--ease-out), scale var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), scale var(--dur-fast) var(--ease-out);
 }
 
 .wl-opt:active {
@@ -5554,7 +5655,7 @@ a.screen-count {
   text-decoration: underline;
   text-decoration-color: transparent;
   text-underline-offset: 3px;
-  transition: text-decoration-color var(--t-fast) var(--ease-out);
+  transition: text-decoration-color var(--dur-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -5568,20 +5669,20 @@ a.screen-count {
 }
 
 .tv-attrib {
-  transition: color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out);
+  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 
 /* A live price that crosses the previous close turns its chip over gradually
    rather than flipping colour in one frame. */
 .chg-chip {
-  transition: background var(--t) var(--ease-out), color var(--t) var(--ease-out);
+  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
 }
 
 /* Tapping a card on a phone: the card gives slightly under the thumb before
    the sheet opens — the grid's rows have the hover for this, cards do not. */
 .table-wrap[data-layout='mobile'] .tr {
-  transition: background 90ms linear, border-color var(--t-fast) var(--ease-out),
-    scale var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) linear, border-color var(--dur-fast) var(--ease-out),
+    scale var(--dur-fast) var(--ease-out);
 }
 
 .table-wrap[data-layout='mobile'] .tr:active {
@@ -5607,7 +5708,7 @@ a.screen-count {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-property: opacity, color, background-color, border-color, box-shadow !important;
-    transition-duration: 120ms !important;
+    transition-duration: var(--dur-fast) !important;
   }
 
   .spinner {
@@ -5643,7 +5744,7 @@ a.screen-count {
   .drawer,
   .sheet {
     animation-name: fade-in !important;
-    animation-duration: 140ms !important;
+    animation-duration: var(--dur-fast) !important;
   }
 
   /* ...and so do exits. Without this the rule above would run a dialog's *entry*
@@ -5654,7 +5755,7 @@ a.screen-count {
     animation-name: fade-out !important;
   }
 
-  /* The price tick is exempt from the 120ms blanket above. It is colour with no
+  /* The price tick is exempt from the var(--dur-fast) blanket above. It is colour with no
      movement in it, and it is the table's only indication of what just changed
      — shortening it to a blink would remove information from the readers least
      able to spare it. */
@@ -5678,7 +5779,7 @@ a.screen-count {
  *
  * All three arrive in response to something the reader did — a filter engaged,
  * a run started, a run failed — and appearing between two frames reads as the
- * layout glitching rather than as an answer. A 160ms fade is enough to say
+ * layout glitching rather than as an answer. A var(--dur) fade is enough to say
  * "this is new" without being a thing that has to finish before you can read it.
  *
  * `@starting-style` only fires on mount, which is exactly the moment meant:
@@ -5690,7 +5791,7 @@ a.screen-count {
 .subbar-note,
 .screen-error {
   opacity: 1;
-  transition: opacity 160ms var(--ease-out);
+  transition: opacity var(--dur) var(--ease-out);
 }
 
 @starting-style {
@@ -5706,7 +5807,7 @@ a.screen-count {
    in peripheral vision, which is the point of a count changing. */
 .filter-count,
 .viewnav-count {
-  transition: opacity 160ms var(--ease-out), scale var(--t-slow) cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: opacity var(--dur) var(--ease-out), scale var(--dur-slow) var(--ease-spring);
 }
 
 @starting-style {
@@ -5726,12 +5827,12 @@ a.screen-count {
 }
 
 .rule-chip {
-  animation: chip-in var(--t) var(--ease-out);
+  animation: chip-in var(--dur) var(--ease-out);
 }
 
 /* The `/` hint comes back when the search is cleared; fade it, don't blink it. */
 .kbd-hint {
-  transition: opacity var(--t) var(--ease-out);
+  transition: opacity var(--dur) var(--ease-out);
 }
 
 @starting-style {
@@ -5743,7 +5844,7 @@ a.screen-count {
 /* Why the table is short of rows while a signal filter is on. */
 .subbar-note {
   flex: none;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--on-surface-variant);
   white-space: nowrap;
 }
@@ -5752,7 +5853,7 @@ a.screen-count {
    price rather than under it — the pair is one fact, not two. */
 .sig-gap {
   flex: none;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
 }
 
@@ -5761,7 +5862,7 @@ a.screen-count {
 .sig-inline {
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 .sig-inline .sig-when {
@@ -5776,10 +5877,10 @@ a.screen-count {
 .sig-score {
   flex: none;
   margin-left: auto;
-  padding: 0 5px;
+  padding: 0 var(--sp-1);
   border-radius: var(--r-xs);
   background: var(--surface-2);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--on-surface-faint);
@@ -5803,7 +5904,7 @@ a.screen-count {
 /* Which study produced the verdict, stated next to the heading rather than as
    a footnote nobody reaches. */
 .sig-study {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--on-surface-faint);
   text-align: right;
 }
@@ -5814,11 +5915,11 @@ a.screen-count {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 6px 12px;
+  gap: var(--sp-2) var(--sp-3);
   /* `.facts` below carries its own top rule, so the banner only needs to clear
      itself of the heading and of that rule. */
-  margin: 0 24px 16px;
-  padding: 14px 16px;
+  margin: 0 var(--sp-6) var(--sp-4);
+  padding: var(--sp-4) var(--sp-4);
   border: 1px solid var(--outline-faint);
   border-radius: var(--r-lg);
   background: var(--surface-2);
@@ -5851,21 +5952,21 @@ a.screen-count {
 
 .sig-banner-price {
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: var(--fs-xl);
   font-weight: 700;
   letter-spacing: -0.01em;
 }
 
 .sig-banner-when {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--on-surface-variant);
 }
 
 .sig-none {
   margin: 0;
-  padding: 4px 24px 20px;
-  font-size: 13px;
+  padding: var(--sp-1) var(--sp-6) var(--sp-5);
+  font-size: var(--fs-base);
   color: var(--on-surface-variant);
 }
 
@@ -5886,15 +5987,15 @@ a.screen-count {
   /* The parent cell is a flex row with its own gap, so the star only reclaims
      the padding it adds on its own left — the symbol still starts where the
      column does. Every track it sits in was widened by 16px to pay for it. */
-  margin: -4px 0 -4px -5px;
+  margin: -4px 0 -4px -4px;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: none;
   color: var(--on-surface-faint);
   cursor: pointer;
-  transition: color var(--t-fast) var(--ease-out), background var(--t-fast) var(--ease-out),
-    transform var(--t-press) var(--ease-out);
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
   vertical-align: middle;
 }
 
@@ -5920,7 +6021,7 @@ a.screen-count {
    must only play on a real save, never on a row scrolling back into view. */
 .star svg {
   fill-opacity: 0;
-  transition: fill-opacity var(--t) var(--ease-out);
+  transition: fill-opacity var(--dur) var(--ease-out);
 }
 
 .star[data-on='true'] svg {
@@ -5941,8 +6042,8 @@ a.screen-count {
 
 /* The new mode's icon turns in over the old one's place. */
 .theme-toggle svg {
-  transition: rotate var(--t-slow) var(--ease-out), opacity var(--t) var(--ease-out),
-    scale var(--t-slow) var(--ease-out);
+  transition: rotate var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out),
+    scale var(--dur-slow) var(--ease-out);
 }
 
 @starting-style {
@@ -5964,13 +6065,13 @@ a.screen-count {
   right: 14px;
   transform: translateY(-50%);
   min-width: 20px;
-  padding: 2px 6px;
+  padding: 2px var(--sp-2);
   border: 1px solid var(--outline);
   border-radius: var(--r-sm);
   background: var(--surface);
   color: var(--on-surface-faint);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 1.4;
   text-align: center;
   pointer-events: none;
@@ -5993,21 +6094,81 @@ a.screen-count {
 
    All this adds is the badge. */
 .viewnav {
+  position: relative;
   flex: none;
 }
 
+/* Tabs, not a picker: the track and the ink thumb go, and the shared sliding
+   thumb (src/lib/motion.ts) is re-cut into a 2px amber underline that glides
+   between the two sections. */
+.viewnav.segmented {
+  gap: var(--sp-1);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.viewnav.segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: var(--ctl);
+  padding: 0 var(--sp-3);
+  font-weight: 600;
+}
+
+.viewnav.segmented button[data-active='true'],
+.viewnav.segmented[data-pill] button[data-active='true']:hover {
+  background: transparent;
+  color: var(--on-surface);
+}
+
+/* Before the thumb has been measured, the active tab carries its own rule. */
+.viewnav.segmented:not([data-pill]) button[data-active='true'] {
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+
+.viewnav.segmented[data-pill]::before {
+  height: 2px;
+  translate: var(--pill-x, 0) calc(var(--pill-y, 0) + var(--pill-h, 0) - 2px);
+  border-radius: 0;
+  background: var(--primary);
+}
+
+.viewnav-icon {
+  color: var(--on-surface-faint);
+  transition: color var(--dur) var(--ease-out);
+}
+
+.viewnav button[data-active='true'] .viewnav-icon {
+  color: var(--primary);
+}
+
+/* A rule between the sections and the filters that act on them. */
+.subbar > .viewnav {
+  margin-right: var(--sp-3);
+}
+
+.subbar > .viewnav::after {
+  content: '';
+  position: absolute;
+  top: var(--sp-2);
+  bottom: var(--sp-2);
+  right: calc(-1 * var(--sp-2) - 1px);
+  width: 1px;
+  background: var(--outline);
+}
+
+
 .viewnav-count {
-  min-width: 17px;
-  margin-left: 6px;
-  padding: 0 5px;
-  border-radius: var(--r-xs);
-  font-family: var(--font-mono);
-  /* Tinted from the button's own colour, so it is accent on the active tab and
-     muted on the other without a second rule for each state. */
-  background: color-mix(in srgb, currentColor 14%, transparent);
-  font-size: 10.5px;
+  min-width: 18px;
+  padding: 0 var(--sp-1);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-size: var(--fs-micro);
   font-weight: 700;
-  line-height: 17px;
+  line-height: 18px;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -6024,7 +6185,7 @@ a.screen-count {
 .wl-tabs {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
@@ -6039,25 +6200,25 @@ a.screen-count {
 .wl-tab {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--sp-2);
   flex: none;
   height: 32px;
   max-width: 220px;
-  padding: 0 12px;
+  padding: 0 var(--sp-3);
   border: 1px solid var(--outline);
   border-radius: var(--r-md);
   background: var(--surface);
   color: var(--on-surface-variant);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
-  transition: background var(--t-fast) var(--ease-out),
-    border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
-    transform var(--t-press) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -6080,7 +6241,7 @@ a.screen-count {
 }
 
 .wl-tab-count {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   opacity: 0.75;
 }
@@ -6090,7 +6251,7 @@ a.screen-count {
    with the accent that marks which list the star writes to. */
 .wl-report {
   position: relative;
-  margin-right: 11px;
+  margin-right: var(--sp-3);
 }
 
 .wl-report::after {
@@ -6143,13 +6304,13 @@ a.screen-count {
 .wl-edit input {
   height: 34px;
   min-width: 180px;
-  padding: 0 12px;
+  padding: 0 var(--sp-3);
   border: 1px solid var(--primary);
   border-radius: var(--r-md);
   background: var(--surface);
   color: var(--on-surface);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 
 /* On a phone the row stacks: the tabs take the full width and scroll, and the
@@ -6183,16 +6344,16 @@ a.screen-count {
 
 .wl-menu-head {
   flex: none;
-  padding: 11px 14px 9px;
+  padding: var(--sp-3) var(--sp-4) var(--sp-2);
   border-bottom: 1px solid var(--outline-faint);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--on-surface-variant);
   letter-spacing: 0.01em;
 }
 
 .wl-menu-head b {
   color: var(--on-surface);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-weight: 700;
 }
 
@@ -6203,7 +6364,7 @@ a.screen-count {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 6px;
+  padding: var(--sp-2);
 }
 
 /* Full button reset first: without it the browser's own border, background,
@@ -6212,16 +6373,16 @@ a.screen-count {
 .wl-opt {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-3);
   width: 100%;
   height: 38px;
-  padding: 0 10px;
+  padding: 0 var(--sp-3);
   border: 0;
   border-radius: var(--r-md);
   background: none;
   color: var(--on-surface);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -6257,8 +6418,8 @@ a.screen-count {
   border: 1.5px solid var(--outline);
   border-radius: var(--r-xs);
   color: transparent;
-  transition: background var(--t-fast) var(--ease-out),
-    border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 
 .wl-box[data-on='true'] {
@@ -6274,7 +6435,7 @@ a.screen-count {
 .wl-box path {
   stroke-dasharray: 24;
   stroke-dashoffset: 24;
-  transition: stroke-dashoffset var(--t-slow) var(--ease-out);
+  transition: stroke-dashoffset var(--dur-slow) var(--ease-out);
 }
 
 .wl-box[data-on='true'] path {
@@ -6291,7 +6452,7 @@ a.screen-count {
 
 .wl-opt-count {
   flex: none;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--on-surface-faint);
   font-variant-numeric: tabular-nums;
@@ -6303,7 +6464,7 @@ a.screen-count {
   flex: none;
   height: 42px;
   margin: 0;
-  padding: 0 16px;
+  padding: 0 var(--sp-4);
   border-top: 1px solid var(--outline-faint);
   border-radius: 0;
   color: var(--primary);
@@ -6324,20 +6485,20 @@ a.screen-count {
 
 .wl-menu-new {
   flex: none;
-  padding: 8px;
+  padding: var(--sp-2);
   border-top: 1px solid var(--outline-faint);
 }
 
 .wl-menu-new input {
   width: 100%;
   height: 36px;
-  padding: 0 12px;
+  padding: 0 var(--sp-3);
   border: 1.5px solid var(--primary);
   border-radius: var(--r-md);
   background: var(--surface);
   color: var(--on-surface);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--fs-base);
   outline: none;
 }
 
@@ -6459,5 +6620,82 @@ a.screen-count {
     /* 24px glyph + 10px each side = 44. */
     inset: -10px;
     border-radius: 50%;
+  }
+}
+
+/* ---------- phone: the bottom tab bar ----------
+
+   On a phone the two sections move from the sub-bar to the bottom edge, where a
+   thumb already rests. The element is the same — the same tablist, the same
+   roving focus, the same sliding indicator (now a rule along its top edge) — so
+   keyboard and screen-reader order are untouched; only where it is painted
+   changes. `--nav-h` is read by the shell's bottom padding and the sticky pager
+   so neither ends up under it. */
+@media (max-width: 700px) {
+  :root {
+    --nav-h: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .subbar > .viewnav.segmented {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    margin: 0;
+    height: var(--nav-h);
+    padding: 0 var(--gutter) env(safe-area-inset-bottom, 0px);
+    border-top: 1px solid var(--outline);
+    /* Solid where blur is not available; translucent over the list where it is. */
+    background: var(--canvas);
+  }
+
+  @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    .subbar > .viewnav.segmented {
+      background: color-mix(in srgb, var(--canvas) 86%, transparent);
+      -webkit-backdrop-filter: saturate(1.3) blur(14px);
+      backdrop-filter: saturate(1.3) blur(14px);
+    }
+  }
+
+  .subbar > .viewnav::after {
+    display: none;
+  }
+
+  .subbar > .viewnav.segmented button {
+    position: relative;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    height: 56px;
+    padding: 0;
+    font-size: var(--fs-xs);
+    letter-spacing: 0.02em;
+  }
+
+  .subbar > .viewnav.segmented[data-pill]::before {
+    translate: var(--pill-x, 0) var(--pill-y, 0);
+  }
+
+  .viewnav.segmented:not([data-pill]) button[data-active='true'] {
+    box-shadow: inset 0 2px 0 var(--primary);
+  }
+
+  /* The count rides on the icon's shoulder, like any tab-bar badge. */
+  .subbar > .viewnav .viewnav-count {
+    position: absolute;
+    top: 6px;
+    left: calc(50% + 6px);
+    margin: 0;
+    color: var(--on-surface);
+    background: var(--surface-2);
+  }
+
+  /* The pager sticks above the tab bar rather than under it. */
+  .pagebar {
+    bottom: var(--nav-h);
   }
 }

@@ -3,6 +3,7 @@ import { useWatchedAnywhere, useWatchlists } from '../hooks/useWatchlist';
 import { createList, toggleInList } from '../lib/watchlist';
 import { PopMenu } from './PopMenu';
 import { reducedMotion } from '../lib/motion';
+import { Icon } from './Icon';
 
 /**
  * The star, and the menu of lists behind it.
@@ -94,9 +95,7 @@ export function WatchPicker({ symbol, size = 'sm' }: Props) {
             the state, so a column of 50 rows reads without relying on colour. */}
         {/* Always filled, with the fill's opacity as the state, so it can fade
             — `none` to a colour is not something CSS can interpolate. */}
-        <svg ref={svgRef} width={px} height={px} viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" fill="currentColor" aria-hidden>
-          <path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z" strokeLinejoin="round" />
-        </svg>
+        <Icon ref={svgRef} name="star" size={px} fill="currentColor" />
       </button>
 
       {open && <WatchMenu symbol={symbol} trigger={btnRef} onClose={close} />}
@@ -213,9 +212,7 @@ function WatchMenu({
                 onClick={() => toggleInList(list.id, symbol)}
               >
                 <span className="wl-box" data-on={has} aria-hidden>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="m4 12.5 5.5 5.5L20 6.5" />
-                  </svg>
+                  <Icon name="check" size={11} weight={3.5} />
                 </span>
                 <span className="wl-opt-name">{list.name}</span>
                 <span className="wl-opt-count num">{list.symbols.length}</span>
@@ -257,9 +254,7 @@ function WatchMenu({
           onClick={() => setCreating(true)}
         >
           <span className="wl-add-icon" aria-hidden>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
+            <Icon name="plus" size={12} weight={3} />
           </span>
           <span className="wl-opt-name">New list</span>
         </button>

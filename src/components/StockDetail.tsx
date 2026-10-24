@@ -29,6 +29,7 @@ import { CompanyFundamentals } from './CompanyFundamentals';
 import { ExchangeBadges } from './ExchangeBadges';
 import { CandleChart } from './CandleChart';
 import { EASE_OUT, reducedMotion } from '../lib/motion';
+import { Icon } from './Icon';
 
 const RANGES: ChartRange[] = ['1mo', '6mo', '1y', '5y'];
 const RANGE_LABEL: Record<ChartRange, string> = {
@@ -419,9 +420,7 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
               <span className="num">{formatPrice(quote?.price)}</span>
               {change !== null && (
                 <span className={`chg-chip num ${trendClass}`}>
-                  <span className="arrow" aria-hidden>
-                    {positive ? '▲' : '▼'}
-                  </span>
+                  <Icon name={positive ? 'up' : 'down'} size={9} className="arrow" />
                   {formatPercent(quote?.changePercent)}
                 </span>
               )}
@@ -433,7 +432,7 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
               aria-label="Exit full screen"
               title="Exit full screen (Esc)"
             >
-              ✕
+              <Icon name="close" size={20} />
             </button>
           </header>
         )}
@@ -514,7 +513,7 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
                 a keystroke only its author knows about. */}
             <WatchPicker symbol={security.symbol} size="lg" />
             <button className="icon-btn" onClick={close} aria-label="Close">
-              ✕
+              <Icon name="close" size={20} />
             </button>
           </div>
         </header>
@@ -534,9 +533,7 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
               <span style={{ color: 'var(--on-surface-faint)' }}>No quote yet</span>
             ) : (
               <span className={`chg-chip num ${trendClass}`}>
-                <span className="arrow" aria-hidden>
-                  {positive ? '▲' : '▼'}
-                </span>
+                <Icon name={positive ? 'up' : 'down'} size={10} className="arrow" />
                 {`${change >= 0 ? '+' : ''}${change.toFixed(2)} (${formatPercent(
                   quote?.changePercent,
                 )})`}

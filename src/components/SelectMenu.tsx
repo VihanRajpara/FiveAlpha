@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useBackClose } from '../hooks/useBackClose';
+import { Icon } from './Icon';
 
 export interface MenuOption {
   value: string;
@@ -186,9 +187,7 @@ export function SelectMenu({ id, value, options, onChange, ariaLabel, minMenuWid
         }}
       >
         <span>{current?.label ?? ''}</span>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="m6 9 6 6 6-6" />
-        </svg>
+        <Icon name="chevronDown" size={16} weight={2} />
       </button>
 
       {open &&
@@ -216,7 +215,7 @@ export function SelectMenu({ id, value, options, onChange, ariaLabel, minMenuWid
                 onClick={() => commit(i)}
               >
                 <span className="menu-check" aria-hidden>
-                  {i === selectedIndex ? '✓' : ''}
+                  {i === selectedIndex && <Icon name="check" size={14} weight={2.25} />}
                 </span>
                 {o.hint ? (
                   <span className="menu-text">

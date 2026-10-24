@@ -42,6 +42,7 @@ import {
 } from '../lib/signals';
 import type { Classification, SecurityWithQuote } from '../types';
 import { EASE_OUT, reducedMotion } from '../lib/motion';
+import { Icon } from './Icon';
 
 /**
  * Three layouts, none of which scrolls sideways — a wall of thirteen columns
@@ -188,19 +189,6 @@ function PriceCell({
   );
 }
 
-function ChevronIcon({ d }: { d: string }) {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d={d} />
-    </svg>
-  );
-}
-
-const FIRST = 'M18 18 12 12l6-6M11 18 5 12l6-6';
-const PREV = 'm15 18-6-6 6-6';
-const NEXT = 'm9 18 6-6-6-6';
-const LAST = 'm6 18 6-6-6-6M13 18l6-6-6-6';
-
 /**
  * Symbol plus the two facts that used to own a column each.
  *
@@ -257,9 +245,7 @@ function ChangeChip({ value, loaded }: { value: number | null | undefined; loade
   if (value === null || value === undefined) return <Missing loaded={loaded} />;
   return (
     <span className={`chg-chip num ${value >= 0 ? 'up' : 'down'}`}>
-      <span className="arrow" aria-hidden>
-        {value >= 0 ? '▲' : '▼'}
-      </span>
+      <Icon name={value >= 0 ? 'up' : 'down'} size={9} className="arrow" />
       {formatPercent(value)}
     </span>
   );
@@ -1066,7 +1052,7 @@ export function StockTable({
             title={activeSort?.desc ? 'Descending — tap for ascending' : 'Ascending — tap for descending'}
           >
             <span className="dir-arrow" data-dir={activeSort?.desc ? 'desc' : 'asc'} aria-hidden>
-              ↑
+              <Icon name="arrowUp" size={18} />
             </span>
           </button>
         </div>
@@ -1176,7 +1162,7 @@ export function StockTable({
                     {/* One glyph, turned for descending — so flipping the order reads as
                         the arrow rotating rather than as one character swapped
                         for another. */}
-                    {sorted && <span className="caret" data-dir={sorted}>▲</span>}
+                    {sorted && <Icon name="up" size={8} className="caret" data-dir={sorted} />}
                   </div>
                 );
               }),
@@ -1230,7 +1216,7 @@ export function StockTable({
             aria-label="First page"
             title="First page"
           >
-            <ChevronIcon d={FIRST} />
+            <Icon name="chevronsLeft" size={18} />
           </button>
           <button
             type="button"
@@ -1240,7 +1226,7 @@ export function StockTable({
             aria-label="Previous page"
             title="Previous page"
           >
-            <ChevronIcon d={PREV} />
+            <Icon name="chevronLeft" size={18} />
           </button>
           <span className="pagebar-page num">
             {pageCount === 0 ? '0 of 0' : `${pagination.pageIndex + 1} of ${pageCount.toLocaleString('en-IN')}`}
@@ -1253,7 +1239,7 @@ export function StockTable({
             aria-label="Next page"
             title="Next page"
           >
-            <ChevronIcon d={NEXT} />
+            <Icon name="chevronRight" size={18} />
           </button>
           <button
             type="button"
@@ -1263,7 +1249,7 @@ export function StockTable({
             aria-label="Last page"
             title="Last page"
           >
-            <ChevronIcon d={LAST} />
+            <Icon name="chevronsRight" size={18} />
           </button>
         </div>
       </div>

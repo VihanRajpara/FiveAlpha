@@ -1,4 +1,5 @@
 import { useTheme, type ThemeMode } from '../hooks/useTheme';
+import { Icon, type IconName } from './Icon';
 
 /** system → light → dark → system. One button, all three states reachable. */
 const NEXT: Record<ThemeMode, ThemeMode> = {
@@ -13,20 +14,10 @@ const LABEL: Record<ThemeMode, string> = {
   dark: 'Dark theme',
 };
 
-const ICON: Record<ThemeMode, JSX.Element> = {
-  light: (
-    <>
-      <circle cx="12" cy="12" r="4.2" />
-      <path d="M12 2.5v2M12 19.5v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2.5 12h2M19.5 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
-    </>
-  ),
-  dark: <path d="M20 13.5A8.2 8.2 0 1 1 10.5 4a6.6 6.6 0 0 0 9.5 9.5Z" />,
-  system: (
-    <>
-      <rect x="2.8" y="4.2" width="18.4" height="12.6" rx="1.8" />
-      <path d="M8.5 20.5h7" />
-    </>
-  ),
+const ICON: Record<ThemeMode, IconName> = {
+  light: 'sun',
+  dark: 'moon',
+  system: 'monitor',
 };
 
 export function ThemeToggle() {
@@ -43,20 +34,7 @@ export function ThemeToggle() {
     >
       {/* Keyed so each mode mounts a fresh icon, which is what lets
           `@starting-style` turn it in — see `.theme-toggle svg`. */}
-      <svg
-        key={mode}
-        width="19"
-        height="19"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-      >
-        {ICON[mode]}
-      </svg>
+      <Icon key={mode} name={ICON[mode]} size={19} />
     </button>
   );
 }
