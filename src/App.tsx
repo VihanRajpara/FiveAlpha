@@ -916,7 +916,7 @@ export default function App({
     <div className="app" data-docked={selectedRow && docked ? '' : undefined}>
       <header className="topbar">
         <div className="brand">
-          {/* The lockup, masked in over the brand gradient by .brand-logo, which
+          {/* The lockup, masked in and printed in ink by .brand-logo, which
               also swaps it for the monogram on a small phone. The heading keeps
               its text for anything that isn't looking at the pixels. */}
           <h1 className="brand-logo">

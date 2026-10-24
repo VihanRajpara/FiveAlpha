@@ -224,6 +224,9 @@ body,
 html {
   /* No double-tap zoom delay on controls, no font inflation on rotate. */
   touch-action: manipulation;
+  /* Every control has its own :active state; the grey system flash on top of
+     it read as a second, cruder press. */
+  -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   /* The page never scrolls sideways; anything wider scrolls inside itself. */
@@ -398,18 +401,18 @@ body {
 }
 
 /* The wordmark is artwork rather than type, so the heading's text is hidden and
-   the horizontal lockup is masked in over the brand gradient. Sizes below swap
+   the horizontal lockup is masked in and printed in ink. Sizes below swap
    `mask-image` and `aspect-ratio` together — the two are one measurement.
    Files come from scripts/icons.py. */
 .brand-logo {
   margin: 0;
   height: 26px;
-  aspect-ratio: 4.433;
+  aspect-ratio: 4.444;
   /* Printed in ink: the artwork is an alpha mask, so the mark takes the page's
   own ink in both themes rather than carrying a colour of its own. */
   background: var(--on-surface);
-  -webkit-mask: url('/brand/lockup.png') left center / contain no-repeat;
-  mask: url('/brand/lockup.png') left center / contain no-repeat;
+  -webkit-mask: url('/brand/lockup.webp') left center / contain no-repeat;
+  mask: url('/brand/lockup.webp') left center / contain no-repeat;
 }
 
 .brand .count {
@@ -2194,7 +2197,7 @@ body {
   }
 }
 
-/* The sorted column is the only blue thing in the header. */
+/* The sorted column is the only amber thing in the header. */
 .th:has(.caret) {
   color: var(--primary);
   font-weight: 600;
@@ -2397,7 +2400,7 @@ body {
   color: var(--down);
 }
 
-/* The tonal direction chip — Google Finance's most recognisable element. */
+/* The tonal direction chip: the day's move, tinted by side, triangle first. */
 .chg-chip {
   display: inline-flex;
   align-items: center;
@@ -2484,12 +2487,6 @@ body {
   line-height: 1.2;
 }
 
-.sig-head {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-width: 0;
-}
 
 .sig-badge {
   flex: none;
@@ -2510,12 +2507,6 @@ body {
   color: var(--down);
 }
 
-.sig-head .num {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 /* The date the flip happened. Quieter than the price it happened at — one is
    the trigger, the other is only when. */
@@ -2971,30 +2962,6 @@ body {
   letter-spacing: -0.01em;
 }
 
-/**
- * The signal, as a band across the card rather than three things wedged into a
- * gutter: side, the price it fired at, the move since, and when. Tinted by
- * side, so a list of rows can be skimmed for the greens.
- */
-/**
- * No tint behind it any more.
- *
- * A tinted signal block put a second full-width colour field on every row,
- * directly beside the day-change chip and often disagreeing with it — a green
- * chip next to a red pill next to a green gap says three things at once and so
- * says nothing. Colour marks the exception here: the side badge and the move
- * since the flip carry it, everything else is ink.
- */
-/**
- * The signal band on a phone card, now that it has the card's full width
- * rather than a right-hand gutter.
- *
- * It was right-aligned because it used to hang off the right edge beside the
- * metric rail. On its own line that reads as a stray fragment, so the verdict
- * starts at the card's left rail with everything else — and the MAPO chip goes
- * to the right of the first line, where the day's change chip sits two lines
- * above it. Left rail for what the row *is*, right rail for what it is doing.
- */
 /**
  * Two lines: the verdict, then the detail behind it.
  *
@@ -3711,19 +3678,17 @@ body {
    that exists for exactly this was still waiting at 420px. Between there and
    475px the logo overflowed its shrunken box and ran under the buttons.
 
-   So the swap moves up to 480px. The rule is duplicated from the 420px block
-   further down rather than that block being widened — the rest of what lives
-   there is about the table's stacked layout and has nothing to do with the
-   topbar. The refresh button drops to one word over the same span, in App.tsx.
+   So the swap happens at 480px, and this is the only place it is stated. The
+   refresh button drops to one word over the same span, in App.tsx.
 
    Below ~400px the row is tight with or without the bell, and both give way the
    same way: `.btn` shrinks its label. That was true before this feature. */
 @media (max-width: 480px) {
   .brand-logo {
     height: 22px;
-    aspect-ratio: 1.989;
-    -webkit-mask-image: url('/brand/monogram.png');
-    mask-image: url('/brand/monogram.png');
+    aspect-ratio: 1.987;
+    -webkit-mask-image: url('/brand/monogram.webp');
+    mask-image: url('/brand/monogram.webp');
   }
 }
 
@@ -4858,10 +4823,10 @@ body {
    alpha PNG. Used twice: while the lists are being fetched, and at the top of
    the sign-in card. Only the width differs, so only the width is set per use. */
 .brand-splash {
-  aspect-ratio: 1.431;
+  aspect-ratio: 1.432;
   background: var(--on-surface);
-  -webkit-mask: url('/brand/stacked.png') center / contain no-repeat;
-  mask: url('/brand/stacked.png') center / contain no-repeat;
+  -webkit-mask: url('/brand/stacked.webp') center / contain no-repeat;
+  mask: url('/brand/stacked.webp') center / contain no-repeat;
 }
 
 .center-msg .brand-splash {
@@ -4886,10 +4851,9 @@ body {
 
 /* ---------- sign-in ---------- */
 
-/* The signed-out page: one card, centred, on the canvas with a single wash of
-   the brand gradient behind it. That wash is the only saturated thing here —
-   everything else is the same graphite and indigo as the app it opens into, so
-   the two do not read as different products. */
+/* The signed-out page: one card, centred, on ruled paper. Same ink, same
+   paper and same amber as the app it opens into, so the two do not read as
+   different products. */
 .login-page {
   position: relative;
   display: flex;
@@ -5590,15 +5554,6 @@ body {
     grid-template-columns: 1fr;
   }
 
-  /* Below this the wordmark would set the width of the whole top row, so the
-     brand falls back to the monogram — the variant drawn for exactly this. */
-  .brand-logo {
-    height: 22px;
-    aspect-ratio: 1.989;
-    -webkit-mask-image: url('/brand/monogram.png');
-    mask-image: url('/brand/monogram.png');
-  }
-
   .stack-name {
     font-size: var(--fs-xs);
   }
@@ -5858,13 +5813,6 @@ a.screen-count {
   white-space: nowrap;
 }
 
-/* Current price against the price the signal fired at. Sits with the signal
-   price rather than under it — the pair is one fact, not two. */
-.sig-gap {
-  flex: none;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-}
 
 /* The grid's Side cell: badge and date on one line. The stacked phone row keeps
    the two-line `.sig` — it has the vertical room and not the horizontal. */
@@ -5991,12 +5939,13 @@ a.screen-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  /* The parent cell is a flex row with its own gap, so the star only reclaims
-     the padding it adds on its own left — the symbol still starts where the
-     column does. Every track it sits in was widened by 16px to pay for it. */
-  margin: -4px 0 -4px -4px;
+  /* 28px: the WCAG 2.2 target minimum is 24 with clearance, and this sits
+     beside the row number. The negative margins hand back exactly what the
+     extra size takes — the footprint is the same 20×16 it was at 24px, so the
+     symbol starts where the column does and the row is no taller. */
+  width: 28px;
+  height: 28px;
+  margin: -6px -2px -6px -6px;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -6611,7 +6560,7 @@ a.screen-count {
   }
 
   /**
-   * The star keeps its 24px glyph and gets its hit area from an overlay: it
+   * The star keeps its 28px box and gets its hit area from an overlay: it
    * sits inside the symbol cell of a row that is itself clickable, so growing
    * the box would push the symbol off its column, and a 44px star beside a
    * 14px ticker reads as the star being the point of the row.
@@ -6626,9 +6575,31 @@ a.screen-count {
   .star::after {
     content: '';
     position: absolute;
-    /* 24px glyph + 10px each side = 44. */
-    inset: -10px;
+    /* 28px box + 8px each side = 44. */
+    inset: -8px;
     border-radius: 50%;
+  }
+
+  /* iOS Safari zooms the whole page into any field under 16px when it takes
+     focus, and does not zoom back. Every text field is 16px under a finger. */
+  .search input,
+  .wl-edit input,
+  .wl-menu-new input,
+  .rule-num {
+    font-size: var(--fs-lg);
+  }
+
+  /* The pointer's hover tints, given to the thumb as press states — the touch
+     equivalent of every hover above that has none of its own. */
+  button.mis-row:active,
+  .menu-item:active,
+  .wl-opt:active {
+    background: var(--surface-hover);
+  }
+
+  .lcard:active {
+    background: var(--surface-hover);
+    border-color: var(--on-surface-faint);
   }
 }
 
@@ -6643,6 +6614,10 @@ a.screen-count {
 @media (max-width: 700px) {
   :root {
     --nav-h: calc(56px + env(safe-area-inset-bottom, 0px));
+    /* The two smallest steps come up a pixel: captions that read at 10px on
+       a laptop held at arm's length are below what a phone screen should ask. */
+    --fs-micro: 11px;
+    --fs-xs: 12px;
   }
 
   .subbar > .viewnav.segmented {

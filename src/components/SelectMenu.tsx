@@ -177,7 +177,9 @@ export function SelectMenu({ id, value, options, onChange, ariaLabel, minMenuWid
         data-open={open}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={ariaLabel}
+        // The visible value leads the name, so a voice-control user can say what
+        // they see ("click Symbol") and still hear what the control is for.
+        aria-label={`${current?.label ?? ''}, ${ariaLabel}`}
         onClick={() => (open ? close() : openMenu())}
         onKeyDown={(e) => {
           if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {

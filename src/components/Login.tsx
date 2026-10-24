@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { lastUsername, login, type User } from '../lib/auth';
-import { activeSource } from '../lib/dataSource';
+// Not `activeSource` from dataSource: that would pull the whole data layer into
+// the sign-in screen's bundle for one word. It is chosen on exactly this flag.
+import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { DUR, EASE_OUT, reducedMotion } from '../lib/motion';
 
 /**
@@ -160,7 +162,7 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
             is the kind of stale copy nobody re-reads. */}
         <p className="login-foot">
           NSE + BSE equities ·{' '}
-          {activeSource.kind === 'supabase' ? 'live prices' : 'prices ~15 min delayed'}
+          {isSupabaseConfigured ? 'live prices' : 'prices ~15 min delayed'}
         </p>
       </form>
     </div>

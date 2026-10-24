@@ -32,11 +32,16 @@
     document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#121110' : '#f5f3ee');
   </script>
   <!-- Self-hosted and subset (see the @font-face rules in src/index.css).
-       Preloaded so both arrive with the stylesheet rather than after it: the
-       body face sets every row, the display face the breadth figures that are
-       the first large paint. No third-party connection at all. -->
+       The body face is preloaded — it sets every row. The display face is not:
+       it would compete with the script that renders the page, and its
+       metric-matched fallback (index.css) means the swap moves nothing. -->
   <link rel="preload" href="/fonts/plex-sans.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="/fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin />
+  <!-- The marks are CSS masks, which the browser only finds once styles are
+       computed — and the stacked one is the largest paint on the sign-in and
+       loading screens. Masks are fetched in CORS mode, so `crossorigin` is what
+       lets these preloads be reused instead of fetched twice. -->
+  <link rel="preload" href="/brand/stacked.webp" as="image" type="image/webp" crossorigin fetchpriority="high" />
+  <link rel="preload" href="/brand/lockup.webp" as="image" type="image/webp" crossorigin />
 
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="FiveAlpha" />

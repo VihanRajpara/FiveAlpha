@@ -23,7 +23,7 @@ RADIUS = 0.235  # of the tile's width — the squircle iOS and Android both expe
 MASKABLE = 0.86  # the mark's share of a maskable tile, inside the 80% safe circle
 
 FLOOR = 10      # a pixel this dark is the black paper, not the mark's edge
-MASK_W = 1024   # plenty for a 300px lockup on a 3x screen
+MASK_W = 600    # the stacked mark shows at ≤190px; 600 is 3x with room
 
 _squared = None
 
@@ -41,7 +41,9 @@ def brandmask(src, dst):
         alpha = alpha.resize((MASK_W, round(alpha.height * MASK_W / alpha.width)),
                              Image.LANCZOS)
     white = Image.new('L', alpha.size, 255)
-    Image.merge('RGBA', (white, white, white, alpha)).save(dst)
+    # Lossless WebP: the alpha edge is the whole image, and it is a third the
+    # size of the PNG it replaces.
+    Image.merge('RGBA', (white, white, white, alpha)).save(dst, 'WEBP', lossless=True, method=6)
     print(f'{dst}  {alpha.width}x{alpha.height}  aspect-ratio: '
           f'{alpha.width / alpha.height:.3f}')
 
@@ -61,7 +63,7 @@ def squared():
     if _squared is not None:
         return _squared
 
-    mask = Image.open('public/brand/monogram.png').split()[-1]
+    mask = Image.open('public/brand/monogram.webp').split()[-1]
     side = round(mask.width / FILL)
     rule_h = round(side * 0.04)
     rule_gap = round(side * 0.075)
@@ -101,9 +103,9 @@ def tile(size, rounded=True, scale=1.0):
 
 if __name__ == '__main__':
     # Header at ≥481px, small-phone header, and the loading screen respectively.
-    brandmask('assets/logo-horizontal.png', 'public/brand/lockup.png')
-    brandmask('assets/logo-monogram.png', 'public/brand/monogram.png')
-    brandmask('assets/logo-stacked.png', 'public/brand/stacked.png')
+    brandmask('assets/logo-horizontal.png', 'public/brand/lockup.webp')
+    brandmask('assets/logo-monogram.png', 'public/brand/monogram.webp')
+    brandmask('assets/logo-stacked.png', 'public/brand/stacked.webp')
 
     tile(180).save('public/apple-touch-icon.png')
     tile(192).save('public/icon-192.png')
