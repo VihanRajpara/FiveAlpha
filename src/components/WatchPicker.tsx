@@ -1,7 +1,8 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useWatchedAnywhere, useWatchlists } from '../hooks/useWatchlist';
 import { createList, toggleInList } from '../lib/watchlist';
 import { PopMenu } from './PopMenu';
+import { reducedMotion } from '../lib/motion';
 
 /**
  * The star, and the menu of lists behind it.
@@ -47,6 +48,21 @@ export function WatchPicker({ symbol, size = 'sm' }: Props) {
 
   const px = size === 'lg' ? 19 : 15;
 
+  // A pop when the star turns on — and only then. The previous value is
+  // per-mount, so a row the virtualiser remounts starts equal to itself and
+  // stays still; scrolling past starred rows is not news.
+  const svgRef = useRef<SVGSVGElement>(null);
+  const wasWatched = useRef(watched);
+  useEffect(() => {
+    if (watched && !wasWatched.current && !reducedMotion()) {
+      svgRef.current?.animate(
+        [{ transform: 'scale(1)' }, { transform: 'scale(1.32)' }, { transform: 'scale(1)' }],
+        { duration: 380, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' },
+      );
+    }
+    wasWatched.current = watched;
+  }, [watched]);
+
   const close = (refocus = false) => {
     setOpen(false);
     if (refocus) btnRef.current?.focus();
@@ -76,7 +92,9 @@ export function WatchPicker({ symbol, size = 'sm' }: Props) {
       >
         {/* Filled when it is in a list, outline when it is not — the shape is
             the state, so a column of 50 rows reads without relying on colour. */}
-        <svg width={px} height={px} viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" fill={watched ? 'currentColor' : 'none'} aria-hidden>
+        {/* Always filled, with the fill's opacity as the state, so it can fade
+            — `none` to a colour is not something CSS can interpolate. */}
+        <svg ref={svgRef} width={px} height={px} viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" fill="currentColor" aria-hidden>
           <path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z" strokeLinejoin="round" />
         </svg>
       </button>

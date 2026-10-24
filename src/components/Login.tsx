@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { lastUsername, login, type User } from '../lib/auth';
 import { activeSource } from '../lib/dataSource';
+import { reducedMotion } from '../lib/motion';
 
 /**
  * The whole of the signed-out app: a username, four digits, and one button.
@@ -18,6 +19,7 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const cardRef = useRef<HTMLFormElement>(null);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -34,6 +36,15 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
       // submit of the same thing.
       setPin('');
       setBusy(false);
+      // The shake that every lock screen uses for "no" — read before the
+      // message is, and it replays on every wrong attempt, which a message that
+      // reads the same twice does not. Travel, so not under reduced motion.
+      if (!reducedMotion()) {
+        cardRef.current?.animate(
+          [0, -8, 7, -5, 3, 0].map((x) => ({ transform: `translateX(${x}px)` })),
+          { duration: 360, easing: 'ease-out' },
+        );
+      }
       return;
     }
 
@@ -43,7 +54,7 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
 
   return (
     <div className="login-page">
-      <form className="login-card" onSubmit={submit}>
+      <form ref={cardRef} className="login-card" onSubmit={submit}>
         <div className="brand-splash login-mark" aria-hidden />
 
         <h1 className="login-title">{remembered ? 'Welcome back' : 'Sign in'}</h1>

@@ -41,7 +41,10 @@ export function ThemeToggle() {
       title={`${LABEL[mode]} — switch to ${LABEL[next].toLowerCase()}`}
       aria-label={`${LABEL[mode]}. Switch to ${LABEL[next].toLowerCase()}`}
     >
+      {/* Keyed so each mode mounts a fresh icon, which is what lets
+          `@starting-style` turn it in — see `.theme-toggle svg`. */}
       <svg
+        key={mode}
         width="19"
         height="19"
         viewBox="0 0 24 24"

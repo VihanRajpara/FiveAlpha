@@ -4,6 +4,7 @@ import App from './App';
 import { Login } from './components/Login';
 import { authEnabled, currentUser, logout, type User } from './lib/auth';
 import './index.css';
+import { installSegmentedPill } from './lib/motion';
 
 /**
  * The gate, above `App` rather than inside it: signed out, the market data is
@@ -36,6 +37,8 @@ function Root() {
     />
   );
 }
+
+installSegmentedPill();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

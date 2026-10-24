@@ -247,7 +247,13 @@ export function Filters({
           {/* One word at both widths, because it now opens the same thing at
               both. "More" said "the rest of them", which stopped being true. */}
           Filters
-          {activeCount > 0 && <span className="filter-count">{activeCount}</span>}
+          {/* Keyed on the count so each change remounts it and the entrance
+              in index.css replays — the badge bumps when a filter engages. */}
+          {activeCount > 0 && (
+            <span key={activeCount} className="filter-count">
+              {activeCount}
+            </span>
+          )}
         </button>
       )}
 

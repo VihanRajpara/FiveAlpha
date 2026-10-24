@@ -287,6 +287,13 @@ body {
   border-left: 1px solid var(--outline);
 }
 
+/* The breakpoints that narrow the search read the viewport, not the column the
+   dock leaves, so at its full 460px basis the bar's last button wrapped onto a
+   line of its own. */
+.app[data-docked] .search {
+  flex-basis: 320px;
+}
+
 /* ---------- app bar ---------- */
 
 .topbar {
@@ -423,6 +430,39 @@ body {
 
 .filters-inline::-webkit-scrollbar {
   display: none;
+}
+
+/* With the scrollbar hidden, a clipped row read as a cut-off word rather than
+   as more to scroll to. Each edge fades only while there is something past it:
+   the fades are driven by the row's own scroll position, and a row that fits
+   has no scroll timeline, so it keeps both edges hard. */
+@property --fade-l {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --fade-r {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes filters-edge-fade {
+  from { --fade-l: 0px; --fade-r: 40px; }
+  12% { --fade-l: 40px; }
+  88% { --fade-r: 40px; }
+  to { --fade-l: 40px; --fade-r: 0px; }
+}
+
+@supports (animation-timeline: scroll()) {
+  .filters-inline {
+    mask-image: linear-gradient(to right,
+        transparent, #000 var(--fade-l),
+        #000 calc(100% - var(--fade-r)), transparent);
+    animation: filters-edge-fade linear both;
+    animation-timeline: scroll(self inline);
+  }
 }
 
 /* Opens the sheet: every filter on a narrow window, the advanced ones on a
@@ -674,6 +714,9 @@ body {
 }
 
 .sheet-group .segmented button {
+  /* The options share the full-width track rather than huddling at its left
+     end over an empty stripe of it. */
+  flex: 1 0 auto;
   border-radius: var(--r-md);
 }
 
@@ -931,6 +974,48 @@ body {
   font-weight: 600;
 }
 
+/* The sliding thumb (src/lib/segmentedPill.ts). Once a track has been
+   measured, the tonal fill moves off the button and onto one shape behind all
+   of them, so changing option is a single movement rather than one chip going
+   out and another coming on. Travel only: under reduced motion the global block
+   below strips `translate` and size from the transition and it simply lands. */
+.segmented[data-pill] {
+  position: relative;
+  isolation: isolate;
+}
+
+.segmented[data-pill]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  width: var(--pill-w, 0);
+  height: var(--pill-h, 0);
+  translate: var(--pill-x, 0) var(--pill-y, 0);
+  opacity: var(--pill-o, 0);
+  border-radius: var(--r-sm);
+  background: var(--primary-container);
+  pointer-events: none;
+}
+
+.segmented[data-pill='live']::before {
+  transition: translate var(--t-slow) var(--ease-out), width var(--t-slow) var(--ease-out),
+    height var(--t-slow) var(--ease-out), opacity var(--t) var(--ease-out);
+}
+
+/* `:hover` in the selector so it outranks the hover tint, which would
+   otherwise paint over the thumb on the option it is already under. */
+.segmented[data-pill] button[data-active='true'],
+.segmented[data-pill] button[data-active='true']:hover {
+  background: transparent;
+}
+
+/* The sheet's tracks are one step rounder, and so is everything in them. */
+.sheet-group .segmented[data-pill]::before {
+  border-radius: var(--r-md);
+}
+
 /* ---------- buttons ---------- */
 
 .btn {
@@ -1116,12 +1201,6 @@ body {
   border-left: 1px solid var(--outline-faint);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  a.screen-count:hover {
-    text-decoration: underline;
-  }
-}
-
 /* The count reads from the left; the toggle and Refresh belong together at the
    right. The auto margin is on the pair's first element rather than on Refresh
    alone, which used to leave the toggle stranded mid-row with slack on both
@@ -1205,7 +1284,19 @@ body {
   }
 }
 
+/* The strip arrives left to right rather than all at once: six tiles landing
+   on the same frame read as a page that popped in, a 40ms cascade as one that
+   was laid out. `both` holds each tile invisible until its turn. */
+@keyframes stat-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+
 .stat {
+  animation: stat-in var(--t-slow) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
   background: var(--surface);
   border: 1px solid var(--outline-faint);
   border-radius: var(--r-lg);
@@ -1264,6 +1355,58 @@ body {
   color: var(--on-surface-faint);
 }
 
+/* ---------- section change: Screener ⇄ Watchlists ---------- */
+
+/**
+ * Only the page itself transitions (`switchView` in App.tsx). The two never
+ * coexist, so they can share one name and the browser treats the swap as one
+ * element changing.
+ *
+ * The rest of the document is shown live rather than cross-faded: the header
+ * and tabs are the same on both sides, and a cross-fade of identical pixels
+ * would freeze the tab thumb mid-slide behind a snapshot. So the old root is
+ * dropped and the new one is untouched; only `page` animates — the old page
+ * gets out of the way quickly, the new one rises into the space it left.
+ */
+.content,
+.report {
+  view-transition-name: page;
+}
+
+/* The overlay would otherwise swallow clicks for the length of the animation;
+   the page under it is live and takes them. */
+::view-transition {
+  pointer-events: none;
+}
+
+::view-transition-old(root) {
+  display: none;
+}
+
+::view-transition-new(root) {
+  animation: none;
+}
+
+::view-transition-group(page) {
+  animation-duration: var(--t-slow);
+  animation-timing-function: var(--ease-out);
+}
+
+::view-transition-old(page) {
+  animation: fade-out 120ms var(--ease-out) both;
+}
+
+::view-transition-new(page) {
+  animation: page-in var(--t-slow) var(--ease-out) both;
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
 /* ---------- watchlist report page ---------- */
 
 /**
@@ -1273,6 +1416,9 @@ body {
  * apply to a block that has no virtualised list in it.
  */
 .report {
+  /* Takes the shell's spare height, as `.content` does, so a short report
+     keeps the status bar on the floor instead of mid-screen. */
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -1640,6 +1786,10 @@ body {
 .card {
   flex: 1;
   min-height: 0;
+  /* A flex item defaults to its content's width as a floor, and the sort bar's
+     is 340px — so at 320 the card overhung the screen instead of letting the
+     sort menu, which is built to shrink, give up the difference. */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -1925,8 +2075,31 @@ body {
 }
 
 .th .caret {
+  display: inline-block;
   font-size: 10px;
   line-height: 1;
+  transition: rotate var(--t-slow) var(--ease-out), opacity var(--t) var(--ease-out),
+    scale var(--t) var(--ease-out);
+}
+
+.th .caret[data-dir='desc'],
+.sortbar .dir-arrow[data-dir='desc'] {
+  rotate: 180deg;
+}
+
+/* First sort on a column: the caret arrives rather than appearing. */
+@starting-style {
+  .th .caret {
+    opacity: 0;
+    /* Scale, not rotation: a caret that starts descending would otherwise
+       spin three-quarters of a turn on its way in. */
+    scale: 0.4;
+  }
+}
+
+.sortbar .dir-arrow {
+  display: inline-block;
+  transition: rotate var(--t-slow) var(--ease-out);
 }
 
 .th.right {
@@ -4756,6 +4929,7 @@ body {
 }
 
 .login-error {
+  animation: fade-in var(--t) var(--ease-out);
   margin: 12px 0 0;
   padding: 9px 12px;
   border-radius: var(--r-md);
@@ -5344,6 +5518,76 @@ body {
   }
 }
 
+/* ---------- micro-interactions ----------
+
+   The small acknowledgements that were still snapping: the focus ring, the
+   watchlist menu's rows, two links, the direction chip, and a card under a
+   thumb. Each is the shortest motion that says "that registered". */
+
+/* The focus ring settles in from slightly wider rather than appearing — the
+   eye finds where focus went. Not on the KPI tiles or condition chips: they
+   have entrance animations of their own, and swapping the animation in and
+   out on focus would replay their entrance every time focus left. */
+@keyframes focus-ring-in {
+  from {
+    outline-color: transparent;
+    outline-offset: 6px;
+  }
+}
+
+:is(button, a[href], input, select, textarea, [role='tab'], [role='option'], [tabindex='0']):not(.stat, .rule-chip):focus-visible {
+  animation: focus-ring-in var(--t) var(--ease-out);
+}
+
+/* The watchlist menu's rows: the highlight eases between rows as the pointer
+   or the arrow keys move it, and a toggle is felt. */
+.wl-opt {
+  transition: background var(--t-fast) var(--ease-out), scale var(--t-press) var(--ease-out);
+}
+
+.wl-opt:active {
+  scale: 0.98;
+}
+
+/* Underlines that arrive rather than switch on. */
+a.screen-count {
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--t-fast) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  a.screen-count:hover {
+    text-decoration-color: currentColor;
+  }
+
+  .tv-attrib:hover {
+    border-bottom-color: currentColor;
+  }
+}
+
+.tv-attrib {
+  transition: color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out);
+}
+
+/* A live price that crosses the previous close turns its chip over gradually
+   rather than flipping colour in one frame. */
+.chg-chip {
+  transition: background var(--t) var(--ease-out), color var(--t) var(--ease-out);
+}
+
+/* Tapping a card on a phone: the card gives slightly under the thumb before
+   the sheet opens — the grid's rows have the hover for this, cards do not. */
+.table-wrap[data-layout='mobile'] .tr {
+  transition: background 90ms linear, border-color var(--t-fast) var(--ease-out),
+    scale var(--t-press) var(--ease-out);
+}
+
+.table-wrap[data-layout='mobile'] .tr:active {
+  scale: 0.985;
+}
+
 /**
  * Reduced motion is not *no* motion.
  *
@@ -5371,7 +5615,18 @@ body {
     animation-iteration-count: infinite !important;
   }
 
-  /* Press feedback is movement too. */
+  /* The duration rule above shortens the tiles' rise but not their stagger
+     delay, which would hold the strip blank for a fifth of a second. */
+  .stat {
+    animation: none;
+  }
+
+  /* Press feedback is movement too — `scale` for the newer ones. */
+  .wl-opt:active,
+  .table-wrap[data-layout='mobile'] .tr:active {
+    scale: none;
+  }
+
   .btn:active,
   .filter-trigger:active,
   .segmented button:active,
@@ -5442,6 +5697,45 @@ body {
   .filter-count,
   .subbar-note,
   .screen-error {
+    opacity: 0;
+  }
+}
+
+/* Counts bump rather than fade: both are keyed on their value, so a change is
+   a remount and this replays — "1 → 2" lands as a small overshoot you catch
+   in peripheral vision, which is the point of a count changing. */
+.filter-count,
+.viewnav-count {
+  transition: opacity 160ms var(--ease-out), scale var(--t-slow) cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@starting-style {
+  .filter-count,
+  .viewnav-count {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+
+/* A condition just added from the sheet arrives in the bar. */
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    scale: 0.92;
+  }
+}
+
+.rule-chip {
+  animation: chip-in var(--t) var(--ease-out);
+}
+
+/* The `/` hint comes back when the search is cleared; fade it, don't blink it. */
+.kbd-hint {
+  transition: opacity var(--t) var(--ease-out);
+}
+
+@starting-style {
+  .kbd-hint {
     opacity: 0;
   }
 }
@@ -5621,6 +5915,18 @@ body {
   color: var(--primary);
 }
 
+/* The state is the fill's opacity (see WatchPicker), so saving fades the star
+   full rather than flipping it. The pop that goes with it is in script — it
+   must only play on a real save, never on a row scrolling back into view. */
+.star svg {
+  fill-opacity: 0;
+  transition: fill-opacity var(--t) var(--ease-out);
+}
+
+.star[data-on='true'] svg {
+  fill-opacity: 1;
+}
+
 .star:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
@@ -5631,6 +5937,20 @@ body {
   width: 34px;
   height: 34px;
   margin: 0;
+}
+
+/* The new mode's icon turns in over the old one's place. */
+.theme-toggle svg {
+  transition: rotate var(--t-slow) var(--ease-out), opacity var(--t) var(--ease-out),
+    scale var(--t-slow) var(--ease-out);
+}
+
+@starting-style {
+  .theme-toggle svg {
+    opacity: 0;
+    rotate: -90deg;
+    scale: 0.6;
+  }
 }
 
 /* ---------- keyboard hint ---------- */
@@ -5945,6 +6265,20 @@ body {
   border-color: var(--primary);
   background: var(--primary);
   color: var(--on-primary);
+}
+
+/* The tick draws itself in rather than appearing: the stroke is dashed to its
+   own length and the gap slides off. A transition, not a keyframe, so a menu
+   opening onto ticked rows shows them ticked instead of replaying every one —
+   it moves only when a row is actually toggled. */
+.wl-box path {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  transition: stroke-dashoffset var(--t-slow) var(--ease-out);
+}
+
+.wl-box[data-on='true'] path {
+  stroke-dashoffset: 0;
 }
 
 .wl-opt-name {

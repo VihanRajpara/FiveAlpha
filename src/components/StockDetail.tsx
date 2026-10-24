@@ -28,6 +28,7 @@ import {
 import { CompanyFundamentals } from './CompanyFundamentals';
 import { ExchangeBadges } from './ExchangeBadges';
 import { CandleChart } from './CandleChart';
+import { EASE_OUT, reducedMotion } from '../lib/motion';
 
 const RANGES: ChartRange[] = ['1mo', '6mo', '1y', '5y'];
 const RANGE_LABEL: Record<ChartRange, string> = {
@@ -339,9 +340,20 @@ export function StockDetail({ security, quote, cls, onClose, docked = false }: P
    * the financials on lands you in the middle of the next company's, with its
    * price somewhere above the fold.
    */
+  const shownSymbol = useRef(security.symbol);
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: 0 });
     setCondensed(false);
+
+    // And a short crossfade, so moving between rows reads as a new company
+    // arriving rather than every figure changing at once. Not on first open —
+    // the panel slides in then, and the slide is the arrival.
+    if (shownSymbol.current === security.symbol) return;
+    shownSymbol.current = security.symbol;
+    if (reducedMotion()) return;
+    for (const el of drawerRef.current?.querySelectorAll(':scope > .drawer-head, :scope > .drawer-body') ?? []) {
+      el.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: 220, easing: EASE_OUT });
+    }
   }, [security.symbol]);
 
   /**

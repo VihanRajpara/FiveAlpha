@@ -52,7 +52,7 @@ export function ScreenBar({ screen, matches, shown, matchesOnly, onMatchesOnlyCh
                 title={`${screen.name} — symbols the Chartink screen currently returns. Opens the screen: ${screen.clause}`}
               >
                 <span className="dot" />
-                <b>{total.toLocaleString('en-IN')}</b> match
+                <b>{total.toLocaleString('en-IN')}</b> {total === 1 ? 'match' : 'matches'}
               </a>
               {hidden > 0 && (
                 <span title="Matches not in the current table — filtered out here, or not in this app’s NSE/BSE list">

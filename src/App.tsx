@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { SortingState } from '@tanstack/react-table';
 import { StockTable } from './components/StockTable';
 import { Alerts } from './components/Alerts';
@@ -33,6 +34,7 @@ import { groupLists } from './lib/watchlistReport';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { onTabListKeys } from './hooks/useFocusTrap';
 import { setActiveList, toggleWatch } from './lib/watchlist';
+import { reducedMotion } from './lib/motion';
 import { formatAge, formatIstDateTime, isMarketOpen } from './lib/format';
 import { UNCLASSIFIED } from './lib/classification';
 import { compareSeries, describeSeries } from './lib/listings';
@@ -228,6 +230,48 @@ const BREADTH_MATCH: Record<BreadthKey, (row: SecurityWithQuote) => boolean> = {
 };
 
 /**
+ * A breadth figure that glides to its new value instead of jumping.
+ *
+ * The counts move in steps of hundreds as quote batches land, and a figure
+ * that teleports reads as a glitch; one that runs up says "still filling".
+ * The text is written straight to the node each frame — re-rendering App
+ * sixty times a second to animate six numbers would be the wrong trade. So
+ * React renders the span empty and never owns its text, which is what makes
+ * writing to it safe.
+ */
+function Count({ value }: { value: number }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const shown = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const from = shown.current;
+    const write = (n: number) => {
+      shown.current = n;
+      el.textContent = n.toLocaleString('en-IN');
+    };
+    // First paint and reduced motion land immediately.
+    if (from === null || from === value || reducedMotion()) {
+      write(value);
+      return;
+    }
+    const start = performance.now();
+    let frame = 0;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / 600);
+      write(Math.round(from + (value - from) * (1 - (1 - t) ** 3)));
+      if (t < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    // A new value mid-run starts from wherever the last one had got to.
+    return () => cancelAnimationFrame(frame);
+  }, [value]);
+
+  return <span ref={ref} />;
+}
+
+/**
  * `user` is null when sign-in is switched off (no Supabase project) — the app
  * runs exactly as before in that case, minus the header's account controls.
  * See src/main.tsx, which is where the gate itself lives.
@@ -325,6 +369,22 @@ export default function App({
    * watchlist you cannot read the signal off is a list of names.
    */
   const [view, setView] = useState<'screener' | 'watchlist'>('screener');
+  /**
+   * Switching section is the one place a whole page changes under the pointer,
+   * so it goes through a view transition: the outgoing page fades as the new
+   * one settles into place (`::view-transition-*(page)` in index.css). Where
+   * the API is missing, or motion is reduced, it is a plain state change.
+   * `flushSync` because the browser snapshots the new page when the callback
+   * returns, and React would otherwise not have rendered it yet.
+   */
+  const switchView = (next: typeof view) => {
+    if (next === view) return;
+    if (!document.startViewTransition || reducedMotion()) {
+      setView(next);
+      return;
+    }
+    document.startViewTransition(() => flushSync(() => setView(next)));
+  };
   const watchlistView = view === 'watchlist';
   /**
    * What the Watchlists section is showing: every list analysed, or one listed.
@@ -950,12 +1010,15 @@ export default function App({
               tabIndex={view === id ? 0 : -1}
               data-active={view === id}
               aria-selected={view === id}
-              onClick={() => setView(id)}
+              onClick={() => switchView(id)}
               title={hint}
             >
               {label}
               {id === 'watchlist' && active.symbols.length > 0 && (
-                <span className="viewnav-count num">{active.symbols.length}</span>
+                // Keyed so starring a symbol bumps the count, not just edits it.
+                <span key={active.symbols.length} className="viewnav-count num">
+                  {active.symbols.length}
+                </span>
               )}
             </button>
           ))}
@@ -1024,7 +1087,7 @@ export default function App({
           per list, and has no table for these to filter. */}
       {!reportView && (
       <section className="summary" aria-label="Market breadth">
-        {BREADTH_TILES.map((tile) => {
+        {BREADTH_TILES.map((tile, i) => {
           const value = breadth[tile.key];
           const sub = tile.signal
             ? breadth.read === 0
@@ -1038,12 +1101,16 @@ export default function App({
               key={tile.key}
               type="button"
               className={`stat${breadthFilter === tile.key ? ' active' : ''}`}
+              // Its place in the entrance stagger — see `.stat` in index.css.
+              style={{ '--i': i } as React.CSSProperties}
               aria-pressed={breadthFilter === tile.key}
               title={`${tile.title}. Click to show only these.`}
               onClick={() => setBreadthFilter((f) => (f === tile.key ? null : tile.key))}
             >
               <div className="stat-label">{tile.label}</div>
-              <div className={`stat-value num ${tile.tone}`}>{value.toLocaleString('en-IN')}</div>
+              <div className={`stat-value num ${tile.tone}`}>
+                <Count value={value} />
+              </div>
               <div className="stat-sub">{sub}</div>
             </button>
           );

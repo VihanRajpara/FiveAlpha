@@ -41,6 +41,7 @@ import {
   type Signal,
 } from '../lib/signals';
 import type { Classification, SecurityWithQuote } from '../types';
+import { EASE_OUT, reducedMotion } from '../lib/motion';
 
 /**
  * Three layouts, none of which scrolls sideways — a wall of thirteen columns
@@ -568,6 +569,15 @@ export function StockTable({
     }
     if (virtualise) scrollRef.current?.scrollTo({ top: 0 });
     else scrollRef.current?.scrollIntoView({ block: 'start' });
+    // A new page or a new order replaces every row in one frame, which reads
+    // as a flicker; a short settle says "these are different rows". The body
+    // only — the header is the same header.
+    if (!reducedMotion()) {
+      scrollRef.current?.querySelector('.tbody')?.animate(
+        [{ opacity: 0.35, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }],
+        { duration: 200, easing: EASE_OUT },
+      );
+    }
   }, [sorting, pagination.pageIndex, virtualise]);
 
   // A new filter usually means a shorter list; staying on page 12 of what is
@@ -881,7 +891,7 @@ export function StockTable({
    * through the header and the body. The heading alone was doing all the work
    * of saying "these belong together", from a long way above the numbers.
    */
-  const visibleSignalIds = ['sigSide', 'sigAt', 'sigGap'].filter(isVisible);
+  const visibleSignalIds = ['sigSide', 'sigAt', 'sigGap', 'mapo'].filter(isVisible);
   const groupEdge = (id: string) => {
     const edges = [];
     if (id === visibleSignalIds[0]) edges.push('group-start');
@@ -1055,7 +1065,9 @@ export function StockTable({
             aria-label={activeSort?.desc ? 'Sort ascending' : 'Sort descending'}
             title={activeSort?.desc ? 'Descending — tap for ascending' : 'Ascending — tap for descending'}
           >
-            {activeSort?.desc ? '↓' : '↑'}
+            <span className="dir-arrow" data-dir={activeSort?.desc ? 'desc' : 'asc'} aria-hidden>
+              ↑
+            </span>
           </button>
         </div>
       )}
@@ -1088,9 +1100,11 @@ export function StockTable({
                 // the column itself takes both rows instead.
                 if (header.isPlaceholder) return null;
 
+                // `getLeafHeaders` lists the group header itself after its
+                // leaves, which spanned the band one track too far.
                 const leaves = header
                   .getLeafHeaders()
-                  .filter((leaf) => isVisible(leaf.column.id));
+                  .filter((leaf) => leaf.subHeaders.length === 0 && isVisible(leaf.column.id));
                 const start = leaves.length > 0 ? leafIndex.get(leaves[0].column.id) : undefined;
                 // Every leaf hidden at this layout — the heading has nothing
                 // left to sit over.
@@ -1159,7 +1173,10 @@ export function StockTable({
                     }
                   >
                     {flexRender(header.column.columnDef.header, header.getContext())}
-                    {sorted && <span className="caret">{sorted === 'asc' ? '▲' : '▼'}</span>}
+                    {/* One glyph, turned for descending — so flipping the order reads as
+                        the arrow rotating rather than as one character swapped
+                        for another. */}
+                    {sorted && <span className="caret" data-dir={sorted}>▲</span>}
                   </div>
                 );
               }),
