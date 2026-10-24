@@ -909,6 +909,16 @@ export default function App({
   // Keep the drawer showing live prices as refreshes land.
   const selectedRow = selected ? joined.find((r) => r.symbol === selected.symbol) ?? selected : null;
 
+  const reloadLabel = refreshingQuotes
+    ? sourceKind === 'supabase'
+      ? 'Reloading…'
+      : 'Refreshing…'
+    : tightBar
+      ? 'Reload'
+      : sourceKind === 'supabase'
+        ? 'Reload from DB'
+        : 'Refresh prices';
+
   const pct = (n: number) =>
     breadth.priced === 0 ? '—' : `${Math.round((n / breadth.priced) * 100)}% of priced`;
 
@@ -969,25 +979,22 @@ export default function App({
         {/* Named for what it actually does. In Supabase mode this re-reads the
             quotes table — it does not fetch from Yahoo, so it cannot make
             prices newer than whatever last wrote to the table. */}
+        {/* On a small phone the label goes and the arrows stay, which is
+            what buys the count line beside the logo its full width; the
+            words move to `aria-label` so the name is the same either way. */}
         <button
-          className="btn"
+          className="btn reload"
           onClick={refreshQuotes}
           disabled={refreshingQuotes || loading}
+          aria-label={reloadLabel}
           title={
             sourceKind === 'supabase'
               ? 'Re-reads the quotes table. New prices only arrive when sync-quotes or npm run seed:quotes writes them.'
               : 'Fetches current prices from Yahoo Finance (~15 min delayed).'
           }
         >
-          {refreshingQuotes
-            ? sourceKind === 'supabase'
-              ? 'Reloading…'
-              : 'Refreshing…'
-            : tightBar
-              ? 'Reload'
-              : sourceKind === 'supabase'
-                ? 'Reload from DB'
-                : 'Refresh prices'}
+          <Icon name="refresh" size={16} weight={2} className={refreshingQuotes ? 'reload-icon spin' : 'reload-icon'} />
+          <span className="reload-label">{reloadLabel}</span>
         </button>
 
         {/* Rightmost, where an account control is looked for. Absent entirely
@@ -998,8 +1005,17 @@ export default function App({
             <span className="whoami" title={`Signed in as ${user.username}`}>
               {user.username}
             </span>
-            <button className="btn ghost" onClick={onSignOut} title="Sign out">
-              Sign out
+            {/* Icon-only where the header is tight (a phone, a tablet, the
+                docked drawer's half-width) — the label hides, the name stays
+                in the accessible name and the tooltip. */}
+            <button
+              className="btn ghost signout"
+              onClick={onSignOut}
+              title={`Sign out ${user.username}`}
+              aria-label={`Sign out ${user.username}`}
+            >
+              <Icon name="logOut" size={18} />
+              <span className="signout-label">Sign out</span>
             </button>
           </>
         )}

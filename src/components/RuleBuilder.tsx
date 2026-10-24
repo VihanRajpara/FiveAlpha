@@ -137,7 +137,8 @@ export function RuleBuilder({ rules, onChange }: Props) {
         className="btn ghost rule-add"
         onClick={() => onChange([...rules, newRule(RULE_FIELDS[0].key)])}
       >
-        + Add condition
+        <Icon name="plus" size={16} weight={2} />
+        Add condition
       </button>
     </div>
   );

@@ -57,13 +57,20 @@
   --elev-3: 0 24px 48px -16px var(--shadow-deep), 0 2px 6px var(--shadow-tint);
 
   /* ---- radius ------------------------------------------------------------
-     Small and precise: a ledger is ruled, not rounded. 999px is for things
-     that are genuinely round (dots, meters). */
-  --r-xs: 2px;
-  --r-sm: 4px;
-  --r-md: 6px;
-  --r-lg: 8px;
-  --r-xl: 12px;
+     One scale, nested by rule: an inner corner is the outer one minus the gap
+     between them, so a control inside a track or a row inside a menu follows
+     its container's curve instead of cutting across it.
+       xs  badges, ticks         sm  options inside a track (md − 2px)
+       md  buttons, fields, chips, tracks, menu rows (lg − 4px padding)
+       lg  cards, panels, menus, the breadth band
+       xl  sheets, dialogs, the drawer as a sheet
+     Themes may retune the scale (Charting is tighter, Catppuccin and Rosé
+     Pine softer, Terminal square); nothing else sets a radius literal. */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
   --r-full: 999px;
 
   /* ---- type --------------------------------------------------------------
@@ -839,6 +846,11 @@ body {
   margin-left: auto;
 }
 
+.rule-add {
+  gap: var(--sp-2);
+}
+
+
 /**
  * A condition, read from the bar it is cutting.
  *
@@ -1277,12 +1289,15 @@ body {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   /* The rules between cells are the band's own background showing through a
-  1px gap — they meet cleanly at every wrap, which per-cell borders do not. */
+  1px gap — they meet cleanly at every wrap, which per-cell borders do not.
+  Rounded and clipped like the table card below it, so the page has one
+  shape of container rather than a ruled strip above a card. */
   gap: 1px;
   margin: var(--sp-3) var(--gutter) 0;
   background: var(--outline-faint);
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--outline);
+  border: 1px solid var(--outline);
+  border-radius: var(--r-lg);
+  overflow: hidden;
 }
 
 /* Under about 150px a tile truncates its own label, so six stop fitting here. */
@@ -1326,7 +1341,7 @@ body {
   gap: 2px;
   min-width: 0;
   padding: var(--sp-3) var(--sp-4);
-  background: var(--canvas);
+  background: var(--surface);
   border: 0;
   border-radius: 0;
   transition: background var(--dur-fast) var(--ease-out);
@@ -1529,8 +1544,9 @@ body {
   flex-wrap: wrap;
   gap: 1px;
   background: var(--outline-faint);
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--outline);
+  border: 1px solid var(--outline);
+  border-radius: var(--r-lg);
+  overflow: hidden;
 }
 
 /* Borrows `.stat` for the type scale and nothing else: these state a figure,
@@ -1545,7 +1561,7 @@ body {
 /* They state a figure and filter nothing, so they do not answer the pointer. */
 .stat.mis-tile:hover,
 .stat.mis-tile:active {
-  background: var(--canvas);
+  background: var(--surface);
 }
 
 
@@ -2574,7 +2590,7 @@ body {
   gap: var(--sp-2);
   height: 36px;
   padding: 0 var(--sp-3);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
   font-size: var(--fs-base);
   color: var(--on-surface);
   cursor: pointer;
@@ -3246,6 +3262,7 @@ body {
  * normally — the two never contend for the same pixels.
  */
 .drawer-head {
+  position: relative;
   flex: none;
   display: flex;
   align-items: flex-start;
@@ -3285,23 +3302,25 @@ body {
  * the number the panel was opened for. This is the large-title-to-inline-title
  * collapse, and it is why the header is worth keeping fixed at all.
  *
- * `visibility` rather than `display` so the box keeps its width and the actions
- * beside it do not jump sideways as it arrives.
+ * Pinned to the header's bottom-right, level with the badge row, rather than a
+ * flex column beside the title: hidden, it used to hold its width anyway and
+ * squeeze the company name onto two lines on every phone. Absolute, it costs
+ * the title nothing and moves nothing when it arrives.
  */
 .drawer-live {
+  position: absolute;
+  right: var(--sp-5);
+  bottom: var(--sp-4);
   display: flex;
   align-items: baseline;
   gap: var(--sp-2);
-  flex: none;
-  align-self: center;
-  margin-left: auto;
   font-size: var(--fs-md);
   font-weight: 600;
   visibility: hidden;
   opacity: 0;
   transform: translateY(4px);
   transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out),
-    visibility var(--dur);
+  visibility var(--dur);
 }
 
 .drawer-live[data-shown] {
@@ -7243,5 +7262,196 @@ a.screen-count {
   .theme-reset {
     min-height: var(--ctl-lg);
     margin-block: -14px;
+  }
+}
+
+/* ---------- responsive repairs ----------
+   Each of these was found by running the app at that size, not by reading the
+   stylesheet; the size it broke at is in the comment. */
+
+/* The header's account controls, where the header is short of room: under
+   1100px (the search, the theme, the refresh button, the name and Sign out
+   stopped fitting on one line at about 920px) and beside the docked drawer
+   (at 1440px it pushed Sign out onto a second line). The name moves into
+   Sign out's tooltip and accessible name; Sign out becomes a square icon. */
+.signout {
+  gap: var(--sp-2);
+}
+
+@media (max-width: 1100px) {
+  .whoami {
+    display: none;
+  }
+
+  .signout {
+    aspect-ratio: 1;
+    padding: 0;
+  }
+
+  .signout-label {
+    display: none;
+  }
+}
+
+.app[data-docked] .whoami,
+.app[data-docked] .signout-label {
+  display: none;
+}
+
+.app[data-docked] .signout {
+  aspect-ratio: 1;
+  padding: 0;
+}
+
+.app[data-docked] .search {
+  min-width: 180px;
+}
+
+/* The pager on a small phone: at 360px it broke onto two rows and, sticky
+   above the tab bar, took a sixth of the screen. One row — tighter arrows and
+   a smaller range — still with 44px-tall targets. */
+@media (max-width: 420px) {
+  .pagebar {
+    flex-wrap: nowrap;
+    gap: var(--sp-2);
+  }
+
+  .pagebar-group {
+    gap: 2px;
+  }
+
+  .pagebar .page-btn {
+    width: 40px;
+  }
+
+  .pagebar-range {
+    font-size: var(--fs-xs);
+  }
+}
+
+/* Under 370px (a 360px Android) even 40 does not fit the row; 36 wide, still
+   44 tall, still well past the 24px WCAG 2.2 floor. */
+@media (max-width: 370px) {
+  .pagebar .page-btn {
+    width: 36px;
+  }
+}
+
+/* The drawer's pinned price, inset to match the phone header's padding. */
+@media (max-width: 700px) {
+  .drawer-live {
+    right: var(--sp-4);
+    bottom: var(--sp-3);
+  }
+}
+
+/* Full-screen chart on a short screen (a phone held sideways, 390px tall):
+   the title, readout, key, sentence and controls left the candles a strip. The
+   explanation goes, the chrome tightens, and the notch's insets are honoured. */
+@media (max-height: 520px) {
+  .chart-full[data-full] {
+    gap: var(--sp-1);
+    padding: 0 max(var(--sp-3), env(safe-area-inset-right))
+      max(var(--sp-1), env(safe-area-inset-bottom)) max(var(--sp-3), env(safe-area-inset-left));
+  }
+
+  .chart-full-head {
+    padding: var(--sp-1) 0;
+  }
+
+  .chart-full-head h2,
+  .chart-full-px > .num {
+    font-size: var(--fs-lg);
+  }
+
+  .chart-full-head p,
+  .chart-full[data-full] .chart-legend,
+  .chart-full[data-full] .chart-plain {
+    display: none;
+  }
+
+  .chart-full[data-full] .chart-box {
+    padding: var(--sp-1) 2px 2px var(--sp-2);
+  }
+
+  .chart-full[data-full] .chart-read {
+    margin-bottom: 0;
+    padding-bottom: 2px;
+    font-size: var(--fs-xs);
+  }
+
+  .chart-full[data-full] .range-row {
+    gap: var(--sp-1) var(--sp-2);
+    padding: var(--sp-1) var(--sp-2);
+  }
+
+  .chart-full[data-full] .segmented button,
+  .chart-full[data-full] .study {
+    height: 32px;
+  }
+}
+
+/* Tablet portrait: at 768px the Company column's 260px floor pushed the day's
+   change — the column people scan for — half off the card, clipped mid-chip.
+   Company gives way first (it ellipsises, with the full name in its title). */
+@media (max-width: 1023px) {
+  .table-wrap[data-layout='desktop'] .grid-row {
+    grid-template-columns:
+      var(--col-idx-w) minmax(210px, 0.85fr) minmax(150px, 2.4fr) minmax(112px, 0.78fr)
+      minmax(132px, 0.78fr) minmax(184px, 1fr) minmax(112px, 0.74fr)
+      minmax(100px, 0.68fr) minmax(88px, 0.6fr) minmax(88px, 0.62fr)
+      minmax(96px, 0.66fr) minmax(112px, 0.78fr);
+  }
+}
+
+/* The watchlist tabs scroll sideways once there are several, and with the
+   scrollbar hidden the last one was cut mid-glyph with no hint there was more.
+   The same edge fade the filter row uses. */
+@supports (animation-timeline: scroll()) {
+  .wl-tabs {
+    mask-image: linear-gradient(to right,
+        transparent, #000 var(--fade-l),
+        #000 calc(100% - var(--fade-r)), transparent);
+    animation: filters-edge-fade linear both;
+    animation-timeline: scroll(self inline);
+  }
+}
+
+/* Touch: "All" in the screen bar was 39px wide, and on a tablet the section
+   tabs kept their 36px desktop height under a finger. */
+@media (pointer: coarse) {
+  .segmented button {
+    min-width: var(--ctl-lg);
+  }
+
+  .viewnav.segmented button {
+    height: var(--ctl-lg);
+  }
+}
+
+/* A focus ring inside a track sits inside the option: drawn outside, it ran
+   over the track's own edge and was clipped by the filter row's scroller. */
+.segmented button:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Reload: the words where there is room, the arrows where there is not. Under
+   480px the words were what truncated the count line to "3,195 compani…". */
+.reload-icon {
+  display: none;
+}
+
+@media (max-width: 480px) {
+  .reload {
+    aspect-ratio: 1;
+    padding: 0;
+  }
+
+  .reload-icon {
+    display: block;
+  }
+
+  .reload-label {
+    display: none;
   }
 }

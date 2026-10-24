@@ -609,7 +609,12 @@ export function CandleChart({
         1,
       );
 
-      api.panes()[1]?.setHeight(96);
+      // A share, not a fixed height: 96px of the 400px panel was right, but
+      // 96px of a phone held sideways in full screen left the candles a strip.
+      // Price keeps three quarters of the plot at every size.
+      const [pricePane, oscPane] = api.panes();
+      pricePane?.setStretchFactor(3);
+      oscPane?.setStretchFactor(1);
     }
     histRef.current = hist;
 

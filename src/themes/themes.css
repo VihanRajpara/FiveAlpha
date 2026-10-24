@@ -143,10 +143,11 @@
   --shadow-tint: rgba(19, 23, 34, 0.06);
   --shadow-deep: rgba(19, 23, 34, 0.16);
   --scrim: rgba(19, 23, 34, 0.3);
+  --r-xs: 2px;
   --r-sm: 3px;
-  --r-md: 4px;
-  --r-lg: 6px;
-  --r-xl: 8px;
+  --r-md: 5px;
+  --r-lg: 8px;
+  --r-xl: 10px;
 }
 
 /* ---- Rosé Pine Dawn — warm parchment, iris accent. -------------------- */
@@ -180,10 +181,11 @@
   --shadow-tint: rgba(70, 66, 97, 0.07);
   --shadow-deep: rgba(70, 66, 97, 0.18);
   --scrim: rgba(70, 66, 97, 0.3);
-  --r-sm: 6px;
-  --r-md: 8px;
-  --r-lg: 10px;
-  --r-xl: 14px;
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
 }
 
 /* ---- Catppuccin Latte — soft pastel, mauve. --------------------------- */
@@ -217,10 +219,11 @@
   --shadow-tint: rgba(76, 79, 105, 0.08);
   --shadow-deep: rgba(76, 79, 105, 0.2);
   --scrim: rgba(76, 79, 105, 0.3);
-  --r-sm: 6px;
-  --r-md: 8px;
-  --r-lg: 10px;
-  --r-xl: 14px;
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
 }
 
 /* ---- Geist Dark — Vercel. Pure black, white buttons, blue accent. -------- */
@@ -320,10 +323,11 @@
   --shadow-tint: rgba(0, 0, 0, 0.4);
   --shadow-deep: rgba(0, 0, 0, 0.65);
   --scrim: rgba(10, 12, 18, 0.6);
+  --r-xs: 2px;
   --r-sm: 3px;
-  --r-md: 4px;
-  --r-lg: 6px;
-  --r-xl: 8px;
+  --r-md: 5px;
+  --r-lg: 8px;
+  --r-xl: 10px;
 }
 
 /* ---- Primer Dimmed — GitHub's low-glare dark. Soft slate, blue. --------- */
@@ -390,10 +394,11 @@
   --shadow-tint: rgba(17, 17, 27, 0.5);
   --shadow-deep: rgba(17, 17, 27, 0.75);
   --scrim: rgba(17, 17, 27, 0.6);
-  --r-sm: 6px;
-  --r-md: 8px;
-  --r-lg: 10px;
-  --r-xl: 14px;
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
 }
 
 /* ---- Tokyo Night — deep indigo, neon pastels. ------------------------- */
